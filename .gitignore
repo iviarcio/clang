@@ -33,3 +33,14 @@ tools/extra
 # Sphinx build products
 docs/_build
 docs/analyzer/_build
+
+# ---------------------
+# Introduced by Marcio
+# ---------------------
+docs/
+examples/
+Debug+Asserts/
+unittests/
+*.inc
+include/clang/Config/config.h
+runtime/compiler-rt/
