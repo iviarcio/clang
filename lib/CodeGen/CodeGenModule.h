@@ -83,6 +83,7 @@ class CGDebugInfo;
 class CGObjCRuntime;
 class CGOpenCLRuntime;
 class CGOpenMPRuntime;
+class CGMPtoGPURuntime;
 class CGCUDARuntime;
 class BlockFieldFlags;
 class FunctionArgList;
@@ -294,6 +295,7 @@ class CodeGenModule : public CodeGenTypeCache {
   CGObjCRuntime* ObjCRuntime;
   CGOpenCLRuntime* OpenCLRuntime;
   CGOpenMPRuntime* OpenMPRuntime;
+  CGMPtoGPURuntime* MPtoGPURuntime;
   CGCUDARuntime* CUDARuntime;
   CGDebugInfo* DebugInfo;
   ARCEntrypoints *ARCData;
@@ -464,6 +466,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   void createOpenCLRuntime();
   void createOpenMPRuntime();
+  void createMPtoGPURuntime();
   void createCUDARuntime();
 
   bool isTriviallyRecursive(const FunctionDecl *F);
@@ -529,6 +532,12 @@ public:
     return *OpenMPRuntime;
   }
 
+  /// Return a reference to the configured MPtoGPU runtime.
+  CGMPtoGPURuntime &getMPtoGPURuntime() {
+    assert(MPtoGPURuntime != nullptr);
+    return *MPtoGPURuntime;
+  }
+  
   /// Return a reference to the configured CUDA runtime.
   CGCUDARuntime &getCUDARuntime() {
     assert(CUDARuntime != nullptr);

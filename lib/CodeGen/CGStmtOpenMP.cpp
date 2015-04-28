@@ -16,6 +16,7 @@
 #include "CGOpenCLRuntime.h"
 #include "CGOpenMPRuntimeTypes.h"
 #include "CGOpenMPRuntime.h"
+#include "CGMPtoGPURuntime.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
@@ -5219,11 +5220,25 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
+  // Are we generating code for GPU (via OpenCL/SPIR)?
+  if (CGM.getLangOpts().MPtoGPU) {
+    llvm::errs() << "visited pragma omp target\n";
+
+    // Get or create value with the deviceID (default is zero)
+    llvm::Value *clid = (CGM.OpenMPSupport.getOffloadingDevice())
+      ? CGM.OpenMPSupport.getOffloadingDevice()
+      : (llvm::Value*)Builder.getInt32(0);
+    
+    //EmitRuntimeCall(CGM.getMPtoGPURuntime().Set_default_device, makeArrayRef(clid) ); //fix-me
+    EmitStmt(CS->getCapturedStmt());
+    return;
+  }
+
   // Are we generating code for a target?
   bool isTargetMode = CGM.getLangOpts().OpenMPTargetMode;
 
   assert( !(isTargetMode && CGM.getLangOpts().OMPTargetTriples.empty())
-      && "Are we in target mode and no targets were specified??" );
+	  && "Are we in target mode and no targets were specified??" );
 
   // If there are no devices specified we ignore the target directive and just
   // produce regular host code
@@ -5238,15 +5253,15 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
   // Create the target function
   IdentifierInfo *Id = &getContext().Idents.get(
-      CGM.getOpenMPRuntime().GetOffloadEntryMangledName(
-          (isTargetMode) ? CGM.getTarget().getTriple() : llvm::Triple()));
+		       CGM.getOpenMPRuntime().GetOffloadEntryMangledName(
+		       (isTargetMode) ? CGM.getTarget().getTriple() : llvm::Triple()));
 
   SmallVector<QualType, 4> FnArgTypes;
   FunctionArgList FnArgs;
 
   // Get function type
   for (RecordDecl::field_iterator fb = RD->field_begin(), fe = RD->field_end();
-      fb != fe; ++fb) {
+       fb != fe; ++fb) {
 
     QualType QTy = (*fb)->getType();
     if (QTy->isVariablyModifiedType()) {
@@ -5259,23 +5274,23 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
   FunctionProtoType::ExtProtoInfo EPI;
   EPI.ExceptionSpecType = EST_BasicNoexcept;
   QualType FnTy = getContext().getFunctionType(getContext().VoidTy, FnArgTypes,
-      EPI);
+					       EPI);
 
   // Create function declaration
   TypeSourceInfo *TI = getContext().getTrivialTypeSourceInfo(FnTy,
-      SourceLocation());
+							     SourceLocation());
   FunctionDecl *FD = FunctionDecl::Create(getContext(),
-      getContext().getTranslationUnitDecl(), CS->getLocStart(),
-      SourceLocation(), Id, FnTy, TI, SC_Static, false, false, false);
+					  getContext().getTranslationUnitDecl(), CS->getLocStart(),
+					  SourceLocation(), Id, FnTy, TI, SC_Static, false, false, false);
 
   // Create function arguments
   for (RecordDecl::field_iterator fb = RD->field_begin(), fe = RD->field_end();
-      fb != fe; ++fb) {
+       fb != fe; ++fb) {
     QualType QTy = (*fb)->getType();
     TypeSourceInfo *TI = getContext().getTrivialTypeSourceInfo(QTy,
-        SourceLocation());
+							       SourceLocation());
     ParmVarDecl *Arg = ParmVarDecl::Create(getContext(), FD, SourceLocation(),
-        SourceLocation(), 0, QTy, TI, SC_Auto, 0);
+					   SourceLocation(), 0, QTy, TI, SC_Auto, 0);
     FnArgs.push_back(Arg);
   }
 
@@ -5283,7 +5298,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
   const CGFunctionInfo &FI = getTypes().arrangeFunctionDeclaration(FD);
   // The linkage here is going to be overwritten when the attributes are set
   llvm::Function *Fn = llvm::Function::Create(getTypes().GetFunctionType(FI),
-      llvm::GlobalValue::PrivateLinkage, FD->getName(), &CGM.getModule());
+					      llvm::GlobalValue::PrivateLinkage,
+					      FD->getName(), &CGM.getModule());
 
   // PostProcess the function definition for the target and set the function
   // attributes based on the enclosing function
@@ -5309,13 +5325,13 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     if ( !CGM.getOpenMPRuntime().getFunctionRegisterTarget(CurFn) ){
 
       llvm::Constant *TgtDesc =
-          CGM.getOpenMPRuntime().GetTargetRegionsDescriptor();
+	CGM.getOpenMPRuntime().GetTargetRegionsDescriptor();
 
       SmallVector<llvm::Value*,1> Args; Args.push_back(TgtDesc);
 
       // Create tgt_register
       llvm::CallInst::Create(OPENMPRTL_FUNC(register_lib),Args, "",
-          CurFn->begin()->begin());
+			     CurFn->begin()->begin());
 
       // Register this function in the runtime as containing a target
       // registration call
@@ -5325,14 +5341,14 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     // Codegen target clauses init
     // For now, only device and map clause is implemented
     for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
-        S.clauses().end(); I != E; ++I)
+	   S.clauses().end(); I != E; ++I)
       if (*I && isAllowedClauseForDirective(S.getDirectiveKind(), (*I)->getClauseKind()))
-        EmitInitOMPClause(*(*I), S);
+	EmitInitOMPClause(*(*I), S);
 
     // Get or create value with the deviceID (default is zero)
     llvm::Value *DeviceID = (CGM.OpenMPSupport.getOffloadingDevice())
-        ? CGM.OpenMPSupport.getOffloadingDevice()
-        : (llvm::Value*)Builder.getInt32(0);
+      ? CGM.OpenMPSupport.getOffloadingDevice()
+      : (llvm::Value*)Builder.getInt32(0);
 
     // Create data begin with the results of the map clause
 
@@ -5341,8 +5357,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     ArrayRef<unsigned> MapClauseTypeValues;
 
     CGM.OpenMPSupport.getMapData(MapClausePointerValues,
-        MapClauseSizeValues,
-        MapClauseTypeValues);
+				 MapClauseSizeValues,
+				 MapClauseTypeValues);
     // Allocate arrays in the stack or internal constants to keep the map data
     // information
     // - Pointers (addresses)
@@ -5350,45 +5366,45 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     // - Types (to, from, to/from)
 
     assert( MapClausePointerValues.size() == MapClauseSizeValues.size()
-        && MapClausePointerValues.size() == MapClauseTypeValues.size()
-        && "Map data arrays size mismatch!");
+	    && MapClausePointerValues.size() == MapClauseTypeValues.size()
+	    && "Map data arrays size mismatch!");
 
     llvm::Value *MapClausePointers = 0;
     llvm::Value *MapClauseSizes = 0;
     llvm::Value *MapClauseTypes = 0;
     llvm::Value *MapClauseNumElems =
-        Builder.getInt32(MapClausePointerValues.size());
+      Builder.getInt32(MapClausePointerValues.size());
 
     // If we have pointers, lets create an array in the stack
     if( !MapClausePointerValues.empty() ){
       MapClausePointers = Builder.CreateAlloca(CGM.VoidPtrTy,
-          MapClauseNumElems,".mapped_ptrs");
+					       MapClauseNumElems,".mapped_ptrs");
       MapClauseSizes = Builder.CreateAlloca(CGM.Int32Ty,
-          MapClauseNumElems,".mapped_sizes");
+					    MapClauseNumElems,".mapped_sizes");
 
       llvm::Constant *MapClauseTypesInit = llvm::ConstantDataArray::get(
-          Builder.getContext(),
-          MapClauseTypeValues);
+									Builder.getContext(),
+									MapClauseTypeValues);
       llvm::GlobalVariable *MapClauseTypesTmp = new llvm::GlobalVariable(
-          CGM.getModule(),
-          MapClauseTypesInit->getType(),
-          true, llvm::GlobalValue::PrivateLinkage,
-          MapClauseTypesInit, ".mapped_types");
+									 CGM.getModule(),
+									 MapClauseTypesInit->getType(),
+									 true, llvm::GlobalValue::PrivateLinkage,
+									 MapClauseTypesInit, ".mapped_types");
 
       MapClauseTypes =
-          Builder.CreateConstInBoundsGEP2_32(MapClauseTypesTmp,0,0);
+	Builder.CreateConstInBoundsGEP2_32(MapClauseTypesTmp,0,0);
 
       for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
 
-        llvm::Value *P = Builder.CreateConstInBoundsGEP1_32(MapClausePointers,i);
-        llvm::Value *S = Builder.CreateConstInBoundsGEP1_32(MapClauseSizes,i);
+	llvm::Value *P = Builder.CreateConstInBoundsGEP1_32(MapClausePointers,i);
+	llvm::Value *S = Builder.CreateConstInBoundsGEP1_32(MapClauseSizes,i);
 
-        Builder.CreateStore(MapClausePointerValues[i],P);
-        Builder.CreateStore(MapClauseSizeValues[i],S);
+	Builder.CreateStore(MapClausePointerValues[i],P);
+	Builder.CreateStore(MapClauseSizeValues[i],S);
       }
 
       llvm::Value *Args[] = {DeviceID, MapClauseNumElems, MapClausePointers,
-                                    MapClauseSizes, MapClauseTypes};
+			     MapClauseSizes, MapClauseTypes};
       EmitRuntimeCall(OPENMPRTL_FUNC(target_data_begin), Args);
     }
 
@@ -5407,7 +5423,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       llvm::SmallVector<unsigned, 8> RealArgTypeValues;
 
       RealArgPointers = Builder.CreateAlloca(CGM.VoidPtrTy,
-          RealArgNumElems, ".tgt_ptrs");
+					     RealArgNumElems, ".tgt_ptrs");
 
       // Add the variables captured in the target region to the map clause ones
 
@@ -5418,49 +5434,49 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       unsigned idx = 0;
 
       for (CapturedStmt::capture_init_iterator ci = CS->capture_init_begin(), ce =
-          CS->capture_init_end(); ci != ce; ++ci, ++fb, ++idx) {
+	     CS->capture_init_end(); ci != ce; ++ci, ++fb, ++idx) {
 
-        QualType QTy = (*fb)->getType();
-        LValue LV = MakeNaturalAlignAddrLValue(CreateMemTemp(QTy, ".tgt_arg"),
-            QTy);
-        EmitInitializerForField(*fb, LV, *ci, ArrayRef<VarDecl *>());
+	QualType QTy = (*fb)->getType();
+	LValue LV = MakeNaturalAlignAddrLValue(CreateMemTemp(QTy, ".tgt_arg"),
+					       QTy);
+	EmitInitializerForField(*fb, LV, *ci, ArrayRef<VarDecl *>());
 
-        llvm::Value *Arg = Builder.CreateLoad(LV.getAddress());
-        llvm::PointerType *ArgTy = cast<llvm::PointerType>(Arg->getType());
-        RealArgPointerValues.push_back(Arg);
+	llvm::Value *Arg = Builder.CreateLoad(LV.getAddress());
+	llvm::PointerType *ArgTy = cast<llvm::PointerType>(Arg->getType());
+	RealArgPointerValues.push_back(Arg);
 
-        llvm::Value *VP = Builder.CreateBitCast(Arg,CGM.VoidPtrTy);
-        unsigned VS =
-            CGM.getDataLayout().getTypeSizeInBits(ArgTy->getElementType()) / 8;
+	llvm::Value *VP = Builder.CreateBitCast(Arg,CGM.VoidPtrTy);
+	unsigned VS =
+	  CGM.getDataLayout().getTypeSizeInBits(ArgTy->getElementType()) / 8;
 
-        llvm::Value *P = Builder.CreateConstInBoundsGEP1_32(RealArgPointers,idx);
+	llvm::Value *P = Builder.CreateConstInBoundsGEP1_32(RealArgPointers,idx);
 
-        Builder.CreateStore(VP,P);
-        RealArgSizeValues.push_back(VS);
-        RealArgTypeValues.push_back(VT);
+	Builder.CreateStore(VP,P);
+	RealArgSizeValues.push_back(VS);
+	RealArgTypeValues.push_back(VT);
       }
 
       llvm::Constant *RealArgSizesInit = llvm::ConstantDataArray::get(
-          Builder.getContext(),
-          RealArgSizeValues);
+								      Builder.getContext(),
+								      RealArgSizeValues);
       llvm::Constant *RealArgTypesInit = llvm::ConstantDataArray::get(
-          Builder.getContext(),
-          RealArgTypeValues);
+								      Builder.getContext(),
+								      RealArgTypeValues);
       llvm::GlobalVariable *RealArgSizesTmp = new llvm::GlobalVariable(
-          CGM.getModule(),
-          RealArgSizesInit->getType(),
-          true, llvm::GlobalValue::PrivateLinkage,
-          RealArgSizesInit, ".tgt_sizes");
+								       CGM.getModule(),
+								       RealArgSizesInit->getType(),
+								       true, llvm::GlobalValue::PrivateLinkage,
+								       RealArgSizesInit, ".tgt_sizes");
       llvm::GlobalVariable *RealArgTypesTmp = new llvm::GlobalVariable(
-          CGM.getModule(),
-          RealArgTypesInit->getType(),
-          true, llvm::GlobalValue::PrivateLinkage,
-          RealArgTypesInit, ".tgt_types");
+								       CGM.getModule(),
+								       RealArgTypesInit->getType(),
+								       true, llvm::GlobalValue::PrivateLinkage,
+								       RealArgTypesInit, ".tgt_types");
 
       RealArgSizes =
-          Builder.CreateConstInBoundsGEP2_32(RealArgSizesTmp,0,0);
+	Builder.CreateConstInBoundsGEP2_32(RealArgSizesTmp,0,0);
       RealArgTypes =
-          Builder.CreateConstInBoundsGEP2_32(RealArgTypesTmp,0,0);
+	Builder.CreateConstInBoundsGEP2_32(RealArgTypesTmp,0,0);
 
     } else {
       RealArgPointers = llvm::Constant::getNullValue(CGM.VoidPtrPtrTy);
@@ -5482,12 +5498,12 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
     // Create call to host if offloading failed
     llvm::Value *OffloadSuccess = Builder.CreateICmpEQ(Offload,
-        Builder.getInt32(0));
+						       Builder.getInt32(0));
 
     llvm::BasicBlock *OffloadFailedBB = this->createBasicBlock("offload_fail",
-        this->CurFn);
+							       this->CurFn);
     llvm::BasicBlock *AfterOffloadBB = this->createBasicBlock("after_offload",
-        this->CurFn);
+							      this->CurFn);
 
     Builder.CreateCondBr(OffloadSuccess, AfterOffloadBB, OffloadFailedBB);
     Builder.SetInsertPoint(OffloadFailedBB);
@@ -5498,7 +5514,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     // Emit data_end if required
     if (MapClausePointers){
       llvm::Value *Args[] = {DeviceID, MapClauseNumElems, MapClausePointers,
-                                  MapClauseSizes, MapClauseTypes};
+			     MapClauseSizes, MapClauseTypes};
       EmitRuntimeCall(OPENMPRTL_FUNC(target_data_end), Args);
     }
   }

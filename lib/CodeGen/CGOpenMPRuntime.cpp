@@ -1,4 +1,4 @@
-//===----- CGOpenMPRuntime.h - Interface to OpenMP Runtimes ---------*- C++ -*-===//
+//===--- CGOpenMPRuntime.cpp - Interface to OpenMP Runtimes -----*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

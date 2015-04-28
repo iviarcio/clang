@@ -19,6 +19,7 @@
 #include "CGObjCRuntime.h"
 #include "CGOpenCLRuntime.h"
 #include "CGOpenMPRuntime.h"
+#include "CGMPtoGPURuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenPGO.h"
 #include "CodeGenTBAA.h"
@@ -81,7 +82,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
       ABI(createCXXABI(*this)), VMContext(M.getContext()), TBAA(nullptr),
       TheTargetCodeGenInfo(nullptr), Types(*this), VTables(*this),
       ObjCRuntime(nullptr), OpenCLRuntime(nullptr), OpenMPRuntime(nullptr),
-      CUDARuntime(nullptr), DebugInfo(nullptr), ARCData(nullptr),
+      MPtoGPURuntime(nullptr), CUDARuntime(nullptr), DebugInfo(nullptr), ARCData(nullptr),
       NoObjCARCExceptionsMetadata(nullptr), RRData(nullptr), PGOReader(nullptr),
       CFConstantStringClassRef(nullptr), ConstantStringClassRef(nullptr),
       NSConstantStringType(nullptr), NSConcreteGlobalBlock(nullptr),
@@ -119,6 +120,8 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
     createCUDARuntime();
   if (LangOpts.OpenMP)
     createOpenMPRuntime();
+  if (LangOpts.MPtoGPU)
+    createMPtoGPURuntime();
 
   // Enable TBAA unless it's suppressed. ThreadSanitizer needs TBAA even at O0.
   if (LangOpts.Sanitize.Thread ||
@@ -153,6 +156,7 @@ CodeGenModule::~CodeGenModule() {
   delete ObjCRuntime;
   delete OpenCLRuntime;
   delete OpenMPRuntime;
+  delete MPtoGPURuntime;
   delete CUDARuntime;
   delete TheTargetCodeGenInfo;
   delete TBAA;
@@ -186,6 +190,10 @@ void CodeGenModule::createOpenCLRuntime() {
 
 void CodeGenModule::createOpenMPRuntime() {
   OpenMPRuntime = CreateOpenMPRuntime(*this);
+}
+
+void CodeGenModule::createMPtoGPURuntime() {
+  MPtoGPURuntime = CreateMPtoGPURuntime(*this);
 }
 
 void CodeGenModule::createCUDARuntime() {

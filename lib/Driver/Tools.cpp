@@ -5917,6 +5917,10 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-lomptarget");
   }
 
+  if (Args.hasArg(options::OPT_fmptogpu)){
+    CmdArgs.push_back("-lmptogpu");
+  }
+
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
       JA.getOffloadingDevice());
   
@@ -7660,6 +7664,11 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-liomp5");
         if (Args.hasArg(options::OPT_omptargets_EQ))
           CmdArgs.push_back("-lomptarget");
+      }
+      AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
+
+      if (Args.hasArg(options::OPT_fmptogpu)){
+	CmdArgs.push_back("-lmptogpu");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
