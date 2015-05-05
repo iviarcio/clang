@@ -5229,7 +5229,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       ? CGM.OpenMPSupport.getOffloadingDevice()
       : (llvm::Value*)Builder.getInt32(0);
     
-    //EmitRuntimeCall(CGM.getMPtoGPURuntime().Set_default_device, makeArrayRef(clid) ); //fix-me
+    EmitRuntimeCall(CGM.getMPtoGPURuntime().Set_default_device(), makeArrayRef(clid) );
     EmitStmt(CS->getCapturedStmt());
     return;
   }

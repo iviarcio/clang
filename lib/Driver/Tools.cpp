@@ -5918,7 +5918,9 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (Args.hasArg(options::OPT_fmptogpu)){
-    CmdArgs.push_back("-lmptogpu -framework OpenCL");
+    CmdArgs.push_back("-lmptogpu");
+    CmdArgs.push_back("-framework");
+    CmdArgs.push_back("OpenCL");
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
@@ -7668,7 +7670,9 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
       if (Args.hasArg(options::OPT_fmptogpu)){
-	CmdArgs.push_back("-lmptogpu -framework OpenCL");
+	CmdArgs.push_back("-lmptogpu");
+	CmdArgs.push_back("-framework");
+	CmdArgs.push_back("OpenCL");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
