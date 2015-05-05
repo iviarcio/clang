@@ -534,7 +534,7 @@ public:
 
   /// Return a reference to the configured MPtoGPU runtime.
   CGMPtoGPURuntime &getMPtoGPURuntime() {
-    assert(MPtoGPURuntime != nullptr);
+    //assert(MPtoGPURuntime != nullptr);
     return *MPtoGPURuntime;
   }
   

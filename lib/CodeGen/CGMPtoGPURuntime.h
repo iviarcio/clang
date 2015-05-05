@@ -74,12 +74,12 @@ public:
   /// \brief Returns specified OpenMP to GPU runtime function.
   /// \param Function MPtoGPU runtime function.
   /// \return Specified function.
-  llvm::Constant *CreateRuntimeFunction(MPtoGPURTLFunction Function);
+  llvm::Value *CreateRuntimeFunction(MPtoGPURTLFunction Function);
 
-  virtual llvm::Constant* CLdevice_init();
-  virtual llvm::Constant* Set_default_device();
-  virtual llvm::Constant* Get_num_devices();
-  virtual llvm::Constant* Get_default_device();
+  virtual llvm::Value* CLdevice_init();
+  virtual llvm::Value* Set_default_device();
+  virtual llvm::Value* Get_num_devices();
+  virtual llvm::Value* Get_default_device();
 
 };
   

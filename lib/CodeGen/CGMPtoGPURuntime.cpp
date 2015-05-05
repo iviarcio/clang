@@ -42,9 +42,9 @@ CGMPtoGPURuntime::CGMPtoGPURuntime(CodeGenModule &CGM) : CGM(CGM) {
   _status = 0;
 }
 
-llvm::Constant *
+llvm::Value *
 CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
-  llvm::Constant *RTLFn = nullptr;
+  llvm::Value *RTLFn = nullptr;
   switch (Function) {
   case MPtoGPURTL_set_default_device: {
     // Build void _set_default_device(cl_uint id);
@@ -78,28 +78,32 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
   return RTLFn;
 }
 
-llvm::Constant*
+llvm::Value*
 CGMPtoGPURuntime::CLdevice_init() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cldevice_init, false>::get(CGM.getLLVMContext())
 	 , "_cldevice_init");
 }
 
-llvm::Constant*
+llvm::Value*
 CGMPtoGPURuntime::Set_default_device() {
-  return CGM.CreateRuntimeFunction(
-	 llvm::TypeBuilder<_set_default_device, false>::get(CGM.getLLVMContext())
-	 , "_set_default_device");
+//  return CGM.CreateRuntimeFunction(
+//	 llvm::TypeBuilder<_set_default_device, false>::get(CGM.getLLVMContext())
+//	 , "_set_default_device");
+
+	llvm::FunctionType *FnTy =
+	      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, true);
+	    return CGM.CreateRuntimeFunction(FnTy, "_set_default_device");
 }
 
-llvm::Constant*
+llvm::Value*
 CGMPtoGPURuntime::Get_num_devices() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_get_num_devices, false>::get(CGM.getLLVMContext())
 	 , "_get_num_devices");
 }
 
-llvm::Constant*
+llvm::Value*
 CGMPtoGPURuntime::Get_default_device() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_get_default_device, false>::get(CGM.getLLVMContext())

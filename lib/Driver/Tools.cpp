@@ -2586,6 +2586,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
+	if (Args.hasArg(options::OPT_fmptogpu))
+	    CmdArgs.push_back("-fmptogpu");
+
     // inform the frontend we are generating code for a target
     if ( JA.getOffloadingDevice() )
       CmdArgs.push_back("-omp-target-mode");
@@ -5918,6 +5921,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (Args.hasArg(options::OPT_fmptogpu)){
+	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_fmptogpu) << "\n";
     CmdArgs.push_back("-lmptogpu");
   }
 
@@ -7667,7 +7671,8 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
-      if (Args.hasArg(options::OPT_fmptogpu)){
+	bool MPtoGPU = Args.hasArg(options::OPT_fmptogpu);
+      if (MPtoGPU){
 	CmdArgs.push_back("-lmptogpu");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);

@@ -1540,7 +1540,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   //      .Case("libiomp5", true)
   //      .Default(false);
   //}
+
+	llvm::errs() << "FLAG: " << Args.hasArg(OPT_fmptogpu) << "\n";
+
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
+	Opts.MPtoGPU = Args.hasArg(OPT_fmptogpu);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
 
   // Get the OpenMP target triples if any
@@ -1798,7 +1802,6 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args) {
   Opts.LinkerVersion = Args.getLastArgValue(OPT_target_linker_version);
   Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
 
-  // Use the default target triple if unspecified.
   if (Opts.Triple.empty())
     Opts.Triple = llvm::sys::getDefaultTargetTriple();
 }
