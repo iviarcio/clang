@@ -1541,6 +1541,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   //      .Default(false);
   //}
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
+  Opts.MPtoGPU = Args.hasArg(OPT_fmptogpu);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
 
   // Get the OpenMP target triples if any

@@ -2586,6 +2586,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
+  if (Args.hasArg(options::OPT_fmptogpu)){
+    CmdArgs.push_back("-fmptogpu");
+  }
+
     // inform the frontend we are generating code for a target
     if ( JA.getOffloadingDevice() )
       CmdArgs.push_back("-omp-target-mode");
