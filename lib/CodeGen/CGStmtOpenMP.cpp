@@ -5250,6 +5250,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	llvm::errs() << "3.5\n";
     EmitRuntimeCall(func, makeArrayRef(clid) ,"_set_default_device"); //fix-me
 	llvm::errs() << "4\n";
+    
     EmitStmt(CS->getCapturedStmt());
 	llvm::errs() << "5\n";
 

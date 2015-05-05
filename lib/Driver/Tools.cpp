@@ -5923,6 +5923,8 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_fmptogpu)){
 	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_fmptogpu) << "\n";
     CmdArgs.push_back("-lmptogpu");
+    CmdArgs.push_back("-framework");
+    CmdArgs.push_back("OpenCL");
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
@@ -7674,6 +7676,8 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 	bool MPtoGPU = Args.hasArg(options::OPT_fmptogpu);
       if (MPtoGPU){
 	CmdArgs.push_back("-lmptogpu");
+	CmdArgs.push_back("-framework");
+	CmdArgs.push_back("OpenCL");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
