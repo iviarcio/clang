@@ -12,7 +12,7 @@
 //   Copyleft (C) 2015 -- UNICAMP & Samsumg R&D
 
 #include <stdio.h>
-#include <clang/Teste/cldevice.h>
+#include "cldevice.h"
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -30,47 +30,56 @@ cl_uint           _npairs;
 cl_uint           _clid;
 cl_int            _status;
 
+//
+// Initialize cldevice library
+//
 void _cldevice_init () {
 
   cl_uint nplatforms;
   cl_uint i;
 
-  //Fetch the main Platform (the first one)
-  _status = clGetPlatformIDs(1, &_platform, &nplatforms);
-  if (_status != CL_SUCCESS || nplatforms <= 0) {
-    perror("Failed to find any OpenCL platform");
-    exit(1);
-  }
+  if (_device == NULL) {
+    //Fetch the main Platform (the first one)
+    _status = clGetPlatformIDs(1, &_platform, &nplatforms);
+    if (_status != CL_SUCCESS || nplatforms <= 0) {
+      perror("Failed to find any OpenCL platform");
+      exit(1);
+    }
 
-  //Fetch the device list for this platform
-  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_npairs);
-  if (_status != CL_SUCCESS) {
-    perror("Failed to find any OpenCL device");
-    exit(1);
+    //Fetch the device list for this platform
+    _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_npairs);
+    if (_status != CL_SUCCESS) {
+      perror("Failed to find any OpenCL device");
+      exit(1);
+    }
+  
+    _device = (cl_device_id *) malloc(sizeof(cl_device_id)*_npairs);
+    _context = (cl_context *) malloc(sizeof(cl_context)*_npairs);
+    _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue)*_npairs);
+  
+    for (i = 0; i < _npairs; i++) {
+      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL,
+			       _npairs, &_device[i], NULL);
+      //Create one OpenCL context for each device in the platform
+      _context[i] = clCreateContext( NULL, _npairs, &_device[i], NULL, NULL, &_status);
+      if (_status != CL_SUCCESS) {
+	perror("Failed to create an OpenCL GPU or CPU context.");
+	exit(1);
+      }
+      //Create a command queue for each context to communicate with the device
+      _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
+      if (_status != CL_SUCCESS) {
+	perror("Failed to create commandQueue for devices");
+	exit(1);
+      }
+    }
   }
-  
-  _device = (cl_device_id *) malloc(sizeof(cl_device_id)*_npairs);
-  _context = (cl_context *) malloc(sizeof(cl_context)*_npairs);
-  _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue)*_npairs);
-  
-  for (i = 0; i < _npairs; i++) {
-    _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL,
-			     _npairs, &_device[i], NULL);
-    //Create one OpenCL context for each device in the platform
-    _context[i] = clCreateContext( NULL, _npairs, &_device[i], NULL, NULL, &_status);
-    if (_status != CL_SUCCESS) {
-      perror("Failed to create an OpenCL GPU or CPU context.");
-      exit(1);
-    }
-    //Create a command queue for each context to communicate with the device
-    _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
-    if (_status != CL_SUCCESS) {
-      perror("Failed to create commandQueue for devices");
-      exit(1);
-    }
-  }    
+  _clid = 0; // default device
 }
 
+//
+// Cleanup cldevice
+//
 void _cldevice_finish() {
 
   cl_uint i;
@@ -142,7 +151,7 @@ cl_program _create_fromSource(cl_context context,
     return program;
 }
 
-///
+//
 //  Attempt to create the program object from a cached binary.
 //
 cl_program _create_fromBinary(cl_context context,
@@ -246,9 +255,8 @@ bool _save_toBinary(cl_program program,
       return false;
     }
 
-	cl_uint i;
     unsigned char **programBinaries = malloc(sizeof(unsigned char)*numDevices);
-    for (i = 0; i < numDevices; i++) {
+    for (cl_uint i = 0; i < numDevices; i++) {
       programBinaries[i] = malloc(sizeof(unsigned char)*programBinarySizes[i]);
     }
 
@@ -260,7 +268,7 @@ bool _save_toBinary(cl_program program,
       perror("Error querying for program binaries");
       free(devices);
       free(programBinarySizes);
-      for (i = 0; i < numDevices; i++) {
+      for (cl_uint i = 0; i < numDevices; i++) {
 	free(programBinaries[i]);
       }
       free(programBinaries);
@@ -269,7 +277,7 @@ bool _save_toBinary(cl_program program,
 
     // 5 - Finally store the binaries for the device requested
     // out to disk for future reading.
-    for (i = 0; i < numDevices; i++) {
+    for (cl_uint i = 0; i < numDevices; i++) {
         // Store the binary just for the device requested.
         if (devices[i] == device) {
 	  FILE *fp = fopen(fileName, "wb");
@@ -282,10 +290,31 @@ bool _save_toBinary(cl_program program,
     // Cleanup
     free(devices);
     free(programBinarySizes);
-    for (i = 0; i < numDevices; i++) {
+    for (cl_uint i = 0; i < numDevices; i++) {
       free(programBinaries[i]);
     }
     free(programBinaries);
     return true;
+}
+
+//
+// Return the number of devices of the Main Plataform
+//
+cl_uint _get_num_devices () {
+  return _npairs;
+}
+
+//
+// Returns the default device id
+//
+cl_uint _get_default_device () {
+    return _clid;
+}
+
+//
+// Set the default device id
+//
+void _set_default_device (cl_uint id) {
+  _clid = id;
 }
 
