@@ -255,8 +255,9 @@ bool _save_toBinary(cl_program program,
       return false;
     }
 
+    cl_uint i;
     unsigned char **programBinaries = malloc(sizeof(unsigned char)*numDevices);
-    for (cl_uint i = 0; i < numDevices; i++) {
+    for (i = 0; i < numDevices; i++) {
       programBinaries[i] = malloc(sizeof(unsigned char)*programBinarySizes[i]);
     }
 
@@ -268,7 +269,7 @@ bool _save_toBinary(cl_program program,
       perror("Error querying for program binaries");
       free(devices);
       free(programBinarySizes);
-      for (cl_uint i = 0; i < numDevices; i++) {
+      for (i = 0; i < numDevices; i++) {
 	free(programBinaries[i]);
       }
       free(programBinaries);
@@ -277,7 +278,7 @@ bool _save_toBinary(cl_program program,
 
     // 5 - Finally store the binaries for the device requested
     // out to disk for future reading.
-    for (cl_uint i = 0; i < numDevices; i++) {
+    for (i = 0; i < numDevices; i++) {
         // Store the binary just for the device requested.
         if (devices[i] == device) {
 	  FILE *fp = fopen(fileName, "wb");
@@ -290,7 +291,7 @@ bool _save_toBinary(cl_program program,
     // Cleanup
     free(devices);
     free(programBinarySizes);
-    for (cl_uint i = 0; i < numDevices; i++) {
+    for (i = 0; i < numDevices; i++) {
       free(programBinaries[i]);
     }
     free(programBinaries);
