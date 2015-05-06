@@ -87,13 +87,13 @@ CGMPtoGPURuntime::CLdevice_init() {
 
 llvm::Value*
 CGMPtoGPURuntime::Set_default_device() {
-//  return CGM.CreateRuntimeFunction(
-//	 llvm::TypeBuilder<_set_default_device, false>::get(CGM.getLLVMContext())
-//	 , "_set_default_device");
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_set_default_device, false>::get(CGM.getLLVMContext())
+	 , "_set_default_device");
 
-	llvm::FunctionType *FnTy =
-	      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, true);
-	    return CGM.CreateRuntimeFunction(FnTy, "_set_default_device");
+//	llvm::FunctionType *FnTy =
+//	      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, false);
+//	    return CGM.CreateRuntimeFunction(FnTy, "_set_default_device");
 }
 
 llvm::Value*

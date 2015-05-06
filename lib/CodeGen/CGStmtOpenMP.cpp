@@ -2724,9 +2724,7 @@ CodeGenFunction::EmitInitOMPDeviceClause(const OMPDeviceClause &C,
   llvm::Value *DeviceID =
       Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
 
-	llvm::errs() << "SET OFFLOADING DEVICE!\n";
   CGM.OpenMPSupport.setOffloadingDevice(DeviceID);
-	llvm::errs() << "DEVICE SET!\n";
 }
 
 void
@@ -5247,8 +5245,10 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	llvm::errs() << "3\n";
 	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
  
-	llvm::errs() << "3.5\n";
-    EmitRuntimeCall(func, makeArrayRef(clid) ,"_set_default_device"); //fix-me
+	llvm::errs() << "3.5\n" << *func << "\n" << **(makeArrayRef(clid).begin()) << "\n";
+
+	
+   EmitRuntimeCall(func, makeArrayRef(clid)); //fix-me
 	llvm::errs() << "4\n";
     
     EmitStmt(CS->getCapturedStmt());
