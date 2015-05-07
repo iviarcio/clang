@@ -68,9 +68,9 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cldevice_init: {
-    // Build void _cldevice_init();
+    // Build void _cldevice_init(cl_uint id);
     llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.VoidTy, CGM.VoidTy, false);
+      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, true);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cldevice_init");
     break;
   }
@@ -79,7 +79,7 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
 }
 
 llvm::Value*
-CGMPtoGPURuntime::CLdevice_init() {
+CGMPtoGPURuntime::cldevice_init() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cldevice_init, false>::get(CGM.getLLVMContext())
 	 , "_cldevice_init");

@@ -33,7 +33,7 @@ cl_int            _status;
 //
 // Initialize cldevice library
 //
-void _cldevice_init () {
+void _cldevice_init (cl_uint id) {
 
   cl_uint nplatforms;
   cl_uint i;
@@ -74,7 +74,7 @@ void _cldevice_init () {
       }
     }
   }
-  _clid = 0; // default device
+  _clid = id; // default device
 }
 
 //

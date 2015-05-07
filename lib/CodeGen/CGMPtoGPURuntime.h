@@ -76,7 +76,7 @@ public:
   /// \return Specified function.
   llvm::Value *CreateRuntimeFunction(MPtoGPURTLFunction Function);
 
-  virtual llvm::Value* CLdevice_init();
+  virtual llvm::Value* cldevice_init();
   virtual llvm::Value* Set_default_device();
   virtual llvm::Value* Get_num_devices();
   virtual llvm::Value* Get_default_device();

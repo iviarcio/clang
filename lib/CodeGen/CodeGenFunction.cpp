@@ -16,6 +16,7 @@
 #include "CGCXXABI.h"
 #include "CGDebugInfo.h"
 #include "CGOpenMPRuntime.h"
+#include "CGMPtoGPURuntime.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
 #include "TargetInfo.h"
@@ -695,6 +696,18 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   // Emit a location at the end of the prologue.
   if (CGDebugInfo *DI = getDebugInfo())
     DI->EmitLocation(Builder, StartLoc);
+
+  // If MPtoGPU then Emit runtime call for cl_device_init () in main function 
+  if (getLangOpts().MPtoGPU) {
+    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
+      if (FD->isMain()) {
+	llvm::Value* func = CGM.getMPtoGPURuntime().cldevice_init(); 
+	llvm::Value* VoidArg[] = {(llvm::Value*)Builder.getInt32(0)};
+	//EmitRuntimeCall(func, VoidArg); //fix-me
+	llvm::errs() << ">>> Emit _cl_device_init(0)\n";
+      }
+  }
+
 }
 
 void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
