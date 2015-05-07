@@ -2586,8 +2586,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-  if (Args.hasArg(options::OPT_fmptogpu)){
-    CmdArgs.push_back("-fmptogpu");
+  if (Args.hasArg(options::OPT_mptogpu)){
+    CmdArgs.push_back("-mptogpu");
   }
 
     // inform the frontend we are generating code for a target
@@ -5921,11 +5921,12 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-lomptarget");
   }
 
-  if (Args.hasArg(options::OPT_fmptogpu)){
-	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_fmptogpu) << "\n";
+  if (Args.hasArg(options::OPT_mptogpu)){
+	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_mptogpu) << "\n";
     CmdArgs.push_back("-lmptogpu");
-    CmdArgs.push_back("-framework");
-    CmdArgs.push_back("OpenCL");
+	CmdArgs.push_back("-lOpenCL");
+//    CmdArgs.push_back("-framework");
+  //  CmdArgs.push_back("OpenCL");
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
@@ -7674,11 +7675,12 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
-	bool MPtoGPU = Args.hasArg(options::OPT_fmptogpu);
+	bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
       if (MPtoGPU){
 	CmdArgs.push_back("-lmptogpu");
-	CmdArgs.push_back("-framework");
-	CmdArgs.push_back("OpenCL");
+	CmdArgs.push_back("-lOpenCL");
+//	CmdArgs.push_back("-framework");
+//	CmdArgs.push_back("OpenCL");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 

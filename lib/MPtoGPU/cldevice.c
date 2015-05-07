@@ -316,6 +316,7 @@ cl_uint _get_default_device () {
 // Set the default device id
 //
 void _set_default_device (cl_uint id) {
+	printf("DEVICE SET: %d\n", id);
   _clid = id;
 }
 
