@@ -36,7 +36,7 @@ extern cl_uint           _npairs;
 extern cl_uint           _clid;
 extern cl_int            _status;
   
-void _cldevice_init (cl_uint id);
+void _cldevice_init ();
 
 void _cldevice_finish ();
 

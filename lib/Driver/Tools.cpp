@@ -5924,9 +5924,9 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_mptogpu)){
 	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_mptogpu) << "\n";
     CmdArgs.push_back("-lmptogpu");
-	CmdArgs.push_back("-lOpenCL");
-//    CmdArgs.push_back("-framework");
-  //  CmdArgs.push_back("OpenCL");
+    //CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+    CmdArgs.push_back("-framework");
+    CmdArgs.push_back("OpenCL");
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,

@@ -70,7 +70,7 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
   case MPtoGPURTL_cldevice_init: {
     // Build void _cldevice_init(cl_uint id);
     llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, true);
+      llvm::FunctionType::get(CGM.VoidTy, CGM.VoidTy, true);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cldevice_init");
     break;
   }

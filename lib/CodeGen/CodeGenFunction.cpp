@@ -697,16 +697,6 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   if (CGDebugInfo *DI = getDebugInfo())
     DI->EmitLocation(Builder, StartLoc);
 
-  // If MPtoGPU then Emit runtime call for cl_device_init () in main function 
-  if (getLangOpts().MPtoGPU) {
-    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
-      if (FD->isMain()) {
-	llvm::Value* func = CGM.getMPtoGPURuntime().cldevice_init(); 
-	llvm::Value* VoidArg[] = {(llvm::Value*)Builder.getInt32(0)};
-	//EmitRuntimeCall(func, VoidArg); //fix-me
-	llvm::errs() << ">>> Emit _cl_device_init(0)\n";
-      }
-  }
 
 }
 
@@ -714,6 +704,17 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
                                        const Stmt *Body) {
   RegionCounter Cnt = getPGORegionCounter(Body);
   Cnt.beginRegion(Builder);
+
+  // If MPtoGPU then Emit runtime call for cl_device_init () in main function 
+  if (getLangOpts().MPtoGPU) {
+    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
+      if (FD->isMain()) {
+	llvm::Value* func = CGM.getMPtoGPURuntime().cldevice_init(); 
+	EmitRuntimeCall(func);
+	llvm::errs() << ">>> Emit _cl_device_init(0)\n";
+      }
+  }
+
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);
   else
