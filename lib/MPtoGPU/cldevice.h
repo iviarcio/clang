@@ -29,6 +29,9 @@
 extern cl_device_id     *_device;
 extern cl_context       *_context;
 extern cl_command_queue *_cmd_queue;
+extern cl_mem           *_locs;
+extern int               _upperid;
+extern int               _curid;
 extern cl_platform_id    _platform;
 extern cl_program        _program;
 extern cl_kernel         _kernel;
@@ -58,6 +61,16 @@ cl_uint _get_default_device ();
 
 void _set_default_device (cl_uint id);
 
+int _cl_create_write_only (long size);
+
+int _cl_create_and_write (long size, void* loc);
+
+bool _cl_read_buffer (long size, int id, void* loc);
+
+bool _cl_create_kernel (char* str);
+
+bool _cl_set_kernel_args (int size, int* id);
+    
 #ifdef __cplusplus
   }
 #endif

@@ -23,6 +23,9 @@
 cl_device_id     *_device    = NULL;
 cl_context       *_context   = NULL;
 cl_command_queue *_cmd_queue = NULL;
+cl_mem           *_locs      = NULL;
+int               _upperid;
+int               _curid;
 cl_platform_id    _platform;
 cl_program        _program;
 cl_kernel         _kernel;
@@ -74,7 +77,10 @@ void _cldevice_init () {
       }
     }
   }
-  _clid = 0; // default device
+  _clid = 0;      // default device
+  _upperid = 10;  // initial num of memory locations
+  _curid = -1;    // points to invalid location
+  _locs = (cl_mem *) malloc(sizeof(cl_mem)*_upperid);
 }
 
 //
@@ -255,8 +261,9 @@ bool _save_toBinary(cl_program program,
       return false;
     }
 
-    cl_uint i;
     unsigned char **programBinaries = malloc(sizeof(unsigned char)*numDevices);
+
+    cl_uint i;
     for (i = 0; i < numDevices; i++) {
       programBinaries[i] = malloc(sizeof(unsigned char)*programBinarySizes[i]);
     }
@@ -309,14 +316,94 @@ cl_uint _get_num_devices () {
 // Returns the default device id
 //
 cl_uint _get_default_device () {
-    return _clid;
+  return _clid;
 }
 
 //
 // Set the default device id
 //
 void _set_default_device (cl_uint id) {
-	printf("DEVICE SET: %d\n", id);
   _clid = id;
 }
 
+//
+// Create a write-only memory buffer on the selected device of a given size
+//
+int _cl_create_write_only (long size) {
+  _curid++;
+  if (_curid == _upperid) {
+    // increment by 10 the number of memory locations
+    // todo
+  }
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
+				 size, NULL, &_status);
+  if (_status != CL_SUCCESS) {
+    perror("Failed to create a Write only buffer for the selected device");
+    _curid--;
+    return -1;
+  }
+  return _curid;
+}
+
+//
+// Create a read-only memory buffer and Copy the memory loc to the buffer
+//
+int _cl_create_and_write (long size, void* loc) {
+  _curid++;
+  if (_curid == _upperid) {
+    // increment by 10 the number of memory locations
+    // todo
+  }
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
+				 size, NULL, &_status);
+  _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
+  				 0, size, loc, 0, NULL, NULL);
+  if (_status != CL_SUCCESS) {
+    perror("Failed to write the location to device buffer");
+    _curid--;
+    return -1;
+  }
+  return _curid;
+}
+
+//
+// Read the cl_memory given by index on selected device to the host variable
+//
+bool _cl_read_buffer (long size, int id, void* loc) {
+
+  _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
+             CL_TRUE, 0, size, loc, 0, NULL, NULL);
+  if (_status != CL_SUCCESS) {
+    perror("Failed to read the buffer from device");
+    return false;
+  }
+  return true;
+}
+
+//
+// Create OpenCL kernel. Return true, if success
+//
+bool _cl_create_kernel (char* str) {
+  _kernel = clCreateKernel(_program, str, NULL);
+  if (_kernel == NULL) {
+    perror("Failed to create kernel on the selected device.");
+    return false;
+  }
+  return true;
+}
+
+//
+// Set the kernel arguments
+//
+bool _cl_set_kernel_args (int size, int* id) {
+  _status = CL_SUCCESS;
+  int i;
+  for (i = 0; i<size; i++) {
+    _status |= clSetKernelArg (_kernel, i, sizeof(cl_mem), &_locs[id[i]]);
+  }
+  if (_status != CL_SUCCESS) {
+    perror("Error setting kernel arguments on selected device.");
+    return false;
+  }
+  return true;
+}
