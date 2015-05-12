@@ -18,8 +18,6 @@
   extern "C" {
 #endif
   
-#include <stdbool.h>
-
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -51,7 +49,7 @@ cl_program _create_fromBinary(cl_context context,
 			      cl_device_id device,
 			      const char* fileName);
 
-bool _save_toBinary(cl_program program,
+int _save_toBinary(cl_program program,
 		    cl_device_id device,
 		    const char* fileName);
 
@@ -63,13 +61,23 @@ void _set_default_device (cl_uint id);
 
 int _cl_create_write_only (long size);
 
-int _cl_create_and_write (long size, void* loc);
+int _cl_create_read_only (long size, void* loc);
 
-bool _cl_read_buffer (long size, int id, void* loc);
+int _cl_create_read_write (long size, void* loc);
 
-bool _cl_create_kernel (char* str);
+int _cl_read_buffer (long size, int id, void* loc);
 
-bool _cl_set_kernel_args (int size, int* id);
+int _cl_write_buffer (long size, int id, void* loc);
+
+int _cl_create_program (char* str);
+
+int _cl_create_kernel (char* str);
+
+int _cl_set_kernel_args (int size);
+
+int _cl_execute_kernel ();
+
+void _cl_release_buffers (int upper);    
     
 #ifdef __cplusplus
   }

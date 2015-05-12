@@ -42,6 +42,17 @@ namespace {
   typedef int32_t(_get_num_devices)();
   typedef int32_t(_get_default_device)();
   typedef void(_cldevice_init)();
+  typedef void(_cldevice_finish)();
+  typedef int32_t(_cl_create_write_only)(int64_t size);
+  typedef int32_t(_cl_create_read_only)(int64_t size, void* loc);
+  typedef int32_t(_cl_create_read_write)(int64_t size, void* loc);
+  typedef int32_t(_cl_read_buffer)(int64_t size, int32_t id, void* loc);
+  typedef int32_t(_cl_write_buffer)(int64_t size, int32_t id, void* loc);
+  typedef int32_t(_cl_create_program)(char* str);
+  typedef int32_t(_cl_create_kernel)(char* str);
+  typedef int32_t(_cl_set_kernel_args)(int32_t size);
+  typedef int32_t(_cl_execute_kernel)();
+  typedef void(_cl_release_buffers)(int32_t upper);
 }
 
 namespace clang {
@@ -56,16 +67,22 @@ class CGMPtoGPURuntime {
 protected:
   CodeGenModule &CGM;
   
-  int32_t _npairs;
-  int32_t _clid;
-  int32_t _status;
-
 public:
   enum MPtoGPURTLFunction {
     MPtoGPURTL_set_default_device,
     MPtoGPURTL_get_num_devices,
     MPtoGPURTL_get_default_device,
-    MPtoGPURTL_cldevice_init
+    MPtoGPURTL_cldevice_init,
+    MPtoGPURTL_cl_create_write_only,
+    MPtoGPURTL_cl_create_read_only,
+    MPtoGPURTL_cl_create_read_write,
+    MPtoGPURTL_cl_read_buffer,
+    MPtoGPURTL_cl_write_buffer,
+    MPtoGPURTL_cl_create_program,
+    MPtoGPURTL_cl_create_kernel,
+    MPtoGPURTL_cl_set_kernel_args,
+    MPtoGPURTL_cl_execute_kernel,
+    MPtoGPURTL_cl_release_buffers
   };
   
   explicit CGMPtoGPURuntime(CodeGenModule &CGM);
@@ -80,7 +97,16 @@ public:
   virtual llvm::Value* Set_default_device();
   virtual llvm::Value* Get_num_devices();
   virtual llvm::Value* Get_default_device();
-
+  virtual llvm::Value* cl_create_write_only();
+  virtual llvm::Value* cl_create_read_only();
+  virtual llvm::Value* cl_create_read_write();
+  virtual llvm::Value* cl_read_buffer();
+  virtual llvm::Value* cl_write_buffer();
+  virtual llvm::Value* cl_create_program();
+  virtual llvm::Value* cl_create_kernel();
+  virtual llvm::Value* cl_set_kernel_args();
+  virtual llvm::Value* cl_execute_kernel();
+  virtual llvm::Value* cl_release_buffers();  
 };
   
 /// \brief Returns an implementation of the OpenMP to GPU RTL for a given target
