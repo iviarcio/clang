@@ -5215,46 +5215,87 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
                             OMPD_distribute_parallel_for_simd, S);
 }
 
+
+//
 // Generate the instructions for '#pragma omp target' directive.
+//
+
+// Aux function to MPtoGPU
+void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
+					 const OMPExecutableDirective &) {
+
+  ArrayRef<const Expr*> RangeBegin = C.getCopyingStartAddresses();
+  ArrayRef<const Expr*> RangeEnd = C.getCopyingSizesEndAddresses();
+
+  for (unsigned i=0; i<RangeBegin.size(); ++i) {
+    llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
+    llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
+
+    // Subtract the two pointers to obtain the size or
+    // use the value directly if it is a constant
+    llvm::Value *Size = RE;
+
+    if (!isa<llvm::ConstantInt>(RE)) {
+      llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
+      llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
+      llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
+      Size = Builder.CreateSub(REI,RBI);
+    }
+
+    llvm::Value *VP = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
+    llvm::Value *VS = Builder.CreateIntCast(Size,CGM.Int32Ty, false);
+    llvm::Value *Args[] = {VS, VP};
+    llvm::Value *SO[] = {VS};
+
+    switch(C.getKind()){
+    default:
+      llvm_unreachable("Unknown map clause type!");
+      break;
+    case OMPC_MAP_unknown:
+    case OMPC_MAP_tofrom:
+      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
+      llvm::errs() << ">>> Emit cl_create_read_write\n";
+      break;
+    case OMPC_MAP_to:
+      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
+      llvm::errs() << ">>> Emit cl_create_read_only\n";
+      break;
+    case OMPC_MAP_from:
+      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SO);
+      llvm::errs() << ">>> Emit cl_create_write_only\n";
+      break;
+    case OMPC_MAP_alloc:
+      llvm_unreachable("alloc map clause not implemented yet!");
+      break;
+    }
+  }
+}
+
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
   if (CGM.getLangOpts().MPtoGPU) {
-    llvm::errs() << "1--\n";
-
-	CGM.OpenMPSupport.startOpenMPRegion(true);
-
-	for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E = S.clauses().end(); I != E; ++I)
-	       	EmitInitOMPClause(*(*I), S);
-
-	llvm::errs() << "1.5\n";
-
-	llvm::Value * temp = CGM.OpenMPSupport.getOffloadingDevice();
-
-	llvm::errs() << "2\n";
-
-    // Get or create value with the deviceID (default is zero)
-    llvm::Value *clid = temp
-      ? temp
-      : (llvm::Value*)Builder.getInt32(0);
-
-//	llvm::Value *clid = (llvm::Value*)Builder.getInt32(0);
-  
-	llvm::errs() << "3\n";
+    CGM.OpenMPSupport.startOpenMPRegion(true);
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_device) {
+	RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
 	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
- 
-	llvm::errs() << "3.5\n" << *func << "\n" << **(makeArrayRef(clid).begin()) << "\n";
-
-	
-   EmitRuntimeCall(func, makeArrayRef(clid)); //fix-me
-	llvm::errs() << "4\n";
-    
+	EmitRuntimeCall(func, makeArrayRef(clid));
+	llvm::errs() << ">>> Emit _set_default_device( clid )\n";
+      }
+      if (ckind == OMPC_map) {
+	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
+	llvm::errs() << ">>> Emit _set_default_device( clid )\n";
+      }
+    }
     EmitStmt(CS->getCapturedStmt());
-	llvm::errs() << "5\n";
-
-	CGM.OpenMPSupport.endOpenMPRegion();
+    CGM.OpenMPSupport.endOpenMPRegion();
     return;
   }
 

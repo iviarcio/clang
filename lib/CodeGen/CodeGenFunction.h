@@ -2189,6 +2189,8 @@ public:
                             const OMPExecutableDirective &S);
   void EmitInitOMPMapClause(const OMPMapClause &C,
                             const OMPExecutableDirective &S);
+  void EmitMapClausetoGPU(const OMPMapClause &C,
+			  const OMPExecutableDirective &S);
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);
   void EmitFinalOMPIfClause(const OMPIfClause &C,
