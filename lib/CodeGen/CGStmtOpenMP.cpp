@@ -5242,10 +5242,18 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
       Size = Builder.CreateSub(REI,RBI);
     }
 
-    llvm::Value *VP = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
-    llvm::Value *VS = Builder.CreateIntCast(Size,CGM.Int32Ty, false);
-    llvm::Value *Args[] = {VS, VP};
-    llvm::Value *SO[] = {VS};
+    llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
+    llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
+    llvm::Value *Args[] = {VSize, VLoc};
+    llvm::Value *SizeOnly[] = {VSize};
+
+    llvm::errs() << ">>> (VLoc) ";
+    VLoc->print(llvm::errs());
+    llvm::errs() << "; (VSize) ";
+    VSize->print(llvm::errs());
+    llvm::errs() << "\n";
+
+    llvm::Value *Status = nullptr;
 
     switch(C.getKind()){
     default:
@@ -5253,15 +5261,15 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
-      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
       llvm::errs() << ">>> Emit cl_create_read_write\n";
       break;
     case OMPC_MAP_to:
-      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
       llvm::errs() << ">>> Emit cl_create_read_only\n";
       break;
     case OMPC_MAP_from:
-      EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SO);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
       llvm::errs() << ">>> Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
@@ -5291,7 +5299,6 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       }
       if (ckind == OMPC_map) {
 	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
-	llvm::errs() << ">>> Emit _set_default_device( clid )\n";
       }
     }
     EmitStmt(CS->getCapturedStmt());
