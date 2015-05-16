@@ -5220,7 +5220,7 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
 // Generate the instructions for '#pragma omp target' directive.
 //
 
-// Aux function to MPtoGPU
+// Auxiliar function to MPtoGPU
 void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
 					 const OMPExecutableDirective &) {
 
@@ -5246,9 +5246,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
     llvm::Value *Args[] = {VSize, VLoc};
     llvm::Value *SizeOnly[] = {VSize};
-
-    //TODO: save the position (VLoc, i) to MPtoGPURegion
-
+ 
     llvm::errs() << ">>> (VLoc) ";
     VLoc->print(llvm::errs());
     llvm::errs() << "; (VSize) ";
@@ -5256,7 +5254,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     llvm::errs() << "\n";
 
     llvm::Value *Status = nullptr;
-
+    int VType;
     switch(C.getKind()){
     default:
       llvm_unreachable("Unknown map clause type!");
@@ -5264,20 +5262,29 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
+      VType = OMP_TGT_MAPTYPE_TOFROM;
       llvm::errs() << ">>> Emit cl_create_read_write\n";
       break;
     case OMPC_MAP_to:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
+      VType = OMP_TGT_MAPTYPE_TO;
       llvm::errs() << ">>> Emit cl_create_read_only\n";
       break;
     case OMPC_MAP_from:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
+      VType =  OMP_TGT_MAPTYPE_FROM;
       llvm::errs() << ">>> Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
+      VType = OMP_TGT_MAPTYPE_ALLOC;
       llvm_unreachable("alloc map clause not implemented yet!");
       break;
     }
+    
+    //Save the position of location in the map clause
+    //This define the index of target buffer    
+    CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
+    
   }
 }
 
@@ -5303,7 +5310,38 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
       }
     }
+    
     EmitStmt(CS->getCapturedStmt());
+
+    ArrayRef<llvm::Value*> MapClausePointerValues;
+    ArrayRef<llvm::Value*> MapClauseSizeValues;
+    ArrayRef<unsigned> MapClauseTypeValues;
+    ArrayRef<unsigned> MapClausePositionValues;
+
+    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+				MapClauseSizeValues,
+				MapClauseTypeValues,
+				MapClausePositionValues);
+
+    llvm::Value *Status = nullptr;
+    for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
+      if (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
+	  MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM) {
+	llvm::Value *Args[] = {MapClauseSizeValues[i],
+			       (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+			       MapClausePointerValues[i]};
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
+
+	llvm::errs() << ">>> (VLoc) ";
+	MapClausePointerValues[i]->print(llvm::errs());
+	llvm::errs() << "; (VSize) ";
+	MapClauseSizeValues[i]->print(llvm::errs());
+	llvm::errs() << "\n";
+	llvm::errs() << ">>> Emit _set_read_buffer\n";
+	
+      }
+    }
+    
     CGM.OpenMPSupport.endOpenMPRegion();
     return;
   }

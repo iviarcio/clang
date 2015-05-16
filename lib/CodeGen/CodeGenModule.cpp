@@ -3851,11 +3851,34 @@ void CodeGenModule::OpenMPSupportStackTy::getMapData(ArrayRef<llvm::Value*> &Map
   MapSizes = OpenMPStack.back().MapSizes;
   MapTypes = OpenMPStack.back().MapTypes;
 }
+
 void CodeGenModule::OpenMPSupportStackTy::addMapData(llvm::Value *MapPointer, llvm::Value *MapSize, unsigned MapType){
   OpenMPStack.back().MapPointers.push_back(MapPointer);
   OpenMPStack.back().MapSizes.push_back(MapSize);
   OpenMPStack.back().MapTypes.push_back(MapType);
 }
+
+void CodeGenModule::OpenMPSupportStackTy::getMapPos(ArrayRef<llvm::Value*> &MapPointers,
+						    ArrayRef<llvm::Value*> &MapSizes,
+						    ArrayRef<unsigned> &MapTypes,
+						    ArrayRef<unsigned> &MapPositions){
+  MapPointers = OpenMPStack.back().MapPointers;
+  MapSizes = OpenMPStack.back().MapSizes;
+  MapTypes = OpenMPStack.back().MapTypes;
+  MapPositions = OpenMPStack.back().MapPositions;
+}
+
+void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
+						    llvm::Value *MapSize,
+						    unsigned MapType,
+						    unsigned MapPosition){
+  OpenMPStack.back().MapPointers.push_back(MapPointer);
+  OpenMPStack.back().MapSizes.push_back(MapSize);
+  OpenMPStack.back().MapTypes.push_back(MapType);
+  OpenMPStack.back().MapPositions.push_back(MapPosition);
+}
+
+
 void CodeGenModule::OpenMPSupportStackTy::setOffloadingDevice(llvm::Value *device){
   OpenMPStack.back().OffloadingDevice = device;
 }

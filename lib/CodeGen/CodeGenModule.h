@@ -1197,6 +1197,7 @@ public:
       llvm::SmallVector<llvm::Value*,16> MapPointers;
       llvm::SmallVector<llvm::Value*,16> MapSizes;
       llvm::SmallVector<unsigned,16> MapTypes;
+      llvm::SmallVector<unsigned,16> MapPositions;
       llvm::Value* OffloadingDevice;
       OMPStackElemTy(CodeGenModule &CGM);
       ~OMPStackElemTy();
@@ -1329,6 +1330,17 @@ public:
     llvm::Value **getWaitDepsArgs();
     void getMapData(ArrayRef<llvm::Value*> &MapPointers, ArrayRef<llvm::Value*> &MapSizes, ArrayRef<unsigned> &MapTypes);
     void addMapData(llvm::Value *MapPointer, llvm::Value *MapSize, unsigned MapType);
+
+    void getMapPos(ArrayRef<llvm::Value*> &MapPointers,
+		   ArrayRef<llvm::Value*> &MapSizes,
+		   ArrayRef<unsigned> &MapTypes,
+		   ArrayRef<unsigned> &MapPositions);
+
+    void addMapPos(llvm::Value *MapPointer,
+		   llvm::Value *MapSize,
+		   unsigned MapType,
+		   unsigned MapPosition);
+    
     void setOffloadingDevice(llvm::Value *device);
     llvm::Value* getOffloadingDevice();
   };
