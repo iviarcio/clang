@@ -5247,6 +5247,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     llvm::Value *Args[] = {VSize, VLoc};
     llvm::Value *SizeOnly[] = {VSize};
 
+    //TODO: save the position (VLoc, i) to MPtoGPURegion
+
     llvm::errs() << ">>> (VLoc) ";
     VLoc->print(llvm::errs());
     llvm::errs() << "; (VSize) ";
@@ -5608,9 +5610,68 @@ CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 
 // Generate the instructions for '#pragma omp target update' directive.
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
-    const OMPTargetUpdateDirective &) {
-  // TODO Need to implement proper codegen for target oriented directives.
-  ;
+    const OMPTargetUpdateDirective &S) {
+
+  // Are we generating code for GPU (via OpenCL/SPIR)?
+  if (CGM.getLangOpts().MPtoGPU) {
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      
+      OpenMPClauseKind Ckind = (*I)->getClauseKind();
+      if (Ckind == OMPC_to  || Ckind == OMPC_from) {
+	ArrayRef<const Expr*> RangeBegin;
+	ArrayRef<const Expr*> RangeEnd;
+	
+	//TODO: Fix-me
+	/*	if (Ckind == OMPC_to) {
+	  RangeBegin = (cast<OMPToClause>)(*I)->getCopyingStartAddresses();
+	  RangeEnd = (cast<OMPToClause>)(*I)->getCopyingSizesEndAddresses();
+	}
+	else {
+	  RangeBegin = (cast<OMPFromClause>)(*I)->getCopyingStartAddresses();
+	  RangeEnd = (cast<OMPFromClause>)(*I)->getCopyingSizesEndAddresses();
+	}
+	*/
+	
+	for (unsigned j=0; j < RangeBegin.size(); ++j) {
+	  llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
+	  llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();
+
+	  // Subtract the two pointers to obtain the size or
+	  // use the value directly if it is a constant
+	  llvm::Value *Size = RE;
+
+	  if (!isa<llvm::ConstantInt>(RE)) {
+	    llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
+	    llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
+	    llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
+	    Size = Builder.CreateSub(REI,RBI);
+	  }
+
+	  llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
+	  llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
+	  
+	  //TODO: Fix-me
+	  //get the position of location in map (saved in MPtoGPURegion?)
+	  llvm::Value *VMapPos = Builder.getInt32(0);
+	  
+	  llvm::Value *Args[] = {VSize, VMapPos, VLoc};
+	  llvm::Value *Status = nullptr;
+	  if (Ckind == OMPC_from) {
+	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
+	    llvm::errs() << ">>> Emit cl_read_buffer\n";
+	  }
+	  else {
+	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
+	    llvm::errs() << ">>> Emit cl_write_buffer\n";
+	  }	    
+	}
+      }
+      else
+	llvm_unreachable("Unknown update clause type!");      
+    }
+  }
 }
 
 // Generate the instructions for '#pragma omp target teams' directive.
