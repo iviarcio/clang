@@ -1446,8 +1446,7 @@ public:
   }
 };
 
-/// \brief This represents clause 'from' in the '#pragma omp ...'
-/// directives.
+/// \brief This represents clause 'from' in the '#pragma omp ...' directives.
 ///
 /// \code
 /// #pragma omp target update from(a,b)

@@ -2191,6 +2191,10 @@ public:
                             const OMPExecutableDirective &S);
   void EmitMapClausetoGPU(const OMPMapClause &C,
 			  const OMPExecutableDirective &S);
+  
+  unsigned int GetMapPosition(const llvm::Value *MapPointer,
+			      const llvm::Value *MapSize);
+  
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);
   void EmitFinalOMPIfClause(const OMPIfClause &C,

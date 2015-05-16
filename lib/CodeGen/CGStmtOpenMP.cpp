@@ -5257,27 +5257,27 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     int VType;
     switch(C.getKind()){
     default:
-      llvm_unreachable("Unknown map clause type!");
+      llvm_unreachable("(target map) Unknown clause type!");
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
       VType = OMP_TGT_MAPTYPE_TOFROM;
-      llvm::errs() << ">>> Emit cl_create_read_write\n";
+      llvm::errs() << ">>> (target map) Emit cl_create_read_write\n";
       break;
     case OMPC_MAP_to:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
       VType = OMP_TGT_MAPTYPE_TO;
-      llvm::errs() << ">>> Emit cl_create_read_only\n";
+      llvm::errs() << ">>> (target map) Emit cl_create_read_only\n";
       break;
     case OMPC_MAP_from:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
       VType =  OMP_TGT_MAPTYPE_FROM;
-      llvm::errs() << ">>> Emit cl_create_write_only\n";
+      llvm::errs() << ">>> (target map) Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
       VType = OMP_TGT_MAPTYPE_ALLOC;
-      llvm_unreachable("alloc map clause not implemented yet!");
+      llvm_unreachable("(target map) alloc clause not implemented yet!");
       break;
     }
     
@@ -5304,7 +5304,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
 	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
 	EmitRuntimeCall(func, makeArrayRef(clid));
-	llvm::errs() << ">>> Emit _set_default_device( clid )\n";
+	llvm::errs() << ">>> (target map) Emit _set_default_device\n";
       }
       if (ckind == OMPC_map) {
 	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
@@ -5337,7 +5337,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	llvm::errs() << "; (VSize) ";
 	MapClauseSizeValues[i]->print(llvm::errs());
 	llvm::errs() << "\n";
-	llvm::errs() << ">>> Emit _set_read_buffer\n";
+	llvm::errs() << ">>> (target map) Emit _set_read_buffer\n";
 	
       }
     }
@@ -5646,7 +5646,47 @@ CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
   EmitStmt(CS->getCapturedStmt());
 }
 
+//
 // Generate the instructions for '#pragma omp target update' directive.
+//
+
+// Auxiliary function to MPtoGPU
+unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *MapPointer,
+					     const llvm::Value *MapSize) {
+  ArrayRef<llvm::Value*> MapClausePointerValues;
+  ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<unsigned> MapClauseTypeValues;
+  ArrayRef<unsigned> MapClausePositionValues;
+
+  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+			      MapClauseSizeValues,
+			      MapClauseTypeValues,
+			      MapClausePositionValues);
+
+  for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
+      if (MapClausePointerValues[i] == MapPointer &&
+	  MapClauseSizeValues[i] == MapSize) {
+	return i;
+      }
+  }
+  llvm_unreachable("map position for the clause not found or size don't match!");
+  return 0;
+}
+
+static void GetToAddressAndSize (const OMPToClause &C,
+				 ArrayRef<const Expr*> Start,
+				 ArrayRef<const Expr*> End) {  
+   Start = C.getCopyingStartAddresses();
+   End = C.getCopyingSizesEndAddresses();
+}
+
+static void GetFromAddressAndSize (const OMPFromClause &C,
+				 ArrayRef<const Expr*> Start,
+				 ArrayRef<const Expr*> End) {  
+   Start = C.getCopyingStartAddresses();
+   End = C.getCopyingSizesEndAddresses();
+}
+
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
     const OMPTargetUpdateDirective &S) {
 
@@ -5658,21 +5698,16 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
       
       OpenMPClauseKind Ckind = (*I)->getClauseKind();
       if (Ckind == OMPC_to  || Ckind == OMPC_from) {
+
 	ArrayRef<const Expr*> RangeBegin;
 	ArrayRef<const Expr*> RangeEnd;
-	
-	//TODO: Fix-me
-	/*	if (Ckind == OMPC_to) {
-	  RangeBegin = (cast<OMPToClause>)(*I)->getCopyingStartAddresses();
-	  RangeEnd = (cast<OMPToClause>)(*I)->getCopyingSizesEndAddresses();
-	}
-	else {
-	  RangeBegin = (cast<OMPFromClause>)(*I)->getCopyingStartAddresses();
-	  RangeEnd = (cast<OMPFromClause>)(*I)->getCopyingSizesEndAddresses();
-	}
-	*/
-	
-	for (unsigned j=0; j < RangeBegin.size(); ++j) {
+
+	if (Ckind == OMPC_to)
+	  GetToAddressAndSize(cast<OMPToClause>(*(*I)), RangeBegin, RangeEnd);
+	else
+	  GetFromAddressAndSize(cast<OMPFromClause>(*(*I)), RangeBegin, RangeEnd);
+	        
+	for (unsigned j=0; j<RangeBegin.size(); ++j) {
 	  llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
 	  llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();
 
@@ -5690,24 +5725,27 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	  llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
 	  llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
 	  
-	  //TODO: Fix-me
-	  //get the position of location in map (saved in MPtoGPURegion?)
-	  llvm::Value *VMapPos = Builder.getInt32(0);
+	  //get the position of location in target [data] map
+	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(VLoc, VSize));
+	  
+	  llvm::errs() << "(target update) Loc position in map: ";
+	  VMapPos->print(llvm::errs());
+	  llvm::errs() << "\n";
 	  
 	  llvm::Value *Args[] = {VSize, VMapPos, VLoc};
 	  llvm::Value *Status = nullptr;
 	  if (Ckind == OMPC_from) {
 	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
-	    llvm::errs() << ">>> Emit cl_read_buffer\n";
+	    llvm::errs() << ">>> (target update) Emit cl_read_buffer\n";
 	  }
 	  else {
 	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
-	    llvm::errs() << ">>> Emit cl_write_buffer\n";
+	    llvm::errs() << ">>> (target update) Emit cl_write_buffer\n";
 	  }	    
 	}
       }
       else
-	llvm_unreachable("Unknown update clause type!");      
+	llvm_unreachable("(target update) Unknown clause type!");      
     }
   }
 }
