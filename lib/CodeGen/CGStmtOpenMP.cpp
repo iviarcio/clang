@@ -5290,11 +5290,11 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
 
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
+  int regionStarted = 0;
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
   if (CGM.getLangOpts().MPtoGPU) {
-    CGM.OpenMPSupport.startOpenMPRegion(true);
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
@@ -5304,45 +5304,52 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
 	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
 	EmitRuntimeCall(func, makeArrayRef(clid));
-	llvm::errs() << ">>> (target map) Emit _set_default_device\n";
+	llvm::errs() << ">>> (target map) Emit set_default_device\n";
       }
       if (ckind == OMPC_map) {
+	if (!regionStarted) {
+	  regionStarted = 1;
+	  CGM.OpenMPSupport.startOpenMPRegion(true);
+	}
 	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
       }
     }
     
     EmitStmt(CS->getCapturedStmt());
 
-    ArrayRef<llvm::Value*> MapClausePointerValues;
-    ArrayRef<llvm::Value*> MapClauseSizeValues;
-    ArrayRef<unsigned> MapClauseTypeValues;
-    ArrayRef<unsigned> MapClausePositionValues;
+    if (regionStarted) {
+      ArrayRef<llvm::Value*> MapClausePointerValues;
+      ArrayRef<llvm::Value*> MapClauseSizeValues;
+      ArrayRef<unsigned> MapClauseTypeValues;
+      ArrayRef<unsigned> MapClausePositionValues;
 
-    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-				MapClauseSizeValues,
-				MapClauseTypeValues,
-				MapClausePositionValues);
+      CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+				  MapClauseSizeValues,
+				  MapClauseTypeValues,
+				  MapClausePositionValues);
 
-    llvm::Value *Status = nullptr;
-    for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
-      if (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
-	  MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM) {
-	llvm::Value *Args[] = {MapClauseSizeValues[i],
-			       (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
-			       MapClausePointerValues[i]};
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
+      llvm::Value *Status = nullptr;
 
-	llvm::errs() << ">>> (VLoc) ";
-	MapClausePointerValues[i]->print(llvm::errs());
-	llvm::errs() << "; (VSize) ";
-	MapClauseSizeValues[i]->print(llvm::errs());
-	llvm::errs() << "\n";
-	llvm::errs() << ">>> (target map) Emit _set_read_buffer\n";
-	
-      }
-    }
+      llvm::errs() << "(target map) range="<< MapClausePointerValues.size() << "\n";
     
-    CGM.OpenMPSupport.endOpenMPRegion();
+      for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+	if (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
+	    MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM) {
+	  llvm::Value *Args[] = {MapClauseSizeValues[i],
+				 (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+				 MapClausePointerValues[i]};
+	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
+
+	  llvm::errs() << ">>> (VLoc) ";
+	  MapClausePointerValues[i]->print(llvm::errs());
+	  llvm::errs() << "; (VSize) ";
+	  MapClauseSizeValues[i]->print(llvm::errs());
+	  llvm::errs() << "\n";
+	  llvm::errs() << ">>> (target map) Emit cl_read_buffer\n";
+	}
+      }
+      CGM.OpenMPSupport.endOpenMPRegion();
+    }
     return;
   }
 
@@ -5643,6 +5650,7 @@ void
 CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
   // TODO Need to implement proper codegen for target oriented directives.
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+  llvm::errs() << ">>> Emit omp target data directive\n";
   EmitStmt(CS->getCapturedStmt());
 }
 
@@ -5664,27 +5672,30 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *MapPointer,
 			      MapClausePositionValues);
 
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
-      if (MapClausePointerValues[i] == MapPointer &&
-	  MapClauseSizeValues[i] == MapSize) {
-	return i;
-      }
+    //fix-me: the below code does not work. I need to if expr are equivalent
+    //that is, same location, same size but because ssa the reference
+    //are not the same
+    if (MapClausePointerValues[i] == MapPointer &&
+	MapClauseSizeValues[i] == MapSize) {
+      return i;
+    }
   }
   llvm_unreachable("map position for the clause not found or size don't match!");
   return 0;
 }
 
 static void GetToAddressAndSize (const OMPToClause &C,
-				 ArrayRef<const Expr*> Start,
-				 ArrayRef<const Expr*> End) {  
-   Start = C.getCopyingStartAddresses();
-   End = C.getCopyingSizesEndAddresses();
+				 ArrayRef<const Expr*> &Start,
+				 ArrayRef<const Expr*> &End) {
+  Start = C.getCopyingStartAddresses();
+  End = C.getCopyingSizesEndAddresses();
 }
 
 static void GetFromAddressAndSize (const OMPFromClause &C,
-				 ArrayRef<const Expr*> Start,
-				 ArrayRef<const Expr*> End) {  
-   Start = C.getCopyingStartAddresses();
-   End = C.getCopyingSizesEndAddresses();
+				 ArrayRef<const Expr*> &Start,
+				 ArrayRef<const Expr*> &End) {  
+  Start = C.getCopyingStartAddresses();
+  End = C.getCopyingSizesEndAddresses();
 }
 
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
@@ -5692,6 +5703,9 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
   if (CGM.getLangOpts().MPtoGPU) {
+    
+    llvm::errs() << ">>> Emit omp target update directive\n";
+    
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
@@ -5702,11 +5716,15 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	ArrayRef<const Expr*> RangeBegin;
 	ArrayRef<const Expr*> RangeEnd;
 
-	if (Ckind == OMPC_to)
+	if (Ckind == OMPC_to) {
+	  llvm::errs() << "(target update) found to clause\n";
 	  GetToAddressAndSize(cast<OMPToClause>(*(*I)), RangeBegin, RangeEnd);
-	else
+	}
+	else {
+	  llvm::errs() << "(target update) found from clause\n";
 	  GetFromAddressAndSize(cast<OMPFromClause>(*(*I)), RangeBegin, RangeEnd);
-	        
+	}
+
 	for (unsigned j=0; j<RangeBegin.size(); ++j) {
 	  llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
 	  llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();

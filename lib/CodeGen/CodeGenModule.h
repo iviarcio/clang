@@ -1250,6 +1250,8 @@ public:
     void startOpenMPRegion(bool NewTask) {
       OpenMPStack.push_back(OMPStackElemTy(CGM));
       OpenMPStack.back().NewTask = NewTask;
+      llvm::errs() << ">> Call to startOpenMPRegion\n";
+
     }
     bool isNewTask() { return OpenMPStack.back().NewTask; };
     void endOpenMPRegion();
