@@ -45,6 +45,11 @@ namespace {
 // common parent to all the loop-like directives to get rid of these.
 //
 
+ArrayRef<llvm::Value*> MapClausePointerValues;
+ArrayRef<llvm::Value*> MapClauseSizeValues;
+ArrayRef<unsigned> MapClauseTypeValues;
+ArrayRef<unsigned> MapClausePositionValues;
+
 static bool isLoopDirective(const OMPExecutableDirective *ED) {
   return isa<OMPForDirective>(ED) || isa<OMPParallelForDirective>(ED) ||
          isa<OMPParallelForSimdDirective>(ED) || isa<OMPSimdDirective>(ED) ||
@@ -5280,11 +5285,17 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
       llvm_unreachable("(target map) alloc clause not implemented yet!");
       break;
     }
-    
+   
+	llvm::CastInst *ci = cast<llvm::CastInst>(VLoc);
+	llvm::Value *teste = (*ci).getOperand(0);
+ 
     //Save the position of location in the map clause
     //This define the index of target buffer    
     CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
-    
+    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+                              MapClauseSizeValues,
+                              MapClauseTypeValues,
+                              MapClausePositionValues);
   }
 }
 
@@ -5653,18 +5664,13 @@ CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 // Auxiliary function to MPtoGPU
 unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *MapPointer,
 					     const llvm::Value *MapSize) {
-  ArrayRef<llvm::Value*> MapClausePointerValues;
-  ArrayRef<llvm::Value*> MapClauseSizeValues;
-  ArrayRef<unsigned> MapClauseTypeValues;
-  ArrayRef<unsigned> MapClausePositionValues;
-
-  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-			      MapClauseSizeValues,
-			      MapClauseTypeValues,
-			      MapClausePositionValues);
-
+	
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
-      if (MapClausePointerValues[i] == MapPointer &&
+
+	llvm::CastInst *ci = cast<llvm::CastInst>(MapClausePointerValues[i]);
+        llvm::Value *operand = (*ci).getOperand(0);
+
+      if (operand == MapPointer &&
 	  MapClauseSizeValues[i] == MapSize) {
 	return i;
       }
@@ -5674,15 +5680,15 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *MapPointer,
 }
 
 static void GetToAddressAndSize (const OMPToClause &C,
-				 ArrayRef<const Expr*> Start,
-				 ArrayRef<const Expr*> End) {  
+				 ArrayRef<const Expr*> &Start,
+				 ArrayRef<const Expr*> &End) {  
    Start = C.getCopyingStartAddresses();
    End = C.getCopyingSizesEndAddresses();
 }
 
 static void GetFromAddressAndSize (const OMPFromClause &C,
-				 ArrayRef<const Expr*> Start,
-				 ArrayRef<const Expr*> End) {  
+				 ArrayRef<const Expr*> &Start,
+				 ArrayRef<const Expr*> &End) {  
    Start = C.getCopyingStartAddresses();
    End = C.getCopyingSizesEndAddresses();
 }
@@ -5692,6 +5698,7 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
   if (CGM.getLangOpts().MPtoGPU) {
+  	CGM.OpenMPSupport.startOpenMPRegion(true);
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
@@ -5724,9 +5731,12 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 
 	  llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
 	  llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
+
+	llvm::CastInst *ci = cast<llvm::CastInst>(VLoc);
+        llvm::Value *operand = (*ci).getOperand(0);
 	  
 	  //get the position of location in target [data] map
-	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(VLoc, VSize));
+	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, VSize));
 	  
 	  llvm::errs() << "(target update) Loc position in map: ";
 	  VMapPos->print(llvm::errs());
@@ -5743,6 +5753,7 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	    llvm::errs() << ">>> (target update) Emit cl_write_buffer\n";
 	  }	    
 	}
+  	CGM.OpenMPSupport.endOpenMPRegion();
       }
       else
 	llvm_unreachable("(target update) Unknown clause type!");      

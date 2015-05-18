@@ -5924,9 +5924,15 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_mptogpu)){
 	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_mptogpu) << "\n";
     CmdArgs.push_back("-lmptogpu");
-    //CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
-    CmdArgs.push_back("-framework");
-    CmdArgs.push_back("OpenCL");
+	#ifdef __APPLE__
+    		CmdArgs.push_back("-framework");
+    		CmdArgs.push_back("OpenCL");
+	#else
+    		CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+	#endif
+//    CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+    //CmdArgs.push_back("-framework");
+    //CmdArgs.push_back("OpenCL");
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
@@ -7678,9 +7684,15 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 	bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
       if (MPtoGPU){
 	CmdArgs.push_back("-lmptogpu");
-	CmdArgs.push_back("-lOpenCL");
-//	CmdArgs.push_back("-framework");
-//	CmdArgs.push_back("OpenCL");
+	#ifdef __APPLE__
+                CmdArgs.push_back("-framework");
+                CmdArgs.push_back("OpenCL");
+        #else
+                CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+        #endif
+//	CmdArgs.push_back("-lOpenCL");
+	//CmdArgs.push_back("-framework");
+	//CmdArgs.push_back("OpenCL");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
