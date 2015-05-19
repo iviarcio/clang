@@ -79,19 +79,33 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cl_create_read_only: {
-    // Build int _cl_create_read_only(long size, void* loc);
+    // Build int _cl_create_read_only(long size);
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.Int32Ty, CGM.Int64Ty, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_create_read_only");
+    break;
+  }
+  case MPtoGPURTL_cl_offloading_read_only: {
+    // Build int _cl_offloading_read_only(long size, void* loc);
     llvm::Type *TParams[] = {CGM.Int64Ty, CGM.VoidPtrTy};
     llvm::FunctionType *FnTy =
       llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_create_read_only");
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_offloading_read_only");
     break;
   }
   case MPtoGPURTL_cl_create_read_write: {
     // Build int _cl_create_read_write(long size, void* loc);
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.Int32Ty, CGM.Int64Ty, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_create_read_write");
+    break;
+  }
+  case MPtoGPURTL_cl_offloading_read_write: {
+    // Build int _cl_offloading_read_write(long size, void* loc);
     llvm::Type *TParams[] = {CGM.Int64Ty, CGM.VoidPtrTy};
     llvm::FunctionType *FnTy =
       llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_create_read_write");
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_offloading_read_write");
     break;
   }
   case MPtoGPURTL_cl_read_buffer: {
@@ -192,10 +206,24 @@ CGMPtoGPURuntime::cl_create_read_only() {
 }
 
 llvm::Value*
+CGMPtoGPURuntime::cl_offloading_read_only() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_offloading_read_only, false>::get(CGM.getLLVMContext())
+	 , "_cl_offloading_read_only");
+}
+
+llvm::Value*
 CGMPtoGPURuntime::cl_create_read_write() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cl_create_read_write, false>::get(CGM.getLLVMContext())
 	 , "_cl_create_read_write");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cl_offloading_read_write() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_offloading_read_write, false>::get(CGM.getLLVMContext())
+	 , "_cl_offloading_read_write");
 }
 
 llvm::Value*

@@ -44,8 +44,10 @@ namespace {
   typedef void(_cldevice_init)();
   typedef void(_cldevice_finish)();
   typedef int32_t(_cl_create_write_only)(int64_t size);
-  typedef int32_t(_cl_create_read_only)(int64_t size, void* loc);
-  typedef int32_t(_cl_create_read_write)(int64_t size, void* loc);
+  typedef int32_t(_cl_create_read_only)(int64_t size);
+  typedef int32_t(_cl_offloading_read_only)(int64_t size, void* loc);
+  typedef int32_t(_cl_create_read_write)(int64_t size);
+  typedef int32_t(_cl_offloading_read_write)(int64_t size, void* loc);
   typedef int32_t(_cl_read_buffer)(int64_t size, int32_t id, void* loc);
   typedef int32_t(_cl_write_buffer)(int64_t size, int32_t id, void* loc);
   typedef int32_t(_cl_create_program)(char* str);
@@ -75,7 +77,9 @@ public:
     MPtoGPURTL_cldevice_init,
     MPtoGPURTL_cl_create_write_only,
     MPtoGPURTL_cl_create_read_only,
+    MPtoGPURTL_cl_offloading_read_only,
     MPtoGPURTL_cl_create_read_write,
+    MPtoGPURTL_cl_offloading_read_write,
     MPtoGPURTL_cl_read_buffer,
     MPtoGPURTL_cl_write_buffer,
     MPtoGPURTL_cl_create_program,
@@ -99,7 +103,9 @@ public:
   virtual llvm::Value* Get_default_device();
   virtual llvm::Value* cl_create_write_only();
   virtual llvm::Value* cl_create_read_only();
+  virtual llvm::Value* cl_offloading_read_only();
   virtual llvm::Value* cl_create_read_write();
+  virtual llvm::Value* cl_offloading_read_write();
   virtual llvm::Value* cl_read_buffer();
   virtual llvm::Value* cl_write_buffer();
   virtual llvm::Value* cl_create_program();

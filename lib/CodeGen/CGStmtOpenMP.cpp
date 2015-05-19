@@ -45,11 +45,6 @@ namespace {
 // common parent to all the loop-like directives to get rid of these.
 //
 
-ArrayRef<llvm::Value*> MapClausePointerValues;
-ArrayRef<llvm::Value*> MapClauseSizeValues;
-ArrayRef<unsigned> MapClauseTypeValues;
-ArrayRef<unsigned> MapClausePositionValues;
-
 static bool isLoopDirective(const OMPExecutableDirective *ED) {
   return isa<OMPForDirective>(ED) || isa<OMPParallelForDirective>(ED) ||
          isa<OMPParallelForSimdDirective>(ED) || isa<OMPSimdDirective>(ED) ||
@@ -5220,12 +5215,9 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
                             OMPD_distribute_parallel_for_simd, S);
 }
 
-
 //
-// Generate the instructions for '#pragma omp target' directive.
+// Emit RuntimeCalls for Map Clauses in omp target map directive
 //
-
-// Auxiliar function to MPtoGPU
 void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
 					 const OMPExecutableDirective &) {
 
@@ -5236,10 +5228,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
 
-    // Subtract the two pointers to obtain the size or
-    // use the value directly if it is a constant
+    // Subtract the two pointers to obtain the size
     llvm::Value *Size = RE;
-
     if (!isa<llvm::ConstantInt>(RE)) {
       llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
       llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
@@ -5266,14 +5256,14 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Args);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
       VType = OMP_TGT_MAPTYPE_TOFROM;
-      llvm::errs() << ">>> (target map) Emit cl_create_read_write\n";
+      llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
       break;
     case OMPC_MAP_to:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Args);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
       VType = OMP_TGT_MAPTYPE_TO;
-      llvm::errs() << ">>> (target map) Emit cl_create_read_only\n";
+      llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
       break;
     case OMPC_MAP_from:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
@@ -5281,24 +5271,22 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
       llvm::errs() << ">>> (target map) Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
+      //todo: check the type of memory used by alloc clause
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
       VType = OMP_TGT_MAPTYPE_ALLOC;
-      llvm_unreachable("(target map) alloc clause not implemented yet!");
+      llvm::errs() << ">>> (target map) Emit cl_create_read_write\n";
       break;
     }
    
-	llvm::CastInst *ci = cast<llvm::CastInst>(VLoc);
-	llvm::Value *teste = (*ci).getOperand(0);
- 
     //Save the position of location in the map clause
-    //This define the index of target buffer    
+    //This also define the buffer index (used to offloading)   
     CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
-    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-                              MapClauseSizeValues,
-                              MapClauseTypeValues,
-                              MapClausePositionValues);
   }
 }
 
+//
+// Generate the instructions for '#pragma omp target' directive.
+//
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
   int regionStarted = 0;
@@ -5666,33 +5654,41 @@ CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 }
 
 //
-// Generate the instructions for '#pragma omp target update' directive.
+// GetMapPosition compares the current operand (e.g., target update) with the
+// operands that are maped in <target [data] map> to find the offloading buffer
 //
-
-// Auxiliary function to MPtoGPU
-unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *MapPointer,
-					     const llvm::Value *MapSize) {
+unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
+					     const llvm::Value *CurSize) {
 	
-  for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
+  ArrayRef<llvm::Value*> MapClausePointerValues;
+  ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<unsigned> MapClauseTypeValues;
+  ArrayRef<unsigned> MapClausePositionValues;
 
-	llvm::CastInst *ci = cast<llvm::CastInst>(MapClausePointerValues[i]);
-        llvm::Value *operand = (*ci).getOperand(0);
+  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+			      MapClauseSizeValues,
+			      MapClauseTypeValues,
+			      MapClausePositionValues);
 
-      if (operand == MapPointer &&
-	  MapClauseSizeValues[i] == MapSize) {
-	return i;
-      }
-//  for(unsigned i=0; i<MapClausePointerValues.size(); ++i){
-    //fix-me: the below code does not work. I need to if expr are equivalent
-    //that is, same location, same size but because ssa the reference
-    //are not the same
-//    if (MapClausePointerValues[i] == MapPointer &&
-//	MapClauseSizeValues[i] == MapSize) {
-//      return i;
-//    }
+  llvm::errs() << "CurOperand = ";
+  CurOperand->print(llvm::errs());
+  llvm::errs() << " size = ";
+  CurSize->print(llvm::errs());
+  
+  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+    
+    llvm::Value *MapOperand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
+    llvm::errs () << "\nMapOperand = ";
+    MapOperand->print(llvm::errs());
+    
+    if (MapOperand == CurOperand) {
+      return i;
+    }
   }
-  llvm_unreachable("map position for the clause not found or size don't match!");
+  
+  llvm_unreachable("[data] map position for the clause not found or size don't match!");
   return 0;
+  
 }
 
 static void GetToAddressAndSize (const OMPToClause &C,
@@ -5709,12 +5705,14 @@ static void GetFromAddressAndSize (const OMPFromClause &C,
   End = C.getCopyingSizesEndAddresses();
 }
 
+//
+// Generate the instructions for '#pragma omp target update' directive.
+//
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
     const OMPTargetUpdateDirective &S) {
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
   if (CGM.getLangOpts().MPtoGPU) {
-  	CGM.OpenMPSupport.startOpenMPRegion(true);
     
     llvm::errs() << ">>> Emit omp target update directive\n";
     
@@ -5724,27 +5722,19 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
       
       OpenMPClauseKind Ckind = (*I)->getClauseKind();
       if (Ckind == OMPC_to  || Ckind == OMPC_from) {
-
 	ArrayRef<const Expr*> RangeBegin;
 	ArrayRef<const Expr*> RangeEnd;
-
 	if (Ckind == OMPC_to) {
-	  llvm::errs() << "(target update) found to clause\n";
 	  GetToAddressAndSize(cast<OMPToClause>(*(*I)), RangeBegin, RangeEnd);
 	}
 	else {
-	  llvm::errs() << "(target update) found from clause\n";
 	  GetFromAddressAndSize(cast<OMPFromClause>(*(*I)), RangeBegin, RangeEnd);
 	}
-
 	for (unsigned j=0; j<RangeBegin.size(); ++j) {
 	  llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
 	  llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();
-
-	  // Subtract the two pointers to obtain the size or
-	  // use the value directly if it is a constant
+	  // Subtract the two pointers to obtain the size
 	  llvm::Value *Size = RE;
-
 	  if (!isa<llvm::ConstantInt>(RE)) {
 	    llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
 	    llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
@@ -5754,17 +5744,21 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 
 	  llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
 	  llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
-
-	llvm::CastInst *ci = cast<llvm::CastInst>(VLoc);
-        llvm::Value *operand = (*ci).getOperand(0);
+	  llvm::Value *operand = (cast<llvm::CastInst>(VLoc))->getOperand(0);
 	  
 	  //get the position of location in target [data] map
 	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, VSize));
 	  
-	  llvm::errs() << "(target update) Loc position in map: ";
+	  llvm::errs() << "(target update) Buffer index of current Location: ";
 	  VMapPos->print(llvm::errs());
 	  llvm::errs() << "\n";
 	  
+	  llvm::errs() << ">>> (VLoc) ";
+	  VLoc->print(llvm::errs());
+	  llvm::errs() << "; (VSize) ";
+	  VSize->print(llvm::errs());
+	  llvm::errs() << "\n";
+
 	  llvm::Value *Args[] = {VSize, VMapPos, VLoc};
 	  llvm::Value *Status = nullptr;
 	  if (Ckind == OMPC_from) {
@@ -5776,7 +5770,6 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	    llvm::errs() << ">>> (target update) Emit cl_write_buffer\n";
 	  }	    
 	}
-  	CGM.OpenMPSupport.endOpenMPRegion();
       }
       else
 	llvm_unreachable("(target update) Unknown clause type!");      

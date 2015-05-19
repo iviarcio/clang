@@ -61,9 +61,13 @@ void _set_default_device (cl_uint id);
 
 int _cl_create_write_only (long size);
 
-int _cl_create_read_only (long size, void* loc);
+int _cl_create_read_only (long size);
 
-int _cl_create_read_write (long size, void* loc);
+int _cl_offloading_read_only (long size, void* loc);
+
+int _cl_create_read_write (long size);
+
+int _cl_offloading_read_write (long size, void* loc);
 
 int _cl_read_buffer (long size, int id, void* loc);
 

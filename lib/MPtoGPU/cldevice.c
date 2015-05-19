@@ -78,7 +78,7 @@ void _cldevice_init () {
     }
   }
   _clid = 0;      // initialize default device with 0 (CPU?)
-  _upperid = 10;  // max num of buffer memory locations
+  _upperid = 16;  // max num of buffer memory locations
   _curid = -1;    // points to invalid location
   _locs = (cl_mem *) malloc(sizeof(cl_mem)*_upperid);
 }
@@ -348,9 +348,30 @@ int _cl_create_write_only (long size) {
 }
 
 //
+// Create a read-only memory buffer to offloading host locations
+//
+int _cl_create_read_only (long size) {
+  _curid++;
+  if (_curid == _upperid) {
+    // todo: we need to increment the number of buffer memory locations
+    // for now, return false
+    _curid--;
+    return 0;
+  }
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
+				 size, NULL, &_status);
+  if (_status != CL_SUCCESS) {
+    perror("Failed to create a read-only device buffer");
+    _curid--;
+    return 0;
+  }
+  return 1;
+}
+
+//
 // Create a read-only memory buffer and copy the host loc to the buffer
 //
-int _cl_create_read_only (long size, void* loc) {
+int _cl_offloading_read_only (long size, void* loc) {
   _curid++;
   if (_curid == _upperid) {
     // todo: we need to increment the number of buffer memory locations
@@ -371,9 +392,30 @@ int _cl_create_read_only (long size, void* loc) {
 }
 
 //
+// Create a read-write memory buffer
+//
+int _cl_create_read_write (long size) {
+  _curid++;
+  if (_curid == _upperid) {
+    // todo: we need to increment the number of buffer memory locations
+    // for now, return false
+    _curid--;
+    return 0;
+  }
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
+				 size, NULL, &_status);
+  if (_status != CL_SUCCESS) {
+    perror("Failed to create a read & write device buffer");
+    _curid--;
+    return 0;
+  }
+  return 1;
+}
+
+//
 // Create a read-write memory buffer and copy the host loc to the buffer
 //
-int _cl_create_read_write (long size, void* loc) {
+int _cl_offloading_read_write (long size, void* loc) {
   _curid++;
   if (_curid == _upperid) {
     // todo: we need to increment the number of buffer memory locations
