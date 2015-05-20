@@ -2189,7 +2189,9 @@ public:
                             const OMPExecutableDirective &S);
   void EmitInitOMPMapClause(const OMPMapClause &C,
                             const OMPExecutableDirective &S);
-  void EmitMapClausetoGPU(const OMPMapClause &C,
+  void EmitSyncMapClauses(const int VType);
+  void EmitMapClausetoGPU(const bool DataDirective,
+			  const OMPMapClause &C,
 			  const OMPExecutableDirective &S);
   
   unsigned int GetMapPosition(const llvm::Value *MapPointer,

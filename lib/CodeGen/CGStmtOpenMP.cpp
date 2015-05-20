@@ -5216,9 +5216,60 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
 }
 
 //
+// Emit RuntimeCalls to sync host and device at the end of MPRegion
+//
+void CodeGenFunction::EmitSyncMapClauses(const int VType) {
+  ArrayRef<llvm::Value*> MapClausePointerValues;
+  ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<unsigned> MapClauseTypeValues;
+  ArrayRef<unsigned> MapClausePositionValues;
+
+  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+			      MapClauseSizeValues,
+			      MapClauseTypeValues,
+			      MapClausePositionValues);
+
+  llvm::Value *Status = nullptr;
+  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+    if (VType == OMP_TGT_MAPTYPE_TO &&
+	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
+      llvm::Value *Args[] = {MapClauseSizeValues[i],
+			     (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+			     MapClausePointerValues[i]};
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(),Args);
+
+      llvm::errs() << ">>> (VLoc) ";
+      MapClausePointerValues[i]->print(llvm::errs());
+      llvm::errs() << "; (VSize) ";
+      MapClauseSizeValues[i]->print(llvm::errs());
+      llvm::errs() << "\n";
+      llvm::errs() << ">>> (target [[data] map]) Emit cl_write_buffer\n";
+      
+    }
+    else if (VType == OMP_TGT_MAPTYPE_FROM &&
+	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
+	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
+      llvm::Value *Args[] = {MapClauseSizeValues[i],
+			     (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+			     MapClausePointerValues[i]};
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
+
+      llvm::errs() << ">>> (VLoc) ";
+      MapClausePointerValues[i]->print(llvm::errs());
+      llvm::errs() << "; (VSize) ";
+      MapClauseSizeValues[i]->print(llvm::errs());
+      llvm::errs() << "\n";
+      llvm::errs() << ">>> (target [[data] map]) Emit cl_read_buffer\n";
+      
+    }
+  }
+}
+
+//
 // Emit RuntimeCalls for Map Clauses in omp target map directive
 //
-void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
+void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
+					 const OMPMapClause &C,
 					 const OMPExecutableDirective &) {
 
   ArrayRef<const Expr*> RangeBegin = C.getCopyingStartAddresses();
@@ -5252,33 +5303,45 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
     int VType;
     switch(C.getKind()){
     default:
-      llvm_unreachable("(target map) Unknown clause type!");
+      llvm_unreachable("(target [data] map) Unknown clause type!");
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+      if (DataDirective) {
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+	llvm::errs() << ">>> (target data map) Emit cl_create_read_write\n";
+      }
+      else {
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+	llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
+      }
       VType = OMP_TGT_MAPTYPE_TOFROM;
-      llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
       break;
     case OMPC_MAP_to:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+      if (DataDirective) {
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), SizeOnly);
+	llvm::errs() << ">>> (target data map) Emit cl_create_read_only\n";
+      }
+      else {
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+	llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
+      }
       VType = OMP_TGT_MAPTYPE_TO;
-      llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
       break;
     case OMPC_MAP_from:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
       VType =  OMP_TGT_MAPTYPE_FROM;
-      llvm::errs() << ">>> (target map) Emit cl_create_write_only\n";
+      llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
       //todo: check the type of memory used by alloc clause
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
       VType = OMP_TGT_MAPTYPE_ALLOC;
-      llvm::errs() << ">>> (target map) Emit cl_create_read_write\n";
+      llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
       break;
     }
    
-    //Save the position of location in the map clause
+    //Save the position of location in the [data] map clause
     //This also define the buffer index (used to offloading)   
     CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
   }
@@ -5290,67 +5353,62 @@ void CodeGenFunction::EmitMapClausetoGPU(const OMPMapClause &C,
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
   int regionStarted = 0;
+  int emptyTarget = 0;
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
+  // **************************************************
   // Are we generating code for GPU (via OpenCL/SPIR)?
+  // **************************************************
+
   if (CGM.getLangOpts().MPtoGPU) {
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_device) {
-	RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
-	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
-	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
-	EmitRuntimeCall(func, makeArrayRef(clid));
-	llvm::errs() << ">>> (target map) Emit set_default_device\n";
-      }
-      if (ckind == OMPC_map) {
-	if (!regionStarted) {
-	  regionStarted = 1;
-	  CGM.OpenMPSupport.startOpenMPRegion(true);
+    //First, check if the target directive is empty.
+    //In this case, Offload the data map locations are needed
+    if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
+      emptyTarget = 1;
+      EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+    }
+    else {
+      //Otherwise, look for device clause in the target directive
+      //The device must be set before create the buffers    
+      for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                   E  = S.clauses().end();
+	                                   I != E; ++I) {
+	OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	if (ckind == OMPC_device) {
+	  RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	  llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
+	  llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
+	  EmitRuntimeCall(func, makeArrayRef(clid));
+	  llvm::errs() << ">>> (target map) Emit set_default_device\n";
 	}
-	EmitMapClausetoGPU(cast<OMPMapClause>(*(*I)), S);
+      }
+      //Now, start again, looking for map clauses
+      for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                   E  = S.clauses().end();
+	                                   I != E; ++I) {
+	OpenMPClauseKind ckind = ((*I)->getClauseKind());    
+	if (ckind == OMPC_map) {
+	  if (!regionStarted) {
+	    regionStarted = 1;
+	    CGM.OpenMPSupport.startOpenMPRegion(true);
+	  }
+	  EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
+	}
       }
     }
-    
     EmitStmt(CS->getCapturedStmt());
 
+    if (regionStarted || emptyTarget) {
+      EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+    }
     if (regionStarted) {
-      ArrayRef<llvm::Value*> MapClausePointerValues;
-      ArrayRef<llvm::Value*> MapClauseSizeValues;
-      ArrayRef<unsigned> MapClauseTypeValues;
-      ArrayRef<unsigned> MapClausePositionValues;
-
-      CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-				  MapClauseSizeValues,
-				  MapClauseTypeValues,
-				  MapClausePositionValues);
-
-      llvm::Value *Status = nullptr;
-
-      llvm::errs() << "(target map) range="<< MapClausePointerValues.size() << "\n";
-    
-      for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
-	if (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
-	    MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM) {
-	  llvm::Value *Args[] = {MapClauseSizeValues[i],
-				 (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
-				 MapClausePointerValues[i]};
-	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
-
-	  llvm::errs() << ">>> (VLoc) ";
-	  MapClausePointerValues[i]->print(llvm::errs());
-	  llvm::errs() << "; (VSize) ";
-	  MapClauseSizeValues[i]->print(llvm::errs());
-	  llvm::errs() << "\n";
-	  llvm::errs() << ">>> (target map) Emit cl_read_buffer\n";
-	}
-      }
-      CGM.OpenMPSupport.endOpenMPRegion();
+     CGM.OpenMPSupport.endOpenMPRegion();
     }
     return;
   }
+  // ************************************************
+  // Finish generating code for GPU (via OpenCL/SPIR)
+  // ************************************************
 
   // Are we generating code for a target?
   bool isTargetMode = CGM.getLangOpts().OpenMPTargetMode;
@@ -5644,13 +5702,49 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
   CGM.OpenMPSupport.endOpenMPRegion();
 }
 
+//
 // Generate the instructions for '#pragma omp target data' directive.
-void
-CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
-  // TODO Need to implement proper codegen for target oriented directives.
+//
+void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
+
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-  llvm::errs() << ">>> Emit omp target data directive\n";
+
+  // Are we generating code for GPU (via OpenCL/SPIR)?
+  if (CGM.getLangOpts().MPtoGPU) {
+
+    CGM.OpenMPSupport.startOpenMPRegion(true);
+
+    //First, look for device clause in the target directive
+    //The device must be set before create the buffers
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_device) {
+	RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
+	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
+	EmitRuntimeCall(func, makeArrayRef(clid));
+	llvm::errs() << ">>> (target data map) Emit set_default_device\n";
+      }
+    }
+    //Now start again, looking for map clauses
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_map) {
+	EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+      }
+    }
+  }
+  
   EmitStmt(CS->getCapturedStmt());
+
+  if (CGM.getLangOpts().MPtoGPU) {
+    EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+    CGM.OpenMPSupport.endOpenMPRegion();
+  }
 }
 
 //
