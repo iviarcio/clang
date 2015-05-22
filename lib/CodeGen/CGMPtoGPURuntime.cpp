@@ -65,10 +65,17 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cldevice_init: {
-    // Build void _cldevice_init(cl_uint id);
+    // Build void _cldevice_init();
     llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, false);
+      llvm::FunctionType::get(CGM.VoidTy, CGM.VoidTy, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cldevice_init");
+    break;
+  }
+  case MPtoGPURTL_cldevice_finish: {
+    // Build void _cldevice_finish();
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.VoidTy, CGM.VoidTy, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cldevice_finish");
     break;
   }
   case MPtoGPURTL_cl_create_write_only: {
@@ -139,16 +146,24 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cl_set_kernel_args: {
-    // Build int _set_kernel_args(int size);
+    // Build int _set_kernel_args(int nargs);
     llvm::FunctionType *FnTy =
       llvm::FunctionType::get(CGM.Int32Ty, CGM.Int32Ty, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_kernel_args");
     break;
   }
-  case MPtoGPURTL_cl_execute_kernel: {
-    // Build int _set_execute_kernel();
+  case MPtoGPURTL_cl_set_kernel_hostArg: {
+    // Build int _set_kernel_hostArg(int pos, int size, void* loc);
+    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty, CGM.VoidPtrTy};
     llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.Int32Ty, false);
+      llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_kernel_hostArg");
+    break;
+  }
+  case MPtoGPURTL_cl_execute_kernel: {
+    // Build int _set_execute_kernel(long size);
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.Int32Ty, CGM.Int64Ty, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_execute_kernel");
     break;
   }
@@ -168,6 +183,13 @@ CGMPtoGPURuntime::cldevice_init() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cldevice_init, false>::get(CGM.getLLVMContext())
 	 , "_cldevice_init");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cldevice_finish() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cldevice_finish, false>::get(CGM.getLLVMContext())
+	 , "_cldevice_finish");
 }
 
 llvm::Value*
@@ -259,6 +281,13 @@ CGMPtoGPURuntime::cl_set_kernel_args() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cl_set_kernel_args, false>::get(CGM.getLLVMContext())
 	 , "_cl_set_kernel_args");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cl_set_kernel_hostArg() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_set_kernel_hostArg, false>::get(CGM.getLLVMContext())
+	 , "_cl_set_kernel_hostArg");
 }
 
 llvm::Value*

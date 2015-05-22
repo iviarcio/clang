@@ -883,7 +883,67 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
 /// Generate an instructions for '#pragma omp parallel for' directive.
 void CodeGenFunction::EmitOMPParallelForDirective(
     const OMPParallelForDirective &S) {
-  EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+
+  // **************************************************
+  // Are we generating code for GPU (via OpenCL/SPIR)?
+  // **************************************************
+
+  if (CGM.getLangOpts().MPtoGPU) {
+
+    //****** First Tentative *******
+    //Assume that the loop will be translated to "kernel_saxpy.cl" kernel_function
+
+    std::string VName =  "_cl_kernel_name";
+    std::string VLoc = "_cl_kernel";
+    llvm::Value *VStr = Builder.CreateGlobalStringPtr("kernel_saxpy.cl", VName);
+    llvm::Value *VFunc = Builder.CreateGlobalStringPtr("kernel_saxpy", VLoc);
+
+    ArrayRef<llvm::Value*> MapClausePointerValues;
+    ArrayRef<llvm::Value*> MapClauseSizeValues;
+    ArrayRef<unsigned> MapClauseTypeValues;
+
+    CGM.OpenMPSupport.getMapData(MapClausePointerValues,
+				 MapClauseSizeValues,
+				 MapClauseTypeValues);
+
+    // Number of cl_mem args that will be passed first to kernel_function
+    int num_args =  MapClausePointerValues.size();
+    llvm::Value *Args[] = {Builder.getInt32(num_args)};
+
+    llvm::errs() << ">>> (parallel for) \n>>> Source kernel name = ";
+    VStr->print(llvm::errs());
+    llvm::errs() << "\n>>> kernel function name = ";
+    VFunc->print(llvm::errs());
+    llvm::errs() << "\n>>> Number of cl_mem args = ";
+    Args[0]->print(llvm::errs());
+    llvm::errs() << "\n";
+    
+    llvm::Value *Status = nullptr;
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), VStr);
+    llvm::errs() << ">>> (parallel for) Emit cl_create_program\n";
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), VFunc);
+    llvm::errs() << ">>> (parallel for) Emit cl_create_kernel\n";
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
+    llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
+
+    //TODO: We need here to get all host variables (in our example, alpha and n)
+    //      to finishing set_kernel_args
+
+    // Can we assume that the associated Stmt is a For Stmt?
+    CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+    // I call EmitStmt here, only to see the code generated to for
+    EmitStmt(CS->getCapturedStmt());
+				       
+    // Finally, Emit call to execute the kernel
+    // Assume that all vectors have the same number of elements (WorkSize)
+    // Fix-me passing the RealArg, aka n in for (i=0; i<n; i++) ...
+    llvm::Value *WorkSize[] = {MapClauseSizeValues[0]};
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
+    llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
+    
+  }
+  else
+    EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
 }
 
 /// Generate an instructions for '#pragma omp parallel for simd' directive.

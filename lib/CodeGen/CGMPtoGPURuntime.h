@@ -52,8 +52,9 @@ namespace {
   typedef int32_t(_cl_write_buffer)(int64_t size, int32_t id, void* loc);
   typedef int32_t(_cl_create_program)(char* str);
   typedef int32_t(_cl_create_kernel)(char* str);
-  typedef int32_t(_cl_set_kernel_args)(int32_t size);
-  typedef int32_t(_cl_execute_kernel)();
+  typedef int32_t(_cl_set_kernel_args)(int32_t nargs);
+  typedef int32_t(_cl_set_kernel_hostArg)(int32_t pos, int32_t size, void* loc);
+  typedef int32_t(_cl_execute_kernel)(int64_t size);
   typedef void(_cl_release_buffers)(int32_t upper);
 }
 
@@ -75,6 +76,7 @@ public:
     MPtoGPURTL_get_num_devices,
     MPtoGPURTL_get_default_device,
     MPtoGPURTL_cldevice_init,
+    MPtoGPURTL_cldevice_finish,
     MPtoGPURTL_cl_create_write_only,
     MPtoGPURTL_cl_create_read_only,
     MPtoGPURTL_cl_offloading_read_only,
@@ -85,6 +87,7 @@ public:
     MPtoGPURTL_cl_create_program,
     MPtoGPURTL_cl_create_kernel,
     MPtoGPURTL_cl_set_kernel_args,
+    MPtoGPURTL_cl_set_kernel_hostArg,
     MPtoGPURTL_cl_execute_kernel,
     MPtoGPURTL_cl_release_buffers
   };
@@ -97,10 +100,11 @@ public:
   /// \return Specified function.
   llvm::Value *CreateRuntimeFunction(MPtoGPURTLFunction Function);
 
-  virtual llvm::Value* cldevice_init();
   virtual llvm::Value* Set_default_device();
   virtual llvm::Value* Get_num_devices();
   virtual llvm::Value* Get_default_device();
+  virtual llvm::Value* cldevice_init();
+  virtual llvm::Value* cldevice_finish();
   virtual llvm::Value* cl_create_write_only();
   virtual llvm::Value* cl_create_read_only();
   virtual llvm::Value* cl_offloading_read_only();
@@ -111,6 +115,7 @@ public:
   virtual llvm::Value* cl_create_program();
   virtual llvm::Value* cl_create_kernel();
   virtual llvm::Value* cl_set_kernel_args();
+  virtual llvm::Value* cl_set_kernel_hostArg();
   virtual llvm::Value* cl_execute_kernel();
   virtual llvm::Value* cl_release_buffers();  
 };

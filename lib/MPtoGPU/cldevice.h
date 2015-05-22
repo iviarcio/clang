@@ -77,9 +77,11 @@ int _cl_create_program (char* str);
 
 int _cl_create_kernel (char* str);
 
-int _cl_set_kernel_args (int size);
+int _cl_set_kernel_args (int nargs);
 
-int _cl_execute_kernel ();
+int _cl_set_kernel_hostArg (int pos, int size, void* loc);
+    
+int _cl_execute_kernel (long work_size);
 
 void _cl_release_buffers (int upper);    
     

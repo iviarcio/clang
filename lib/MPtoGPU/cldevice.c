@@ -471,11 +471,14 @@ int _cl_write_buffer (long size, int id, void* loc) {
 // Return true, if success and false, otherwise.
 //
 int _cl_create_program (char* str) {
-  _program = _create_fromBinary(_context[_clid],
+  //  _program = _create_fromBinary(_context[_clid],
+  //				_device[_clid],
+  //				str);
+  _program = _create_fromSource(_context[_clid],
 				_device[_clid],
 				str);
   if (_program == NULL) {
-    perror("Attempting to create program binary kernel failed");
+    perror("Attempting to create program kernel failed");
     return 0;
   }
   return 1;
@@ -494,16 +497,30 @@ int _cl_create_kernel (char* str) {
 }
 
 //
-// Set the kernel arguments
+// Set the kernel arguments for cl_mem buffers
 //
-int _cl_set_kernel_args (int size) {
+int _cl_set_kernel_args (int nargs) {
   _status = CL_SUCCESS;
   int i;
-  for (i = 0; i<size; i++) {
+  for (i = 0; i<nargs; i++) {
     _status |= clSetKernelArg (_kernel, i, sizeof(cl_mem), &_locs[i]);
   }
   if (_status != CL_SUCCESS) {
-    perror("Error setting kernel arguments on selected device.");
+    perror("Error setting kernel buffers on selected device.");
+    return 0;
+  }
+  return 1;
+}
+
+//
+// Set the kernel arguments for host args
+//
+int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
+  _status = CL_SUCCESS;
+  int i;
+    _status = clSetKernelArg (_kernel, pos, size, loc);
+  if (_status != CL_SUCCESS) {
+    perror("Error setting host args on selected device.");
     return 0;
   }
   return 1;
@@ -512,11 +529,11 @@ int _cl_set_kernel_args (int size) {
 //
 // Enqueues a command to execute a kernel on a device.
 //
-int _cl_execute_kernel() {
+int _cl_execute_kernel(long work_size) {
 
-  cl_uint wd = 1; // number of dimmensions. Fix-me
-  size_t global_size = 512; // Fix-me
-  size_t local_size  = 48;  // Fix-me
+  cl_uint wd = 1; // number of dimmensions. assume equals 1
+  size_t global_size = (size_t) work_size;
+  size_t local_size  = 1;  // Fix-me
 
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
 				   _kernel,
