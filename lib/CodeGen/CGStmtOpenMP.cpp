@@ -931,8 +931,29 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     // Can we assume that the associated Stmt is a For Stmt?
     CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+
+	// Sinalize the For loop body start
+	llvm::BasicBlock * CheckBeginBB = createBasicBlock("for.body.begin");
+	EmitBranch(CheckBeginBB);
+	EmitBlock(CheckBeginBB);
+
+	// Get the body of the For loop associated with Parallel for directive
+        const Stmt *Body = CS->getCapturedStmt();
+        const ForStmt *For = dyn_cast_or_null<ForStmt>(Body);
+        Body = For->getBody();
+
+	const VarDecl *iterVar = For->getConditionVariable();
+	const Expr *incr = For->getInc();
+	const Stmt *init = For->getInit();
+
     // I call EmitStmt here, only to see the code generated to for
-    EmitStmt(CS->getCapturedStmt());
+    //EmitStmt(CS->getCapturedStmt());
+	EmitStmt(Body);
+
+	// Sinalize the For loop body end
+	llvm::BasicBlock * CheckEndBB = createBasicBlock("for.body.end");
+	EmitBranch(CheckEndBB);
+	EmitBlock(CheckEndBB);
 				       
     // Finally, Emit call to execute the kernel
     // Assume that all vectors have the same number of elements (WorkSize)
