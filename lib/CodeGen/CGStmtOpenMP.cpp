@@ -880,7 +880,6 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
-
 ///
 /// Visit all subExpres looking for DeclRefExpr
 ///
@@ -925,6 +924,40 @@ static void VisitDeclRefExpr (Stmt *S){
     break;
     
   }
+
+    
+// Recursively transverse the body of the for loop looking for uses or assigns.
+// TODO check if the variable is read or written
+void CodeGenFunction::HandleStmts(Stmt *ST) {
+
+	// Body
+	if(isa<CompoundStmt>(ST)) {
+		llvm::errs() << "COMPOUNDSTMT\n";
+	}
+	else if(isa<CompoundAssignOperator>(ST)) {
+		llvm::errs() << "COMPOUNDASSIGN\n";
+	}
+	// Variables used or assigned
+	else if(isa<DeclRefExpr>(ST)) {
+		// Just testing, D is unnecessary
+		DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
+		Expr *v = dyn_cast<Expr>(ST);
+		// TVar contains the load to the used/assigned variable
+		llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
+		llvm::errs() << "VARIABLE FOUND :" << *(D->getDecl()) << " | " << *TVar << "\n";
+	}
+	else if(isa<BinaryOperator>(ST)) {
+		llvm::errs() << "BINARYOPERATOR\n";
+	}
+	else if(isa<CallExpr>(ST)) {
+		llvm::errs() << "CALLEXPR\n";
+		return;
+	}
+
+	// Get the childs of the current node in the AST and call the function recursively
+	for(Stmt::child_iterator I=ST->child_begin(), E=ST->child_end(); I != E; ++I) {
+		HandleStmts(*I);
+	}	
 }
 
 ///
@@ -1024,6 +1057,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       VisitDeclRefExpr (Body);
     }
         
+
+    // Another way
+	CompoundStmt *temp = cast<CompoundStmt>(Body);
+	HandleStmts(temp);
+
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(TVar, CGM.Int64Ty, false)};
