@@ -880,7 +880,9 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
+///
 /// Generate an instructions for '#pragma omp parallel for' directive.
+///
 void CodeGenFunction::EmitOMPParallelForDirective(
     const OMPParallelForDirective &S) {
 
@@ -890,9 +892,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
   if (CGM.getLangOpts().MPtoGPU) {
 
-    //****** First Tentative *******
-    //Assume that the loop will be translated to "kernel_saxpy.cl" kernel_function
-
+    //Assume for now, that the loop will be translated to "kernel_saxpy.cl" kernel_function
     std::string VName =  "_cl_kernel_name";
     std::string VLoc = "_cl_kernel";
     llvm::Value *VStr = Builder.CreateGlobalStringPtr("kernel_saxpy.cl", VName);
@@ -906,7 +906,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				 MapClauseSizeValues,
 				 MapClauseTypeValues);
 
-    // Number of cl_mem args that will be passed first to kernel_function
+    // Get the number of cl_mem args that will be passed first to kernel_function
     int num_args =  MapClausePointerValues.size();
     llvm::Value *Args[] = {Builder.getInt32(num_args)};
 
@@ -926,77 +926,49 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
 
-    // Here, we need here to get all scalar variables, except indution variables
+    // Now, we need here to get all scalar variables, except induction variables
     // (in our example, alpha and n) to fill out the kernel args
     
     // Can we assume that the associated Stmt is always a For Stmt?
     CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-    if (CS->getCapturedStmt()->getStmtClass() == Stmt::ForStmtClass) {
-      ForStmt *FS = cast<ForStmt>(CS->getCapturedStmt());
-      
-      if (FS->getInit()) {
-	llvm::errs() << ">>>Skiping getInitStmt\n";
-	// contains list of initializations, like i=0;
-      }
-      
-      if (FS->getCond()) {
-	llvm::errs() << ">>>Get the RValue in getCond Expr\n";
-	// contains expressions like i<n;
+    assert(CS->getCapturedStmt()->getStmtClass() == Stmt::ForStmtClass);
 
-	Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
-	llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
-	llvm::errs() << ">>> Condition Variable= ";
-	TVar->print(llvm::errs());
-	llvm::errs() << "\n";
-	
-	llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
-	llvm::errs() << ">>> Pointer to Condition Variable= ";
-	CV->print(llvm::errs());
-	llvm::errs() << "\n";
-	
-	// Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-	llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};
-	num_args++;
-	
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
-	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
-      }
-      
-      Stmt *Body = FS->getBody();
-      llvm::errs() << ">>>Skip (for now) the BodyStmt\n";	  
-      // TODO: Traverse the Body looking for all scalr variables declared out of
-      // for scope and generate value reference to pass to kernel function
+    ForStmt *FS = cast<ForStmt>(CS->getCapturedStmt());  
+    if (FS->getInit()) {
+      llvm::errs() << ">>>Skiping getInitStmt\n";
+      // contains list of initializations, like i=0;
     }
-    
-/*
-	// Sinalize the For loop body start
-	llvm::BasicBlock * CheckBeginBB = createBasicBlock("for.body.begin");
-	EmitBranch(CheckBeginBB);
-	EmitBlock(CheckBeginBB);
+      
+    assert (FS->getCond()); // contains only one expression, like i<n;
+    Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
+    llvm::errs() << ">>>Get the RValue in getCond Expr\n";
 
-	// Get the body of the For loop associated with Parallel for directive
-        const Stmt *Body = CS->getCapturedStmt();
-        const ForStmt *For = dyn_cast_or_null<ForStmt>(Body);
-        Body = For->getBody();
+    llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
+    llvm::errs() << ">>> Condition Variable= ";
+    TVar->print(llvm::errs());
+    llvm::errs() << "\n";
+	
+    llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
+    llvm::errs() << ">>> Pointer to Condition Variable= ";
+    CV->print(llvm::errs());
+    llvm::errs() << "\n";
+	
+    // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
+    llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};
+    num_args++;
+	
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+    llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
 
-	const VarDecl *iterVar = For->getConditionVariable();
-	const Expr *incr = For->getInc();
-	const Stmt *init = For->getInit();
+    assert(FS->getBody());
+    Stmt *Body = FS->getBody();
+    llvm::errs() << ">>>Skip (for now) the BodyStmt\n";	  
+    // TODO: Traverse the Body looking for all scalar variables declared out of
+    // "for" scope and generate value reference to pass to kernel function
 
-        // I call EmitStmt here, only to see the code generated to for
-        //EmitStmt(CS->getCapturedStmt());
-	EmitStmt(Body);
-
-	// Sinalize the For loop body end
-	llvm::BasicBlock * CheckEndBB = createBasicBlock("for.body.end");
-	EmitBranch(CheckEndBB);
-	EmitBlock(CheckEndBB);
-				       
-*/
     // Finally, Emit call to execute the kernel
-    // Assume that WorkSize is determined by Condition Variable?
-    llvm::Value *WS = Builder.getInt64(1000); // Fix-me
-    llvm::Value *WorkSize[] = {WS};
+    // Can we assume that WorkSize is determined by Condition Variable?
+    llvm::Value *WorkSize[] = {Builder.CreateIntCast(TVar, CGM.Int64Ty, false)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     
