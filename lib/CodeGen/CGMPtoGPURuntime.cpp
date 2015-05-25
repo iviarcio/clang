@@ -153,8 +153,8 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cl_set_kernel_hostArg: {
-    // Build int _set_kernel_hostArg(int pos, int size, void* loc);
-    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty, CGM.VoidPtrTy};
+    // Build int _set_kernel_hostArg(int pos, void* loc);
+    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.VoidPtrTy};
     llvm::FunctionType *FnTy =
       llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_kernel_hostArg");

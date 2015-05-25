@@ -926,18 +926,52 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
 
-    //TODO: We need here to get all host variables (in our example, alpha and n)
-    //      to finishing set_kernel_args
-
-    // Can we assume that the associated Stmt is a For Stmt?
+    // Here, we need here to get all scalar variables, except indution variables
+    // (in our example, alpha and n) to fill out the kernel args
+    
+    // Can we assume that the associated Stmt is always a For Stmt?
     CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-    // I call EmitStmt here, only to see the code generated to for
-    EmitStmt(CS->getCapturedStmt());
-				       
+    if (CS->getCapturedStmt()->getStmtClass() == Stmt::ForStmtClass) {
+      ForStmt *FS = cast<ForStmt>(CS->getCapturedStmt());
+      
+      if (FS->getInit()) {
+	llvm::errs() << ">>>Skiping getInitStmt\n";
+	// contains list of initializations, like i=0;
+      }
+      
+      if (FS->getCond()) {
+	llvm::errs() << ">>>Get the RValue in getCond Expr\n";
+	// contains expressions like i<n;
+
+	Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
+	llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
+	llvm::errs() << ">>> Condition Variable= ";
+	TVar->print(llvm::errs());
+	llvm::errs() << "\n";
+	
+	llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
+	llvm::errs() << ">>> Pointer to Condition Variable= ";
+	CV->print(llvm::errs());
+	llvm::errs() << "\n";
+	
+	// Create hostArg to represent Condition Variable (i.e., pos and *Loc)
+	llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};
+	num_args++;
+	
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
+      }
+      
+      Stmt *Body = FS->getBody();
+      llvm::errs() << ">>>Skip (for now) the BodyStmt\n";	  
+      // TODO: Traverse the Body looking for all scalr variables delared out of scope
+      // and generate value reference to pass to kernel function
+    }
+    
     // Finally, Emit call to execute the kernel
-    // Assume that all vectors have the same number of elements (WorkSize)
-    // Fix-me passing the RealArg, aka n in for (i=0; i<n; i++) ...
-    llvm::Value *WorkSize[] = {MapClauseSizeValues[0]};
+    // Assume that WorkSize is determined by Condition Variable?
+    llvm::Value *WS = Builder.getInt64(1000); // Fix-me
+    llvm::Value *WorkSize[] = {WS};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     

@@ -515,10 +515,10 @@ int _cl_set_kernel_args (int nargs) {
 //
 // Set the kernel arguments for host args
 //
-int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
+int _cl_set_kernel_hostArg (int pos, void* loc) {
   _status = CL_SUCCESS;
   int i;
-    _status = clSetKernelArg (_kernel, pos, size, loc);
+  _status = clSetKernelArg (_kernel, pos, sizeof(*loc), loc);
   if (_status != CL_SUCCESS) {
     perror("Error setting host args on selected device.");
     return 0;
