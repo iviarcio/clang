@@ -964,10 +964,35 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       
       Stmt *Body = FS->getBody();
       llvm::errs() << ">>>Skip (for now) the BodyStmt\n";	  
-      // TODO: Traverse the Body looking for all scalr variables delared out of scope
-      // and generate value reference to pass to kernel function
+      // TODO: Traverse the Body looking for all scalr variables declared out of
+      // for scope and generate value reference to pass to kernel function
     }
     
+/*
+	// Sinalize the For loop body start
+	llvm::BasicBlock * CheckBeginBB = createBasicBlock("for.body.begin");
+	EmitBranch(CheckBeginBB);
+	EmitBlock(CheckBeginBB);
+
+	// Get the body of the For loop associated with Parallel for directive
+        const Stmt *Body = CS->getCapturedStmt();
+        const ForStmt *For = dyn_cast_or_null<ForStmt>(Body);
+        Body = For->getBody();
+
+	const VarDecl *iterVar = For->getConditionVariable();
+	const Expr *incr = For->getInc();
+	const Stmt *init = For->getInit();
+
+        // I call EmitStmt here, only to see the code generated to for
+        //EmitStmt(CS->getCapturedStmt());
+	EmitStmt(Body);
+
+	// Sinalize the For loop body end
+	llvm::BasicBlock * CheckEndBB = createBasicBlock("for.body.end");
+	EmitBranch(CheckEndBB);
+	EmitBlock(CheckEndBB);
+				       
+*/
     // Finally, Emit call to execute the kernel
     // Assume that WorkSize is determined by Condition Variable?
     llvm::Value *WS = Builder.getInt64(1000); // Fix-me
