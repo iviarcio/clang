@@ -880,6 +880,53 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
+
+///
+/// Visit all subExpres looking for DeclRefExpr
+///
+static void VisitDeclRefExpr (Stmt *S){
+  switch (S->getStmtClass()) {
+
+  default:
+  case Stmt::NullStmtClass:
+    break;
+
+  case Stmt::ArraySubscriptExprClass: {
+    llvm::errs() << ">>>Array Subscript Expression\n";
+    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<ArraySubscriptExpr>(S)->getLHS()));
+    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<ArraySubscriptExpr>(S)->getRHS()));
+  }
+    break;
+
+  case Stmt::BinaryOperatorClass: {
+    llvm::errs() << ">>>Binary Operator\n";
+    BinaryOperator *B = dyn_cast<BinaryOperator>(S);
+    VisitDeclRefExpr(dyn_cast<Stmt>(B->getLHS()));
+    VisitDeclRefExpr(dyn_cast<Stmt>(B->getRHS()));
+  }
+    break;
+
+//case Stmt::CastExprClass:
+//case Stmt::ExplicityCastExprClass:
+  case Stmt::ImplicitCastExprClass: {
+    llvm::errs() << ">>>Cast Expression\n";
+    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<CastExpr>(S)->getSubExpr()));
+  }
+    break;
+
+  case Stmt::DeclRefExprClass: {
+    DeclRefExpr *E = dyn_cast<DeclRefExpr>(S);
+    llvm::errs() << ">>>DeclRef Expression\n";
+    if (E->getDecl()->getType()->isScalarType()) {
+      llvm::errs() << ">>>Found scalar variable:\n";
+      llvm::errs() << (cast<NamedDecl>(E->getDecl())->getNameAsString()) << "\n";
+    }
+  }
+    break;
+    
+  }
+}
+
 ///
 /// Generate an instructions for '#pragma omp parallel for' directive.
 ///
@@ -960,12 +1007,23 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
 
-    assert(FS->getBody());
     Stmt *Body = FS->getBody();
-    llvm::errs() << ">>>Skip (for now) the BodyStmt\n";	  
+    assert(Body && "Null statement?");
     // TODO: Traverse the Body looking for all scalar variables declared out of
     // "for" scope and generate value reference to pass to kernel function
 
+    if (Body->getStmtClass() == Stmt::CompoundStmtClass) {
+      CompoundStmt *BS = cast<CompoundStmt>(Body);
+      for (CompoundStmt::body_iterator I = BS->body_begin(),
+	                               E = BS->body_end();
+	                               I != E; ++I) {
+	VisitDeclRefExpr (*I);
+      }
+    }
+    else {
+      VisitDeclRefExpr (Body);
+    }
+        
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(TVar, CGM.Int64Ty, false)};
