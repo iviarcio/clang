@@ -2196,6 +2196,8 @@ public:
   
   unsigned int GetMapPosition(const llvm::Value *MapPointer,
 			      const llvm::Value *MapSize);
+
+  void HandleStmts(Stmt *ST);
   
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);
