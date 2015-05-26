@@ -942,7 +942,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
     //llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
   }
 
-  // Get the childs of the current node in the AST and call the function recursively
+  // Get the children of the current node in the AST and call the function recursively
   for(Stmt::child_iterator I=ST->child_begin(), E=ST->child_end(); I != E; ++I) {
     HandleStmts(*I);
   }	
@@ -1016,7 +1016,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     TVar->print(llvm::errs());
     llvm::errs() << "\n";
 	
-    llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
+	
+	llvm::Value *AL = Builder.CreateAlloca(TVar->getType(), NULL);
+	Builder.CreateStore(TVar, AL);
+//	llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
+	llvm::Value *CV = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
     llvm::errs() << ">>> Pointer to Condition Variable= ";
     CV->print(llvm::errs());
     llvm::errs() << "\n";
@@ -5451,6 +5455,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
 
+	
+
     // Subtract the two pointers to obtain the size
     llvm::Value *Size = RE;
     if (!isa<llvm::ConstantInt>(RE)) {
@@ -5470,6 +5476,13 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::errs() << "; (VSize) ";
     VSize->print(llvm::errs());
     llvm::errs() << "\n";
+
+	//llvm::errs() << "NAME1: " << (RangeBegin[i]) << "\n";
+/*	const DeclRefExpr *D = dyn_cast<DeclRefExpr>(RangeBegin[i]);
+    if (D->getDecl()->getType()->isScalarType()) {
+      llvm::errs() << ">>>Mapping scalar variable:\n";
+      llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+    }*/
 
     llvm::Value *Status = nullptr;
     int VType;
