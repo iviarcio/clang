@@ -5575,8 +5575,12 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
 //
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
-  int regionStarted = 0;
-  int emptyTarget = 0;
+  bool regionStarted = false;
+  bool emptyTarget = false;
+  bool hasIfClause = false;
+  llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
+  llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
+  llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // **************************************************
@@ -5587,46 +5591,80 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     //First, check if the target directive is empty.
     //In this case, Offload the data map locations are needed
     if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
-      emptyTarget = 1;
+      emptyTarget = true;
       EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
     }
     else {
-      //Otherwise, look for device clause in the target directive
-      //The device must be set before create the buffers    
+      
+      //If target clause is not empty, look for the if clause
       for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                   E  = S.clauses().end();
-	                                   I != E; ++I) {
+                                 	   I != E; ++I) {
 	OpenMPClauseKind ckind = ((*I)->getClauseKind());
-	if (ckind == OMPC_device) {
-	  RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
-	  llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
-	  llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
-	  EmitRuntimeCall(func, makeArrayRef(clid));
-	  llvm::errs() << ">>> (target map) Emit set_default_device\n";
+	if (ckind == OMPC_if) {
+	  hasIfClause = true;
+	  EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+	  EmitBlock(ElseBlock);
+	  RunCleanupsScope ElseScope(*this);
+	  EmitStmt(CS->getCapturedStmt());
+	  EnsureInsertPoint();
+	  EmitBranch(ContBlock);
+	  EmitBlock(ThenBlock);
 	}
       }
-      //Now, start again, looking for map clauses
-      for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                   E  = S.clauses().end();
-	                                   I != E; ++I) {
-	OpenMPClauseKind ckind = ((*I)->getClauseKind());    
-	if (ckind == OMPC_map) {
-	  if (!regionStarted) {
-	    regionStarted = 1;
-	    CGM.OpenMPSupport.startOpenMPRegion(true);
+
+      // If the if clause is the only one then offload too
+      if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
+	emptyTarget = true;
+	EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+      }
+      else { 
+	//otherwise, look for device clause in the target directive
+	//The device must be set before create the buffers    
+	for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                     E  = S.clauses().end();
+	                                     I != E; ++I) {
+	  OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	  if (ckind == OMPC_device) {
+	    RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	    llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
+	    llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
+	    EmitRuntimeCall(func, makeArrayRef(clid));
+	    llvm::errs() << ">>> (target map) Emit set_default_device\n";
 	  }
-	  EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
+	}
+      
+	//Finally, start again, looking for map clauses
+	for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                     E  = S.clauses().end();
+	                                     I != E; ++I) {
+	  OpenMPClauseKind ckind = ((*I)->getClauseKind());    
+	  if (ckind == OMPC_map) {
+	    if (!regionStarted) {
+	      regionStarted = true;
+	      CGM.OpenMPSupport.startOpenMPRegion(true);
+	    }
+	    EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
+	  }
 	}
       }
     }
+    
     EmitStmt(CS->getCapturedStmt());
 
     if (regionStarted || emptyTarget) {
       EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
     }
+
     if (regionStarted) {
      CGM.OpenMPSupport.endOpenMPRegion();
     }
+
+    if (hasIfClause) {
+      EmitBranch(ContBlock);
+      EmitBlock(ContBlock, true);
+    }
+	
     return;
   }
   // ************************************************
@@ -5930,6 +5968,10 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 //
 void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 
+  bool hasIfClause = false;
+  llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
+  llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
+  llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // Are we generating code for GPU (via OpenCL/SPIR)?
@@ -5937,7 +5979,24 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
 
     CGM.OpenMPSupport.startOpenMPRegion(true);
 
-    //First, look for device clause in the target directive
+    //First, look for the if clause in the target directive
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_if) {
+	hasIfClause = true;
+	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+	EmitBlock(ElseBlock);
+	RunCleanupsScope ElseScope(*this);
+	EmitStmt(CS->getCapturedStmt());
+	EnsureInsertPoint();
+	EmitBranch(ContBlock);
+	EmitBlock(ThenBlock);
+      }
+    }
+ 
+    //Now, look for device clause in the target directive
     //The device must be set before create the buffers
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
@@ -5951,7 +6010,8 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
 	llvm::errs() << ">>> (target data map) Emit set_default_device\n";
       }
     }
-    //Now start again, looking for map clauses
+    
+    //Finally, start again looking for map clauses
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
@@ -5965,7 +6025,10 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
   EmitStmt(CS->getCapturedStmt());
 
   if (CGM.getLangOpts().MPtoGPU) {
-    EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+    if (hasIfClause) {
+      EmitBranch(ContBlock);
+      EmitBlock(ContBlock, true);
+    }
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }
@@ -6028,11 +6091,32 @@ static void GetFromAddressAndSize (const OMPFromClause &C,
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
     const OMPTargetUpdateDirective &S) {
 
+  // *************************************************
   // Are we generating code for GPU (via OpenCL/SPIR)?
+  // *************************************************
+  
   if (CGM.getLangOpts().MPtoGPU) {
     
+    bool hasIfClause = false;
+    llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
+    llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
+
     llvm::errs() << ">>> Emit omp target update directive\n";
     
+    //First, look for the if clause in the target update directive
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_if) {
+	hasIfClause = true;
+	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ContBlock, 0);
+	EmitBranch(ContBlock);
+	EmitBlock(ThenBlock);
+      }
+    }
+
+    //Now, start again looking for map clauses
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
@@ -6091,6 +6175,12 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
       else
 	llvm_unreachable("(target update) Unknown clause type!");      
     }
+    
+    if (hasIfClause) {
+      EmitBranch(ContBlock);
+      EmitBlock(ContBlock, true);
+    }
+    
   }
 }
 
