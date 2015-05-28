@@ -6172,8 +6172,6 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	  }	    
 	}
       }
-      else
-	llvm_unreachable("(target update) Unknown clause type!");      
     }
     
     if (hasIfClause) {
