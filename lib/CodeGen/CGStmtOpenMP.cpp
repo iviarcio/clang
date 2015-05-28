@@ -930,21 +930,35 @@ static void VisitDeclRefExpr (Stmt *S){
 /// Recursively transverse the body of the for loop looking for uses or assigns.
 ///
 void CodeGenFunction::HandleStmts(Stmt *ST) {
+
   if(isa<DeclRefExpr>(ST)) {
-    DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);    
+    DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
+	// Is a scalar variable? (including pointers to arrays, dynamically allocated)
     if (D->getDecl()->getType()->isScalarType()) {
-      llvm::errs() << ">>>Found scalar variable:\n";
-      llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-    }
+		llvm::errs() << ">>>Found scalar variable:\n";
+		llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+		Expr *v = dyn_cast<Expr>(ST);
+		llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
+		llvm::LoadInst *LI = dyn_cast<llvm::LoadInst>(TVar);
+		llvm::Value *Lval = LI->getPointerOperand();
+		LI->eraseFromParent();
+	}
+	// FIXME Is an aggregate variable? (statically allocated arrays, for example)
+	// TODO Handle global arrays, statically and dynamically allocated
+	else if (D->getDecl()->getType()->isAggregateType()) {
+		llvm::errs() << ">>>Found aggregate variable:\n";
+		llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+		Expr *v = dyn_cast<Expr>(ST);
+		llvm::Value *TVar = EmitAnyExprToTemp(v).getAggregateAddr();
+		llvm::errs() << "TVAR: " << *TVar << "\n";
+	}
+
     //TODO: Check if the variable was already used
-    //Expr *v = dyn_cast<Expr>(S);
-    // TVar contains the load to the used/assigned variable
-    //llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
   }
 
   // Get the children of the current node in the AST and call the function recursively
   for(Stmt::child_iterator I=ST->child_begin(), E=ST->child_end(); I != E; ++I) {
-    HandleStmts(*I);
+	if(*I != NULL) HandleStmts(*I);
   }	
 }
 
@@ -959,6 +973,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   // **************************************************
 
   if (CGM.getLangOpts().MPtoGPU) {
+
+//	llvm::SmallVector<>
 
     //Assume for now, that the loop will be translated to "kernel_saxpy.cl" kernel_function
     std::string VName =  "_cl_kernel_name";
@@ -1005,6 +1021,27 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (FS->getInit()) {
       llvm::errs() << ">>>Skiping getInitStmt\n";
       // contains list of initializations, like i=0;
+		Stmt *list = FS->getInit();
+
+		  for(Stmt::child_iterator I=list->child_begin(), E=list->child_end(); I != E; ++I) {
+			if(isa<DeclRefExpr>(*I)) {
+				llvm::errs() << " BEGIN ----------------------------\n";
+//					DeclRefExpr *D = dyn_cast<DeclRefExpr>(*I);
+//					llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+				Expr *v = dyn_cast<Expr>(*I);
+				llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
+				llvm::LoadInst *LI = dyn_cast<llvm::LoadInst>(TVar);
+				llvm::Value *Lval = LI->getPointerOperand();
+				LI->eraseFromParent();
+//				llvm::errs() << " EMITIU ----------------------------\n";
+			    (Lval)->dump();
+				llvm::errs() << " END ----------------------------\n";
+				break;
+			}
+		  }
+
+		
+		
     }
       
     assert (FS->getCond()); // contains only one expression, like i<n;
@@ -1017,9 +1054,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::errs() << "\n";
 	
 	
-	llvm::Value *AL = Builder.CreateAlloca(TVar->getType(), NULL);
+	llvm::AllocaInst *AL = Builder.CreateAlloca(TVar->getType(), NULL);
+
+	// Not sure if it is necessary, depends on the scope of the register
+	AL->setUsedWithInAlloca(true);
+
 	Builder.CreateStore(TVar, AL);
-//	llvm::Value *CV = Builder.CreateIntToPtr(TVar,CGM.VoidPtrTy);
 	llvm::Value *CV = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
     llvm::errs() << ">>> Pointer to Condition Variable= ";
     CV->print(llvm::errs());
@@ -5454,8 +5494,6 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
   for (unsigned i=0; i<RangeBegin.size(); ++i) {
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
-
-	
 
     // Subtract the two pointers to obtain the size
     llvm::Value *Size = RE;
