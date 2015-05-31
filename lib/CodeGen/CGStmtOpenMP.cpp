@@ -936,22 +936,17 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
 	// Is a scalar variable? (including pointers to arrays, dynamically allocated)
     if (D->getDecl()->getType()->isScalarType()) {
 		llvm::errs() << ">>>Found scalar variable:\n";
-		llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-		Expr *v = dyn_cast<Expr>(ST);
-		llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
-		llvm::LoadInst *LI = dyn_cast<llvm::LoadInst>(TVar);
-		llvm::Value *Lval = LI->getPointerOperand();
-		LI->eraseFromParent();
 	}
-	// FIXME Is an aggregate variable? (statically allocated arrays, for example)
-	// TODO Handle global arrays, statically and dynamically allocated
+	// Is an aggregate variable? (statically allocated arrays, for example)
 	else if (D->getDecl()->getType()->isAggregateType()) {
 		llvm::errs() << ">>>Found aggregate variable:\n";
-		llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-		Expr *v = dyn_cast<Expr>(ST);
-		llvm::Value *TVar = EmitAnyExprToTemp(v).getAggregateAddr();
-		llvm::errs() << "TVAR: " << *TVar << "\n";
 	}
+
+	// Get the alloca register address to compare with the already used variables
+	llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+	Expr *v = dyn_cast<Expr>(ST);
+	llvm::Value *TVar = EmitLValue(v).getAddress();
+	llvm::errs() << "TVAR: " << *TVar << "\n";
 
     //TODO: Check if the variable was already used
   }
@@ -5495,6 +5490,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
 
+	llvm::errs() << "RB: " << *RB << "\nRE: " << *RE << "\n";
+
     // Subtract the two pointers to obtain the size
     llvm::Value *Size = RE;
     if (!isa<llvm::ConstantInt>(RE)) {
@@ -5514,10 +5511,13 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::errs() << "; (VSize) ";
     VSize->print(llvm::errs());
     llvm::errs() << "\n";
+	
+//	llvm::Value *TVar = EmitLValue(RangeBegin[i]).getAddress();
+//	llvm::errs() << "TVAR: " << *TVar << "\n";
 
-	//llvm::errs() << "NAME1: " << (RangeBegin[i]) << "\n";
-/*	const DeclRefExpr *D = dyn_cast<DeclRefExpr>(RangeBegin[i]);
-    if (D->getDecl()->getType()->isScalarType()) {
+//	llvm::errs() << "NAME1: " << (RangeBegin[i]) << "\n";
+//	const DeclRefExpr *D = dyn_cast<DeclRefExpr>(RangeBegin[i]);
+/*    if (D->getDecl()->getType()->isScalarType()) {
       llvm::errs() << ">>>Mapping scalar variable:\n";
       llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
     }*/
