@@ -5400,8 +5400,14 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
     if (VType == OMP_TGT_MAPTYPE_TO &&
 	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
+
+	llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
+	  
+	  //get the position of location in target [data] map
+	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
+
       llvm::Value *Args[] = {MapClauseSizeValues[i],
-			     (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(),Args);
 
@@ -5416,8 +5422,15 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
     else if (VType == OMP_TGT_MAPTYPE_FROM &&
 	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
 	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
+
+	llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
+	  
+	  //get the position of location in target [data] map
+	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
+
       llvm::Value *Args[] = {MapClauseSizeValues[i],
-			     (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+//			     (llvm::Value*)Builder.getInt32(MapClausePositionValues[i]),
+			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
 
@@ -6013,6 +6026,8 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
   
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
     
+	llvm::errs() << "\nMAPOPERAND: " << *MapClausePointerValues[i] << "\n";
+
     llvm::Value *MapOperand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
     llvm::errs () << "\nMapOperand = ";
     MapOperand->print(llvm::errs());
