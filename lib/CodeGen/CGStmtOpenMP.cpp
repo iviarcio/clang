@@ -900,9 +900,10 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
     }
     llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
     
-    llvm::Value *TVar = EmitAnyExprToTemp(dyn_cast<Expr>(ST)).getScalarVal();
-    llvm::Value *TVal = dyn_cast<llvm::Instruction>(TVar)->getOperand(0);
-    llvm::errs() << "TVar: " << *TVar << " ,Operand: " << *TVal << "\n";
+	Expr *v = dyn_cast<Expr>(ST);
+	llvm::Value *TVal = EmitLValue(v).getAddress();
+
+	llvm::errs() << *TVal << "\n";
     
     if (!CGM.OpenMPSupport.inLocalScope(TVal)) {
       llvm::errs() << "TVar operand not in Local Scope\n";
@@ -910,15 +911,15 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
 	llvm::errs() << "TVar operand not in Kernel Var List\n"; 
 	pos = CGM.OpenMPSupport.getKernelVarSize();
 
-	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVar->getType(), NULL);
-	Builder.CreateStore(TVar, AInst);
+	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVal->getType(), NULL);
+	Builder.CreateStore(TVal, AInst);
 	llvm::Value *CVar = Builder.CreateBitCast(AInst, CGM.VoidPtrTy);
 	llvm::errs() << ">>> &Scalar Var= " << *CVar << "\n";
 	
 	llvm::Value *CArg[] = { Builder.getInt32(pos), CVar };	
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
-	CGM.OpenMPSupport.addKernelVar(TVal);	    
+	CGM.OpenMPSupport.addKernelVar(TVal);
       }
     }	      
   }
@@ -997,9 +998,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                       E = list->child_end();
 	                       I != E; ++I) {
 	if(isa<DeclRefExpr>(*I)) {
-	  llvm::Value *IVar = EmitAnyExprToTemp(dyn_cast<Expr>(*I)).getScalarVal();
-	  CGM.OpenMPSupport.addLocalVar(dyn_cast<llvm::Instruction>(IVar)->getOperand(0));
-	  llvm::errs() << ">>>Adding induction var " << *IVar << " in LocalVars\n";
+		Expr *v = dyn_cast<Expr>(*I);
+		llvm::Value *TVal = EmitLValue(v).getAddress();
+	  //llvm::Value *IVar = EmitAnyExprToTemp(dyn_cast<Expr>(*I)).getScalarVal();
+//	  CGM.OpenMPSupport.addLocalVar(dyn_cast<llvm::Instruction>(IVar)->getOperand(0));
+	  CGM.OpenMPSupport.addLocalVar(TVal);
+	  llvm::errs() << ">>>Adding induction var " << *TVal << " in LocalVars\n";
 	}
       }
     }
