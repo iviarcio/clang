@@ -5943,7 +5943,9 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
   llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
+  // *************************************************
   // Are we generating code for GPU (via OpenCL/SPIR)?
+  // *************************************************
   if (CGM.getLangOpts().MPtoGPU) {
 
     CGM.OpenMPSupport.startOpenMPRegion(true);

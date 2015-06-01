@@ -3881,19 +3881,33 @@ void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
+
+  llvm::Value *LV = nullptr;
+  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().KernelVars.begin(),
 	                                      E  = OpenMPStack.back().KernelVars.end();
 	                                      I != E; ++I) {
-    if ((*I) == KernelVar) return true;
+    LV = (*I);
+    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+    //llvm::errs() << "  value : " << *LV << "\n";    
+    if (LV == KernelVar) return true;
   }
   return false;
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
+
+  llvm::Value *LV = nullptr;
+  //llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().LocalVars.begin(),
 	                                      E  = OpenMPStack.back().LocalVars.end();
 	                                      I != E; ++I) {
-    if ((*I) == LocalVar) return true;
+    LV = (*I);
+    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+    //llvm::errs() << "  value : " << *LV << "\n";
+    if (LV == LocalVar) return true;
   }
   return false;
 }
