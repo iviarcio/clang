@@ -3880,6 +3880,23 @@ void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
   OpenMPStack.back().MapPositions.push_back(MapPosition);
 }
 
+bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
+  for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().KernelVars.begin(),
+	                                      E  = OpenMPStack.back().KernelVars.end();
+	                                      I != E; ++I) {
+    if ((*I) == KernelVar) return true;
+  }
+  return false;
+}
+
+bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
+  for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().LocalVars.begin(),
+	                                      E  = OpenMPStack.back().LocalVars.end();
+	                                      I != E; ++I) {
+    if ((*I) == LocalVar) return true;
+  }
+  return false;
+}
 
 void CodeGenModule::OpenMPSupportStackTy::setOffloadingDevice(llvm::Value *device){
   OpenMPStack.back().OffloadingDevice = device;

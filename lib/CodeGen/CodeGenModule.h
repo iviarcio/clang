@@ -1198,6 +1198,8 @@ public:
       llvm::SmallVector<llvm::Value*,16> MapSizes;
       llvm::SmallVector<unsigned,16> MapTypes;
       llvm::SmallVector<unsigned,16> MapPositions;
+      llvm::SmallVector<llvm::Value*,16> KernelVars;
+      llvm::SmallVector<llvm::Value*,16> LocalVars;
       llvm::Value* OffloadingDevice;
       OMPStackElemTy(CodeGenModule &CGM);
       ~OMPStackElemTy();
@@ -1342,7 +1344,16 @@ public:
 		   llvm::Value *MapSize,
 		   unsigned MapType,
 		   unsigned MapPosition);
-    
+
+    void addKernelVar(llvm::Value *KernelVar) { OpenMPStack.back().KernelVars.push_back(KernelVar); }
+    void clearKernelVars() { OpenMPStack.back().KernelVars.clear(); }
+    bool isKernelVar(llvm::Value *KernelVar);
+    int getKernelVarSize() { return OpenMPStack.back().KernelVars.size(); }
+
+    void addLocalVar(llvm::Value *LocalVar) { OpenMPStack.back().LocalVars.push_back(LocalVar); }
+    void clearLocalVars() { OpenMPStack.back().LocalVars.clear(); }
+    bool inLocalScope(llvm::Value *LocalVar);
+       
     void setOffloadingDevice(llvm::Value *device);
     llvm::Value* getOffloadingDevice();
   };

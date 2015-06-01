@@ -880,85 +880,59 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
-///
-/// Visit all subExpres looking for DeclRefExpr
-///
-static void VisitDeclRefExpr (Stmt *S){
-  switch (S->getStmtClass()) {
-
-  default:
-  case Stmt::NullStmtClass:
-    break;
-
-  case Stmt::ArraySubscriptExprClass: {
-    llvm::errs() << ">>>Array Subscript Expression\n";
-    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<ArraySubscriptExpr>(S)->getLHS()));
-    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<ArraySubscriptExpr>(S)->getRHS()));
-  }
-    break;
-
-  case Stmt::BinaryOperatorClass: {
-    llvm::errs() << ">>>Binary Operator\n";
-    BinaryOperator *B = dyn_cast<BinaryOperator>(S);
-    VisitDeclRefExpr(dyn_cast<Stmt>(B->getLHS()));
-    VisitDeclRefExpr(dyn_cast<Stmt>(B->getRHS()));
-  }
-    break;
-
-//case Stmt::CastExprClass:
-//case Stmt::ExplicityCastExprClass:
-  case Stmt::ImplicitCastExprClass: {
-    llvm::errs() << ">>>Cast Expression\n";
-    VisitDeclRefExpr(dyn_cast<Stmt>(dyn_cast<CastExpr>(S)->getSubExpr()));
-  }
-    break;
-
-  case Stmt::DeclRefExprClass: {
-    DeclRefExpr *E = dyn_cast<DeclRefExpr>(S);
-    llvm::errs() << ">>>DeclRef Expression\n";
-    if (E->getDecl()->getType()->isScalarType()) {
-      llvm::errs() << ">>>Found scalar variable:\n";
-      llvm::errs() << (cast<NamedDecl>(E->getDecl())->getNameAsString()) << "\n";
-    }
-  }
-    break;
-    
-  }
-}
-
 ///    
 /// Recursively transverse the body of the for loop looking for uses or assigns.
 ///
 void CodeGenFunction::HandleStmts(Stmt *ST) {
 
+  int pos = 0;
+  llvm::Value *Status = nullptr;
+  
   if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-	// Is a scalar variable? (including pointers to arrays, dynamically allocated)
+    // Is a scalar variable? (including pointers to arrays, dynamically allocated)
     if (D->getDecl()->getType()->isScalarType()) {
-		llvm::errs() << ">>>Found scalar variable:\n";
-	}
-	// Is an aggregate variable? (statically allocated arrays, for example)
-	else if (D->getDecl()->getType()->isAggregateType()) {
-		llvm::errs() << ">>>Found aggregate variable:\n";
-	}
+      llvm::errs() << ">>>Found scalar variable: ";
+    }
+    // Is an aggregate variable? (statically allocated arrays, for example)
+    else if (D->getDecl()->getType()->isAggregateType()) {
+      llvm::errs() << ">>>Found aggregate variable: ";
+    }
+    llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+    
+    llvm::Value *TVar = EmitAnyExprToTemp(dyn_cast<Expr>(ST)).getScalarVal();
+    llvm::Value *TVal = dyn_cast<llvm::Instruction>(TVar)->getOperand(0);
+    llvm::errs() << "TVar: " << *TVar << " ,Operand: " << *TVal << "\n";
+    
+    if (!CGM.OpenMPSupport.inLocalScope(TVal)) {
+      llvm::errs() << "TVar operand not in Local Scope\n";
+      if (!CGM.OpenMPSupport.isKernelVar(TVal)) {
+	llvm::errs() << "TVar operand not in Kernel Var List\n"; 
+	pos = CGM.OpenMPSupport.getKernelVarSize();
 
-	// Get the alloca register address to compare with the already used variables
-	llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-	Expr *v = dyn_cast<Expr>(ST);
-	llvm::Value *TVar = EmitLValue(v).getAddress();
-	llvm::errs() << "TVAR: " << *TVar << "\n";
-
-    //TODO: Check if the variable was already used
+	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVar->getType(), NULL);
+	Builder.CreateStore(TVar, AInst);
+	llvm::Value *CVar = Builder.CreateBitCast(AInst, CGM.VoidPtrTy);
+	llvm::errs() << ">>> &Scalar Var= " << *CVar << "\n";
+	
+	llvm::Value *CArg[] = { Builder.getInt32(pos), CVar };	
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
+	CGM.OpenMPSupport.addKernelVar(TVal);	    
+      }
+    }	      
   }
 
   // Get the children of the current node in the AST and call the function recursively
-  for(Stmt::child_iterator I=ST->child_begin(), E=ST->child_end(); I != E; ++I) {
-	if(*I != NULL) HandleStmts(*I);
+  for(Stmt::child_iterator I = ST->child_begin(),
+	                   E = ST->child_end();
+                           I != E; ++I) {
+    if(*I != NULL) HandleStmts(*I);
   }	
 }
 
 ///
-/// Generate an instructions for '#pragma omp parallel for' directive.
+/// Generate an instructions for '#pragma omp parallel for' directive. 
 ///
 void CodeGenFunction::EmitOMPParallelForDirective(
     const OMPParallelForDirective &S) {
@@ -968,8 +942,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   // **************************************************
 
   if (CGM.getLangOpts().MPtoGPU) {
-
-//	llvm::SmallVector<>
 
     //Assume for now, that the loop will be translated to "kernel_saxpy.cl" kernel_function
     std::string VName =  "_cl_kernel_name";
@@ -985,10 +957,19 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				 MapClauseSizeValues,
 				 MapClauseTypeValues);
 
-    // Get the number of cl_mem args that will be passed first to kernel_function
-    int num_args =  MapClausePointerValues.size();
-    llvm::Value *Args[] = {Builder.getInt32(num_args)};
+    CGM.OpenMPSupport.clearKernelVars();
+    CGM.OpenMPSupport.clearLocalVars();
+    
+    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
+	                                  E  = MapClausePointerValues.end();
+	                                  I != E; ++I) {
+      CGM.OpenMPSupport.addKernelVar(dyn_cast<llvm::Instruction>(*I)->getOperand(0));
+    }
 
+    // Get the number of cl_mem args that will be passed first to kernel_function
+    int num_args =  CGM.OpenMPSupport.getKernelVarSize();
+    llvm::Value *Args[] = {Builder.getInt32(num_args)};
+    
     llvm::errs() << ">>> (parallel for) \n>>> Source kernel name = ";
     VStr->print(llvm::errs());
     llvm::errs() << "\n>>> kernel function name = ";
@@ -1005,84 +986,55 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
 
-    // Now, we need here to get all scalar variables, except induction variables
-    // (in our example, alpha and n) to fill out the kernel args
-    
-    // Can we assume that the associated Stmt is always a For Stmt?
+    // Find scalar variables, except induction vars to fill out the kernel args    
     CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
     assert(CS->getCapturedStmt()->getStmtClass() == Stmt::ForStmtClass);
-
     ForStmt *FS = cast<ForStmt>(CS->getCapturedStmt());  
     if (FS->getInit()) {
-      llvm::errs() << ">>>Skiping getInitStmt\n";
       // contains list of initializations, like i=0;
-		Stmt *list = FS->getInit();
-
-		  for(Stmt::child_iterator I=list->child_begin(), E=list->child_end(); I != E; ++I) {
-			if(isa<DeclRefExpr>(*I)) {
-				llvm::errs() << " BEGIN ----------------------------\n";
-//					DeclRefExpr *D = dyn_cast<DeclRefExpr>(*I);
-//					llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-				Expr *v = dyn_cast<Expr>(*I);
-				llvm::Value *TVar = EmitAnyExprToTemp(v).getScalarVal();
-				llvm::LoadInst *LI = dyn_cast<llvm::LoadInst>(TVar);
-				llvm::Value *Lval = LI->getPointerOperand();
-				LI->eraseFromParent();
-//				llvm::errs() << " EMITIU ----------------------------\n";
-			    (Lval)->dump();
-				llvm::errs() << " END ----------------------------\n";
-				break;
-			}
-		  }
-
-		
-		
+      Stmt *list = FS->getInit();
+      for(Stmt::child_iterator I = list->child_begin(),
+	                       E = list->child_end();
+	                       I != E; ++I) {
+	if(isa<DeclRefExpr>(*I)) {
+	  llvm::Value *IVar = EmitAnyExprToTemp(dyn_cast<Expr>(*I)).getScalarVal();
+	  CGM.OpenMPSupport.addLocalVar(dyn_cast<llvm::Instruction>(IVar)->getOperand(0));
+	  llvm::errs() << ">>>Adding induction var " << *IVar << " in LocalVars\n";
+	}
+      }
     }
-      
+  
     assert (FS->getCond()); // contains only one expression, like i<n;
     Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
-    llvm::errs() << ">>>Get the RValue in getCond Expr\n";
-
     llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
-    llvm::errs() << ">>> Condition Variable= ";
-    TVar->print(llvm::errs());
-    llvm::errs() << "\n";
+    CGM.OpenMPSupport.addKernelVar(dyn_cast<llvm::Instruction>(TVar)->getOperand(0));
+    llvm::errs() << ">>> Condition Variable= "<< *TVar << "\n";
 	
-	
-	llvm::AllocaInst *AL = Builder.CreateAlloca(TVar->getType(), NULL);
-
-	// Not sure if it is necessary, depends on the scope of the register
-	AL->setUsedWithInAlloca(true);
-
-	Builder.CreateStore(TVar, AL);
-	llvm::Value *CV = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
-    llvm::errs() << ">>> Pointer to Condition Variable= ";
-    CV->print(llvm::errs());
-    llvm::errs() << "\n";
+    llvm::AllocaInst *AL = Builder.CreateAlloca(TVar->getType(), NULL);
+    // Not sure if it is necessary, depends on the scope of the register
+    AL->setUsedWithInAlloca(true);
+    Builder.CreateStore(TVar, AL);
+    llvm::Value *CV = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
+    llvm::errs() << ">>> &Condition Variable= " << *CV << "\n";
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-    llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};
-    num_args++;
-	
+    llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
-
+    
+    // Traverse the Body looking for all scalar variables declared out of
+    // "for" scope and generate value reference to pass to kernel function
     Stmt *Body = FS->getBody();
     assert(Body && "Null statement?");
-    // TODO: Traverse the Body looking for all scalar variables declared out of
-    // "for" scope and generate value reference to pass to kernel function
-
     if (Body->getStmtClass() == Stmt::CompoundStmtClass) {
       CompoundStmt *BS = cast<CompoundStmt>(Body);
       for (CompoundStmt::body_iterator I = BS->body_begin(),
 	                               E = BS->body_end();
 	                               I != E; ++I) {
-	//VisitDeclRefExpr (*I);
 	HandleStmts(*I);
       }
     }
     else {
-      //VisitDeclRefExpr (Body);
       HandleStmts(Body);
     }
         
