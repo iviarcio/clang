@@ -911,12 +911,12 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
 	llvm::errs() << "TVar operand not in Kernel Var List\n"; 
 	pos = CGM.OpenMPSupport.getKernelVarSize();
 
-	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVal->getType(), NULL);
-	Builder.CreateStore(TVal, AInst);
-	llvm::Value *CVar = Builder.CreateBitCast(AInst, CGM.VoidPtrTy);
-	llvm::errs() << ">>> &Scalar Var= " << *CVar << "\n";
+/*	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVal->getType(), NULL);
+	Builder.CreateStore(TVal, AInst);*/
+	llvm::Value *CVar = Builder.CreateBitCast(TVal, CGM.VoidPtrTy);
+	llvm::errs() << ">>> &Scalar Var= " << *CVar << "\n"<< *(dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType()) << "|" <<(dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType())->getPrimitiveSizeInBits();
 	
-	llvm::Value *CArg[] = { Builder.getInt32(pos), CVar };	
+	llvm::Value *CArg[] = { Builder.getInt32(pos), Builder.getInt32((dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType())->getPrimitiveSizeInBits()/8), CVar };	
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 	CGM.OpenMPSupport.addKernelVar(TVal);
@@ -1000,8 +1000,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	if(isa<DeclRefExpr>(*I)) {
 		Expr *v = dyn_cast<Expr>(*I);
 		llvm::Value *TVal = EmitLValue(v).getAddress();
-	  //llvm::Value *IVar = EmitAnyExprToTemp(dyn_cast<Expr>(*I)).getScalarVal();
-//	  CGM.OpenMPSupport.addLocalVar(dyn_cast<llvm::Instruction>(IVar)->getOperand(0));
 	  CGM.OpenMPSupport.addLocalVar(TVal);
 	  llvm::errs() << ">>>Adding induction var " << *TVal << " in LocalVars\n";
 	}
@@ -1022,7 +1020,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::errs() << ">>> &Condition Variable= " << *CV << "\n";
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-    llvm::Value *CArg[] = {Builder.getInt32(num_args), CV};	
+    llvm::Value *CArg[] = {Builder.getInt32(num_args), Builder.getInt32((TVar->getType())->getPrimitiveSizeInBits()/8), CV};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
     
@@ -5459,6 +5457,9 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
 
+	// Get the pointer to the alloca instruction instead the bitcast emitted
+	llvm::Value *BC = RB->stripPointerCasts();
+
 	llvm::errs() << "RB: " << *RB << "\nRE: " << *RE << "\n";
 
     // Subtract the two pointers to obtain the size
@@ -5470,7 +5471,18 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
       Size = Builder.CreateSub(REI,RBI);
     }
 
-    llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
+	ArrayRef<llvm::Value *> Idxs = {Builder.getInt32(0), Builder.getInt32(0)};
+
+	// Check if the stripped pointer is already a load instruction, otherwise must
+	llvm::Value *VLd;
+	if(!isa<llvm::LoadInst>(BC) && !isa<llvm::GetElementPtrInst>(BC))
+		VLd = Builder.CreateInBoundsGEP(BC, Idxs);
+	else
+		VLd = BC;
+
+	llvm::errs() << "BC: " << *BC << "\nVLD: " << *VLd << "\n";
+
+    llvm::Value *VLoc = Builder.CreateBitCast(VLd,CGM.VoidPtrTy);
     llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
     llvm::Value *Args[] = {VSize, VLoc};
     llvm::Value *SizeOnly[] = {VSize};
@@ -5481,15 +5493,6 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     VSize->print(llvm::errs());
     llvm::errs() << "\n";
 	
-//	llvm::Value *TVar = EmitLValue(RangeBegin[i]).getAddress();
-//	llvm::errs() << "TVAR: " << *TVar << "\n";
-
-//	llvm::errs() << "NAME1: " << (RangeBegin[i]) << "\n";
-//	const DeclRefExpr *D = dyn_cast<DeclRefExpr>(RangeBegin[i]);
-/*    if (D->getDecl()->getType()->isScalarType()) {
-      llvm::errs() << ">>>Mapping scalar variable:\n";
-      llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-    }*/
 
     llvm::Value *Status = nullptr;
     int VType;
