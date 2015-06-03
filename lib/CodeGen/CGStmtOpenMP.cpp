@@ -5464,15 +5464,16 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
       Size = Builder.CreateSub(REI,RBI);
     }
 
-    // Get the pointer to the alloca instruction instead of the bitcast emitted
+    // Get the pointer to the alloca instruction
     llvm::Value *BC = RB->stripPointerCasts();
-    ArrayRef<llvm::Value *> Idxs = {Builder.getInt32(0), Builder.getInt32(0)};
     // Check if the stripped pointer is already a load instruction, otherwise must
-    llvm::Value *VLd;
-    if(!isa<llvm::LoadInst>(BC) && !isa<llvm::GetElementPtrInst>(BC))
-      VLd = Builder.CreateInBoundsGEP(BC, Idxs);
-    else
-      VLd = BC;
+    llvm::Value *VLd = BC;
+    if( !isa<llvm::AllocaInst>(BC) && !isa<llvm::LoadInst>(BC) ) {
+      if (!isa<llvm::GetElementPtrInst>(BC)) {
+	llvm::Value *Idxs[] = {Builder.getInt32(0), Builder.getInt32(0)};
+	VLd = Builder.CreateInBoundsGEP(BC, Idxs);
+      }
+    }
     llvm::errs() << "BC: " << *BC << "\nVLD: " << *VLd << "\n";
 
     llvm::Value *VLoc = Builder.CreateBitCast(VLd,CGM.VoidPtrTy);
