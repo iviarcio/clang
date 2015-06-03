@@ -900,10 +900,8 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
     }
     llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
     
-	Expr *v = dyn_cast<Expr>(ST);
-	llvm::Value *TVal = EmitLValue(v).getAddress();
-
-	llvm::errs() << *TVal << "\n";
+    llvm::Value *TVal = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
+    llvm::errs() << *TVal << "\n";
     
     if (!CGM.OpenMPSupport.inLocalScope(TVal)) {
       llvm::errs() << "TVar operand not in Local Scope\n";
@@ -998,10 +996,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                       E = list->child_end();
 	                       I != E; ++I) {
 	if(isa<DeclRefExpr>(*I)) {
-		Expr *v = dyn_cast<Expr>(*I);
-		llvm::Value *TVal = EmitLValue(v).getAddress();
-	  //llvm::Value *IVar = EmitAnyExprToTemp(dyn_cast<Expr>(*I)).getScalarVal();
-//	  CGM.OpenMPSupport.addLocalVar(dyn_cast<llvm::Instruction>(IVar)->getOperand(0));
+	  llvm::Value *TVal = EmitLValue(dyn_cast<Expr>(*I)).getAddress();
 	  CGM.OpenMPSupport.addLocalVar(TVal);
 	  llvm::errs() << ">>>Adding induction var " << *TVal << " in LocalVars\n";
 	}
@@ -5458,8 +5453,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
   for (unsigned i=0; i<RangeBegin.size(); ++i) {
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
-
-	llvm::errs() << "RB: " << *RB << "\nRE: " << *RE << "\n";
+    llvm::errs() << "RB: " << *RB << "\nRE: " << *RE << "\n";
 
     // Subtract the two pointers to obtain the size
     llvm::Value *Size = RE;
@@ -5474,23 +5468,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
     llvm::Value *Args[] = {VSize, VLoc};
     llvm::Value *SizeOnly[] = {VSize};
- 
-    llvm::errs() << ">>> (VLoc) ";
-    VLoc->print(llvm::errs());
-    llvm::errs() << "; (VSize) ";
-    VSize->print(llvm::errs());
-    llvm::errs() << "\n";
+    llvm::errs() << ">>> (VLoc) " << *VLoc << "; (VSize) " << *VSize << "\n";
 	
-//	llvm::Value *TVar = EmitLValue(RangeBegin[i]).getAddress();
-//	llvm::errs() << "TVAR: " << *TVar << "\n";
-
-//	llvm::errs() << "NAME1: " << (RangeBegin[i]) << "\n";
-//	const DeclRefExpr *D = dyn_cast<DeclRefExpr>(RangeBegin[i]);
-/*    if (D->getDecl()->getType()->isScalarType()) {
-      llvm::errs() << ">>>Mapping scalar variable:\n";
-      llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
-    }*/
-
     llvm::Value *Status = nullptr;
     int VType;
     switch(C.getKind()){
@@ -5534,7 +5513,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     }
    
     //Save the position of location in the [data] map clause
-    //This also define the buffer index (used to offloading)   
+    //This also define the buffer index (used to offloading)
     CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
   }
 }
@@ -6021,27 +6000,25 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
-  llvm::errs() << "CurOperand = ";
-  CurOperand->print(llvm::errs());
-  llvm::errs() << " size = ";
-  CurSize->print(llvm::errs());
-  
-  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
-    
-	llvm::errs() << "\nMAPOPERAND: " << *MapClausePointerValues[i] << "\n";
-
-    llvm::Value *MapOperand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
-    llvm::errs () << "\nMapOperand = ";
-    MapOperand->print(llvm::errs());
-    
-    if (MapOperand == CurOperand) {
+  const llvm::Value *COper = CurOperand;
+  if (isa<llvm::CastInst>(COper)) COper = cast<llvm::CastInst>(COper)->getOperand(0);
+  if (isa<llvm::GetElementPtrInst>(COper)) COper = cast<llvm::GetElementPtrInst>(COper)->getPointerOperand();
+  if (isa<llvm::LoadInst>(COper)) COper = cast<llvm::LoadInst>(COper)->getPointerOperand();
+  llvm::errs() << "CurOperand = " << *COper << "\n";
+ 
+  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {    
+    llvm::Value *LV = MapClausePointerValues[i];
+    if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
+    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+    llvm::errs() << "MapOperand = " << *LV << "\n";
+    if (LV == COper) {
+      //TODO: Check if size match
       return i;
     }
-  }
-  
-  llvm_unreachable("[data] map position for the clause not found or size don't match!");
-  return 0;
-  
+  }  
+  llvm_unreachable("[data] map position for the clause not found!");
+  return 0;  
 }
 
 static void GetToAddressAndSize (const OMPToClause &C,
