@@ -36,7 +36,7 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include <string>
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -880,10 +880,21 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
+//
+// Get the Variable Name inside the Value argument
+//
+llvm::StringRef getVarNameAsString (llvm::Value *FV) {
+  llvm::Value *LV = FV;
+  if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
+  if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+  if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+  return LV->getName(); 
+}
+
 ///    
 /// Recursively transverse the body of the for loop looking for uses or assigns.
 ///
-void CodeGenFunction::HandleStmts(Stmt *ST) {
+void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 
   int pos = 0;
   llvm::Value *Status = nullptr;
@@ -900,24 +911,26 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
     }
     llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
     
-    llvm::Value *TVal = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
-    llvm::errs() << *TVal << "\n";
+    llvm::Value *BodyVar = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
+    llvm::errs() << ">>> BodyVar = " << *BodyVar << "\n";
     
-    if (!CGM.OpenMPSupport.inLocalScope(TVal)) {
-      llvm::errs() << "TVar operand not in Local Scope\n";
-      if (!CGM.OpenMPSupport.isKernelVar(TVal)) {
-	llvm::errs() << "TVar operand not in Kernel Var List\n"; 
+    if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
+      llvm::errs() << "BodyVar operand not in Local Scope\n";
+      if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
+	llvm::errs() << "BodyVar operand not in Kernel Var List\n"; 
 	pos = CGM.OpenMPSupport.getKernelVarSize();
 
-/*	llvm::AllocaInst *AInst = Builder.CreateAlloca(TVal->getType(), NULL);
-	Builder.CreateStore(TVal, AInst);*/
-	llvm::Value *CVar = Builder.CreateBitCast(TVal, CGM.VoidPtrTy);
-	llvm::errs() << ">>> &Scalar Var= " << *CVar << "\n"<< *(dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType()) << "|" <<(dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType())->getPrimitiveSizeInBits();
+	llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
+	llvm::errs() << ">>> &BodyVar= " << *BVRef << "\n";
 	
-	llvm::Value *CArg[] = { Builder.getInt32(pos), Builder.getInt32((dyn_cast<llvm::AllocaInst>(TVal)->getAllocatedType())->getPrimitiveSizeInBits()/8), CVar };	
+	llvm::Value *CArg[] = { Builder.getInt32(pos),
+				Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
-	CGM.OpenMPSupport.addKernelVar(TVal);
+	CGM.OpenMPSupport.addKernelVar(BodyVar);
+	StringRef BName = getVarNameAsString(BodyVar);
+	llvm::Type *TTy = BodyVar->getType();
+	CLOS << ",\n"; TTy->print(CLOS); CLOS << " " << BName;	
       }
     }	      
   }
@@ -926,7 +939,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST) {
   for(Stmt::child_iterator I = ST->child_begin(),
 	                   E = ST->child_end();
                            I != E; ++I) {
-    if(*I != NULL) HandleStmts(*I);
+    if(*I != NULL) HandleStmts(*I, CLOS);
   }	
 }
 
@@ -942,12 +955,23 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
   if (CGM.getLangOpts().MPtoGPU) {
 
-    //Assume for now, that the loop will be translated to "kernel_saxpy.cl" kernel_function
-    std::string VName =  "_cl_kernel_name";
-    std::string VLoc = "_cl_kernel";
-    llvm::Value *VStr = Builder.CreateGlobalStringPtr("kernel_saxpy.cl", VName);
-    llvm::Value *VFunc = Builder.CreateGlobalStringPtr("kernel_saxpy", VLoc);
+    // For now, we create a opencl source kernel function
+    // Start creating a unique name that refers to cl_kernel function
+    llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
+    const llvm::StringRef TmpName = CGM.OpenMPSupport.getTempName();
+    const llvm::StringRef FuncName = "_kernel_" + TmpName.str();
+    const llvm::StringRef FileName = FuncName.str() + ".cl";
+    const llvm::StringRef CLKName =  "kname_" + TmpName.str();
+    const llvm::StringRef CLKLoc = "kernel_" + TmpName.str();
 
+    llvm::errs() << "TmpName: " << TmpName << " => FileName: " << FileName << "\n";
+    
+    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName.str(), CLKName);
+    llvm::Value *FuncStr = Builder.CreateGlobalStringPtr(FuncName.str(), CLKLoc);
+    
+    CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    CLOS << "__kernel void " << FuncName << " (\n";
+    
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
     ArrayRef<unsigned> MapClauseTypeValues;
@@ -962,25 +986,23 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
 	                                  E  = MapClausePointerValues.end();
 	                                  I != E; ++I) {
-      CGM.OpenMPSupport.addKernelVar(dyn_cast<llvm::Instruction>(*I)->getOperand(0));
+
+      llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
+      CGM.OpenMPSupport.addKernelVar(KV);
+      StringRef KName = getVarNameAsString(KV);
+      llvm::Type *KT = KV->getType();
+      CLOS << "__global "; KT->print(CLOS); CLOS << " " << KName << ",\n";
+     
     }
 
     // Get the number of cl_mem args that will be passed first to kernel_function
     int num_args =  CGM.OpenMPSupport.getKernelVarSize();
     llvm::Value *Args[] = {Builder.getInt32(num_args)};
     
-    llvm::errs() << ">>> (parallel for) \n>>> Source kernel name = ";
-    VStr->print(llvm::errs());
-    llvm::errs() << "\n>>> kernel function name = ";
-    VFunc->print(llvm::errs());
-    llvm::errs() << "\n>>> Number of cl_mem args = ";
-    Args[0]->print(llvm::errs());
-    llvm::errs() << "\n";
-    
     llvm::Value *Status = nullptr;
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), VStr);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     llvm::errs() << ">>> (parallel for) Emit cl_create_program\n";
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), VFunc);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FuncStr);
     llvm::errs() << ">>> (parallel for) Emit cl_create_kernel\n";
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
@@ -996,9 +1018,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                       E = list->child_end();
 	                       I != E; ++I) {
 	if(isa<DeclRefExpr>(*I)) {
-	  llvm::Value *TVal = EmitLValue(dyn_cast<Expr>(*I)).getAddress();
-	  CGM.OpenMPSupport.addLocalVar(TVal);
-	  llvm::errs() << ">>>Adding induction var " << *TVal << " in LocalVars\n";
+	  llvm::Value *IVal = EmitLValue(dyn_cast<Expr>(*I)).getAddress();
+	  CGM.OpenMPSupport.addLocalVar(IVal);
+	  llvm::errs() << ">>>Adding induction var " << *IVal << " in LocalVars\n";
 	}
       }
     }
@@ -1006,18 +1028,21 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     assert (FS->getCond()); // contains only one expression, like i<n;
     Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
     llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
-    CGM.OpenMPSupport.addKernelVar(dyn_cast<llvm::Instruction>(TVar)->getOperand(0));
-    llvm::errs() << ">>> Condition Variable= "<< *TVar << "\n";
-	
+    llvm::Value *CV = dyn_cast<llvm::Instruction>(TVar)->getOperand(0);
+    CGM.OpenMPSupport.addKernelVar(CV);
+    StringRef CName = getVarNameAsString(CV);
+    llvm::Type *CT = CV->getType();
+    CT->print(CLOS); CLOS << " " << CName;
+		       
     llvm::AllocaInst *AL = Builder.CreateAlloca(TVar->getType(), NULL);
     // Not sure if it is necessary, depends on the scope of the register
     AL->setUsedWithInAlloca(true);
     Builder.CreateStore(TVar, AL);
-    llvm::Value *CV = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
-    llvm::errs() << ">>> &Condition Variable= " << *CV << "\n";
+    llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
+    llvm::errs() << ">>> &Condition Variable= " << *CVRef << "\n";
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-    llvm::Value *CArg[] = {Builder.getInt32(num_args), Builder.getInt32((TVar->getType())->getPrimitiveSizeInBits()/8), CV};	
+    llvm::Value *CArg[] = {Builder.getInt32(num_args), Builder.getInt32(CT->getPrimitiveSizeInBits()/8), CVRef};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
     
@@ -1030,13 +1055,24 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       for (CompoundStmt::body_iterator I = BS->body_begin(),
 	                               E = BS->body_end();
 	                               I != E; ++I) {
-	HandleStmts(*I);
+	HandleStmts(*I, CLOS);
       }
     }
     else {
-      HandleStmts(Body);
+      HandleStmts(Body, CLOS);
     }
-        
+
+    CLOS << ") {\n";
+    CLOS << "  int i = get_global_id (0);\n";
+    CLOS << "  if (i<n)\n {\n";
+    CLOS << "    C[i] = alpha * A[i] + B[i];\n";
+    CLOS << "  }\n}\n";
+    
+    // Close the kernel file and rename it.
+    //CLOS.flush();
+    CLOS.close();
+    rename(TmpName.str().c_str(), FileName.str().c_str());
+
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(TVar, CGM.Int64Ty, false)};

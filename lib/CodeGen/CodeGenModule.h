@@ -32,6 +32,7 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ValueHandle.h"
+#include <fstream>
 
 namespace llvm {
 class Module;
@@ -1201,6 +1202,7 @@ public:
       llvm::SmallVector<llvm::Value*,16> KernelVars;
       llvm::SmallVector<llvm::Value*,16> LocalVars;
       llvm::Value* OffloadingDevice;
+      std::string KernelName;
       OMPStackElemTy(CodeGenModule &CGM);
       ~OMPStackElemTy();
     };
@@ -1356,6 +1358,16 @@ public:
        
     void setOffloadingDevice(llvm::Value *device);
     llvm::Value* getOffloadingDevice();
+
+    int createTempFile() {
+      char *tmpName = strdup("XXXXXX");
+      int fd = mkstemp (tmpName);
+      OpenMPStack.back().KernelName = std::string(tmpName);
+      return fd;
+    }
+
+    std::string getTempName() { return OpenMPStack.back().KernelName; }
+    
   };
 
   OpenMPSupportStackTy OpenMPSupport;
