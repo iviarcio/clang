@@ -955,22 +955,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
   if (CGM.getLangOpts().MPtoGPU) {
 
-    // For now, we create a opencl source kernel function
+    // For now, we create a source opencl kernel function
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
-    const llvm::StringRef TmpName = CGM.OpenMPSupport.getTempName();
-    const llvm::StringRef FuncName = "_kernel_" + TmpName.str();
-    const llvm::StringRef FileName = FuncName.str() + ".cl";
-    const llvm::StringRef CLKName =  "kname_" + TmpName.str();
-    const llvm::StringRef CLKLoc = "kernel_" + TmpName.str();
-
-    llvm::errs() << "TmpName: " << TmpName << " => FileName: " << FileName << "\n";
-    
-    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName.str(), CLKName);
-    llvm::Value *FuncStr = Builder.CreateGlobalStringPtr(FuncName.str(), CLKLoc);
-    
+    const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
+   
     CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    CLOS << "__kernel void " << FuncName << " (\n";
+    CLOS << "__kernel void _kernel_" << TmpName << " (\n";
     
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
@@ -986,24 +977,28 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
 	                                  E  = MapClausePointerValues.end();
 	                                  I != E; ++I) {
-
       llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       CGM.OpenMPSupport.addKernelVar(KV);
       StringRef KName = getVarNameAsString(KV);
       llvm::Type *KT = KV->getType();
       CLOS << "__global "; KT->print(CLOS); CLOS << " " << KName << ",\n";
-     
     }
 
+    llvm::Value *Status = nullptr;
+    
+    const llvm::StringRef FileName = "_kernel_" + TmpName.str() + ".cl";
+    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
+    llvm::errs() << ">>> (parallel for) Emit cl_create_program\n";
+
+    const llvm::StringRef FuncName = "_kernel_" + TmpName.str();
+    llvm::Value *FuncStr = Builder.CreateGlobalStringPtr(FuncName);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FuncStr);
+    llvm::errs() << ">>> (parallel for) Emit cl_create_kernel\n";
+    
     // Get the number of cl_mem args that will be passed first to kernel_function
     int num_args =  CGM.OpenMPSupport.getKernelVarSize();
     llvm::Value *Args[] = {Builder.getInt32(num_args)};
-    
-    llvm::Value *Status = nullptr;
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
-    llvm::errs() << ">>> (parallel for) Emit cl_create_program\n";
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FuncStr);
-    llvm::errs() << ">>> (parallel for) Emit cl_create_kernel\n";
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
 
@@ -1042,7 +1037,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::errs() << ">>> &Condition Variable= " << *CVRef << "\n";
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-    llvm::Value *CArg[] = {Builder.getInt32(num_args), Builder.getInt32(CT->getPrimitiveSizeInBits()/8), CVRef};	
+    llvm::Value *CArg[] = {Builder.getInt32(num_args),
+			   Builder.getInt32(CT->getPrimitiveSizeInBits()/8), CVRef};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
     
@@ -1069,9 +1065,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CLOS << "  }\n}\n";
     
     // Close the kernel file and rename it.
-    //CLOS.flush();
     CLOS.close();
-    rename(TmpName.str().c_str(), FileName.str().c_str());
+    const llvm::StringRef NewName = "_kernel_" + TmpName.str() + ".cl";
+    rename(TmpName.str().c_str(), NewName.str().c_str());
 
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
