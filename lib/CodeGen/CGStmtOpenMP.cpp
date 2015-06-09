@@ -1038,9 +1038,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
     llvm::Value *CArg[] = {Builder.getInt32(num_args),
-			   Builder.getInt32(CT->getPrimitiveSizeInBits()/8), CVRef};	
+			   Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
-    llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
+    llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n" << (AL->getAllocatedType())->getPrimitiveSizeInBits()/8 <<  "\n";
     
     // Traverse the Body looking for all scalar variables declared out of
     // "for" scope and generate value reference to pass to kernel function
