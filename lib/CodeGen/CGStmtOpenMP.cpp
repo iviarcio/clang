@@ -891,9 +891,23 @@ llvm::StringRef getVarNameAsString (llvm::Value *FV) {
   return LV->getName(); 
 }
 
-///    
-/// Recursively transverse the body of the for loop looking for uses or assigns.
-///
+//
+// Get the Variable Type inside the Value argument
+//
+llvm::Type* getVarType (llvm::Value *FV) {
+  llvm::Type *LTy;
+  if (isa<llvm::AllocaInst>(FV))
+    LTy = dyn_cast<llvm::AllocaInst>(FV)->getAllocatedType();
+  else if (isa<llvm::CastInst>(FV))
+    LTy = dyn_cast<llvm::CastInst>(FV)->getSrcTy();
+  else
+    LTy = dyn_cast<llvm::Instruction>(FV)->getOperand(0)->getType();
+  return LTy;
+}
+
+//    
+// Recursively transverse the body of the for loop looking for uses or assigns.
+//
 void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 
   int pos = 0;
@@ -929,7 +943,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 	CGM.OpenMPSupport.addKernelVar(BodyVar);
 	StringRef BName = getVarNameAsString(BodyVar);
-	llvm::Type *TTy = BodyVar->getType();
+	llvm::Type *TTy = getVarType (BodyVar);	
 	CLOS << ",\n"; TTy->print(CLOS); CLOS << " " << BName;	
       }
     }	      
@@ -1021,24 +1035,30 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     }
   
     assert (FS->getCond()); // contains only one expression, like i<n;
+    Expr *lhs = dyn_cast<BinaryOperator>(FS->getCond())->getLHS();
     Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
-    llvm::Value *TVar = EmitAnyExprToTemp(rhs).getScalarVal();
-    llvm::Value *CV = dyn_cast<llvm::Instruction>(TVar)->getOperand(0);
+    llvm::Value *IdxVar = EmitAnyExprToTemp(lhs).getScalarVal();
+    llvm::Value *IV = dyn_cast<llvm::Instruction>(IdxVar)->getOperand(0);
+    llvm::Value *CondVar = EmitAnyExprToTemp(rhs).getScalarVal();
+    llvm::Value *CV = dyn_cast<llvm::Instruction>(CondVar)->getOperand(0);
     CGM.OpenMPSupport.addKernelVar(CV);
+
+    StringRef IName = getVarNameAsString(IV);
     StringRef CName = getVarNameAsString(CV);
-    llvm::Type *CT = CV->getType();
-    CT->print(CLOS); CLOS << " " << CName;
-		       
-    llvm::AllocaInst *AL = Builder.CreateAlloca(TVar->getType(), NULL);
+    llvm::Type *ITy = getVarType (IV);
+    llvm::Type *CTy = getVarType (CV);
+    CTy->print(CLOS); CLOS << " " << CName;
+
+    llvm::AllocaInst *AL = Builder.CreateAlloca(CondVar->getType(), NULL);
     // Not sure if it is necessary, depends on the scope of the register
     AL->setUsedWithInAlloca(true);
-    Builder.CreateStore(TVar, AL);
+    Builder.CreateStore(CondVar, AL);
     llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
     llvm::errs() << ">>> &Condition Variable= " << *CVRef << "\n";
 	
     // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
     llvm::Value *CArg[] = {Builder.getInt32(num_args),
-			   Builder.getInt32(CT->getPrimitiveSizeInBits()/8), CVRef};	
+			   Builder.getInt32(CTy->getPrimitiveSizeInBits()/8), CVRef};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
     llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";
     
@@ -1059,11 +1079,18 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     }
 
     CLOS << ") {\n";
-    CLOS << "  int i = get_global_id (0);\n";
-    CLOS << "  if (i<n)\n {\n";
-    CLOS << "    C[i] = alpha * A[i] + B[i];\n";
-    CLOS << "  }\n}\n";
-    
+    CLOS << "  "; ITy->print(CLOS); CLOS << " " << IName << " = get_global_id (0);\n";
+    if (isa<CompoundStmt>(Body)) {
+      CLOS << "  if (" << IName << " < " << CName << ")\n";
+      Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
+      CLOS << "\n}\n";
+    }
+    else {
+      CLOS << "  if (" << IName << " < " << CName << ")\n {\n";
+      Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
+      CLOS << ";\n }\n}\n";
+    }
+      
     // Close the kernel file and rename it.
     CLOS.close();
     const llvm::StringRef NewName = "_kernel_" + TmpName.str() + ".cl";
@@ -1071,7 +1098,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
-    llvm::Value *WorkSize[] = {Builder.CreateIntCast(TVar, CGM.Int64Ty, false)};
+    llvm::Value *WorkSize[] = {Builder.CreateIntCast(CondVar, CGM.Int64Ty, false)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     
