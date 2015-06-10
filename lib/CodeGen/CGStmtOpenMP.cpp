@@ -881,6 +881,34 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
 }
 
 //
+// Get the Primitive Integer Type Name as String
+//
+llvm::StringRef getTypeNameAsString(llvm::Type *FT) {
+  llvm::StringRef TName;
+  switch (FT->getPrimitiveSizeInBits()/8) {
+  case 1:
+    TName = "char";
+    break;
+  case 2:
+    TName = "short";
+    break;
+  case 4:
+    TName = "int";
+    break;
+  case 8:
+    TName = "long";
+    break;
+  case 16:
+    TName = "unsigned long long";
+    break;
+  default:
+    TName = "int";
+    break;
+  }
+  return TName;
+}
+
+//
 // Get the Variable Name inside the Value argument
 //
 llvm::StringRef getVarNameAsString (llvm::Value *FV) {
@@ -902,6 +930,7 @@ llvm::Type* getVarType (llvm::Value *FV) {
     LTy = dyn_cast<llvm::CastInst>(FV)->getSrcTy();
   else
     LTy = dyn_cast<llvm::Instruction>(FV)->getOperand(0)->getType();
+
   return LTy;
 }
 
@@ -943,8 +972,13 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 	llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 	CGM.OpenMPSupport.addKernelVar(BodyVar);
 	StringRef BName = getVarNameAsString(BodyVar);
-	llvm::Type *TTy = getVarType (BodyVar);	
-	CLOS << ",\n"; TTy->print(CLOS); CLOS << " " << BName;	
+	llvm::Type *TTy = getVarType (BodyVar);
+
+	CLOS << ",\n";
+	//A palliative to figure out how to get the name of a primitive type
+	if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
+	else TTy->print(CLOS); 
+	CLOS << " " << BName;
       }
     }	      
   }
@@ -995,7 +1029,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CGM.OpenMPSupport.addKernelVar(KV);
       StringRef KName = getVarNameAsString(KV);
       llvm::Type *KT = KV->getType();
-      CLOS << "__global "; KT->print(CLOS); CLOS << " " << KName << ",\n";
+      
+      CLOS << "__global ";
+      //A palliative to figure out how to get the name of a primitive type
+      if (KT->isIntegerTy()) CLOS << getTypeNameAsString(KT);
+      else KT->print(CLOS);
+      CLOS << " " << KName << ",\n";
     }
 
     llvm::Value *Status = nullptr;
@@ -1047,8 +1086,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     StringRef CName = getVarNameAsString(CV);
     llvm::Type *ITy = getVarType (IV);
     llvm::Type *CTy = getVarType (CV);
-    CTy->print(CLOS); CLOS << " " << CName;
 
+    //A palliative to figure out how to get the name of a primitive type
+    if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+    else CTy->print(CLOS);
+    CLOS << " " << CName;
+    
     llvm::AllocaInst *AL = Builder.CreateAlloca(CondVar->getType(), NULL);
     // Not sure if it is necessary, depends on the scope of the register
     AL->setUsedWithInAlloca(true);
@@ -1078,8 +1121,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       HandleStmts(Body, CLOS);
     }
 
-    CLOS << ") {\n";
-    CLOS << "  "; ITy->print(CLOS); CLOS << " " << IName << " = get_global_id (0);\n";
+    CLOS << ") {\n   ";
+    
+    //A palliative to figure out how to get the name of a primitive type
+    if (ITy->isIntegerTy()) CLOS << getTypeNameAsString(ITy);
+    else ITy->print(CLOS);
+    CLOS << " " << IName << " = get_global_id (0);\n";
+    
     if (isa<CompoundStmt>(Body)) {
       CLOS << "  if (" << IName << " < " << CName << ")\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
