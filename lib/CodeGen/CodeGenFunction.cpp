@@ -711,7 +711,8 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
       if (FD->isMain()) {
 	llvm::Value* func = CGM.getMPtoGPURuntime().cldevice_init(); 
 	EmitRuntimeCall(func);
-	llvm::errs() << ">>> Emit _cl_device_init()\n";
+	bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+	if (verbose) llvm::errs() << ">>> Emit _cl_device_init()\n";
       }
   }
 

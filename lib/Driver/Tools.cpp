@@ -2586,9 +2586,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-  if (Args.hasArg(options::OPT_mptogpu)){
-    CmdArgs.push_back("-mptogpu");
-  }
+    if (Args.hasArg(options::OPT_mptogpu)){
+      CmdArgs.push_back("-mptogpu");
+    }
 
     // inform the frontend we are generating code for a target
     if ( JA.getOffloadingDevice() )
@@ -5921,22 +5921,18 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-lomptarget");
   }
 
-  if (Args.hasArg(options::OPT_mptogpu)){
-	llvm::errs() << "FLAG3: " << Args.hasArg(options::OPT_mptogpu) << "\n";
+  if (Args.hasArg(options::OPT_mptogpu)) {
     CmdArgs.push_back("-lmptogpu");
-	#ifdef __APPLE__
-    		CmdArgs.push_back("-framework");
-    		CmdArgs.push_back("OpenCL");
-	#else
-    		CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
-	#endif
-//    CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
-    //CmdArgs.push_back("-framework");
-    //CmdArgs.push_back("OpenCL");
+#ifdef __APPLE__
+    CmdArgs.push_back("-framework");
+    CmdArgs.push_back("OpenCL");
+#else
+    CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+#endif
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,
-      JA.getOffloadingDevice());
+		  JA.getOffloadingDevice());
   
   if (isObjCRuntimeLinked(Args) &&
       !Args.hasArg(options::OPT_nostdlib) &&
@@ -7681,18 +7677,15 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
-	bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
+      bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
       if (MPtoGPU){
 	CmdArgs.push_back("-lmptogpu");
-	#ifdef __APPLE__
-                CmdArgs.push_back("-framework");
-                CmdArgs.push_back("OpenCL");
-        #else
-                CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
-        #endif
-//	CmdArgs.push_back("-lOpenCL");
-	//CmdArgs.push_back("-framework");
-	//CmdArgs.push_back("OpenCL");
+#ifdef __APPLE__
+	CmdArgs.push_back("-framework");
+	CmdArgs.push_back("OpenCL");
+#else
+	CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+#endif
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 

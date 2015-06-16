@@ -3487,8 +3487,7 @@ void CodeGenModule::OpenMPSupportStackTy::endOpenMPRegion() {
          "OpenMP private variables region is not started.");
   assert(!OpenMPStack.back().IfEnd && "If not closed.");
   OpenMPStack.pop_back();
-
-  llvm::errs() << ">> Call to endOpenMPRegion\n";
+  //llvm::errs() << ">> Call to endOpenMPRegion\n";
 }
 
 void CodeGenModule::OpenMPSupportStackTy::registerReductionVar(

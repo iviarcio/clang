@@ -1254,7 +1254,7 @@ public:
     void startOpenMPRegion(bool NewTask) {
       OpenMPStack.push_back(OMPStackElemTy(CGM));
       OpenMPStack.back().NewTask = NewTask;
-      llvm::errs() << ">> Call to startOpenMPRegion\n";
+      //llvm::errs() << ">> Call to startOpenMPRegion\n";
 
     }
     bool isNewTask() { return OpenMPStack.back().NewTask; };
@@ -1360,7 +1360,7 @@ public:
     llvm::Value* getOffloadingDevice();
 
     int createTempFile() {
-      char *tmpName = strdup("XXXXXX");
+      char *tmpName = strdup("_kernel_XXXXXX");
       int fd = mkstemp (tmpName);
       OpenMPStack.back().KernelName = std::string(tmpName);
       return fd;
