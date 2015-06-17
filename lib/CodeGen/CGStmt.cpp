@@ -14,6 +14,7 @@
 #include "CodeGenFunction.h"
 #include "CGDebugInfo.h"
 #include "CodeGenModule.h"
+#include "CGMPtoGPURuntime.h"
 #include "TargetInfo.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/CapturedStmt.h"
@@ -1091,6 +1092,17 @@ void CodeGenFunction::EmitReturnOfRValue(RValue RV, QualType Ty) {
 /// if the function returns void, or may be missing one if the function returns
 /// non-void.  Fun stuff :).
 void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
+
+  if (CGM.getLangOpts().MPtoGPU) {
+    // If it is a return in main function then
+    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
+      if (FD->isMain()) {
+	// Then, emit runtime call for cldevice_finish at the end of main function 
+	llvm::Value* funcFinish = CGM.getMPtoGPURuntime().cldevice_finish(); 
+	EmitRuntimeCall(funcFinish);
+      }
+  }
+  
   // Emit the result value, even if unused, to evalute the side effects.
   const Expr *RV = S.getRetValue();
 

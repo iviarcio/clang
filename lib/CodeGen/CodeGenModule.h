@@ -1347,6 +1347,8 @@ public:
 		   unsigned MapType,
 		   unsigned MapPosition);
 
+    int getMapSize() { return OpenMPStack.back().MapPointers.size(); }
+
     void addKernelVar(llvm::Value *KernelVar) { OpenMPStack.back().KernelVars.push_back(KernelVar); }
     void clearKernelVars() { OpenMPStack.back().KernelVars.clear(); }
     bool isKernelVar(llvm::Value *KernelVar);

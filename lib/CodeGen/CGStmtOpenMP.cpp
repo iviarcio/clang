@@ -5505,6 +5505,16 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
                             OMPD_distribute_parallel_for_simd, S);
 }
 
+
+//
+// Release Buffers of mapped locations
+//
+void CodeGenFunction::ReleaseBuffers() {
+  llvm::Value *Status = nullptr;
+  llvm::Value *Args[] = {Builder.getInt32(CGM.OpenMPSupport.getMapSize())};
+  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffers(),Args);
+}
+
 //
 // Emit RuntimeCalls to sync host and device at the end of MPRegion
 //
@@ -5759,7 +5769,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     }
 
     if (regionStarted) {
-     CGM.OpenMPSupport.endOpenMPRegion();
+      ReleaseBuffers(); 
+      CGM.OpenMPSupport.endOpenMPRegion();
     }
 
     if (hasIfClause) {
@@ -6135,6 +6146,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
       EmitBranch(ContBlock);
       EmitBlock(ContBlock, true);
     }
+    ReleaseBuffers();
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }

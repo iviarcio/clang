@@ -705,14 +705,14 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
   RegionCounter Cnt = getPGORegionCounter(Body);
   Cnt.beginRegion(Builder);
 
-  // If MPtoGPU then Emit runtime call for cl_device_init () in main function 
+  // If MPtoGPU then Emit runtime call for cldevice_init if main function 
   if (getLangOpts().MPtoGPU) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
       if (FD->isMain()) {
-	llvm::Value* func = CGM.getMPtoGPURuntime().cldevice_init(); 
-	EmitRuntimeCall(func);
+	llvm::Value* funcInit = CGM.getMPtoGPURuntime().cldevice_init(); 
+	EmitRuntimeCall(funcInit);
 	bool verbose = CGM.getCodeGenOpts().AsmVerbose;
-	if (verbose) llvm::errs() << ">>> Emit _cl_device_init()\n";
+	if (verbose) llvm::errs() << ">>> Emit _cldevice_init()\n";
       }
   }
 
@@ -720,6 +720,7 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
     EmitCompoundStmtWithoutScope(*S);
   else
     EmitStmt(Body);
+  
 }
 
 /// When instrumenting to collect profile data, the counts for some blocks
