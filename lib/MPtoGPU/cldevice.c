@@ -361,7 +361,7 @@ int _cl_create_read_only (long size) {
     _curid--;
     return 0;
   }
-  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     perror("Failed to create a read-only device buffer");
@@ -382,7 +382,7 @@ int _cl_offloading_read_only (long size, void* loc) {
     _curid--;
     return 0;
   }
-  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);

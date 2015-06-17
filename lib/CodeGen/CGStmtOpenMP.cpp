@@ -1025,6 +1025,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CGM.OpenMPSupport.clearKernelVars();
     CGM.OpenMPSupport.clearLocalVars();
     
+    int j = 0;
     for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
 	                                  E  = MapClausePointerValues.end();
 	                                  I != E; ++I) {
@@ -1032,8 +1033,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CGM.OpenMPSupport.addKernelVar(KV);
       StringRef KName = getVarNameAsString(KV);
       llvm::Type *KT = KV->getType();
+
+      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global const ";
+      else CLOS << "__global ";
+      j++;
       
-      CLOS << "__global ";
       //A palliative to figure out how to get the name of a primitive type
       if (KT->isIntegerTy()) CLOS << getTypeNameAsString(KT);
       else KT->print(CLOS);
