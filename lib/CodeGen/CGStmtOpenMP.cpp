@@ -1009,8 +1009,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
-    const llvm::StringRef FileName = StringRef(TmpName.str());
+//    const llvm::StringRef FileName = StringRef(TmpName.str());
+    const std::string FileName = TmpName.str();
     
+    llvm::errs() << "__kernel " << TmpName << " - " << FileName << "\n";
+
     CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     CLOS << "__kernel void " << TmpName << " (\n";
     
