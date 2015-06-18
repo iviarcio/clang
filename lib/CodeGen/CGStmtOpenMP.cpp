@@ -959,7 +959,6 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
     if (verbose) llvm::errs() << ">>> BodyVar = " << *BodyVar << "\n";
     
     if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
-      if (verbose) llvm::errs() << "BodyVar operand not in Local Scope\n";
       if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 	if (verbose) llvm::errs() << "BodyVar operand not in Kernel Var List\n"; 
 	pos = CGM.OpenMPSupport.getKernelVarSize();
@@ -1035,15 +1034,25 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       CGM.OpenMPSupport.addKernelVar(KV);
       StringRef KName = getVarNameAsString(KV);
-      llvm::Type *KT = KV->getType();
+      llvm::Type *KT = KV->getType()->getScalarType();
 
       if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global const ";
       else CLOS << "__global ";
       j++;
-      
-      //A palliative to figure out how to get the name of a primitive type
-      if (KT->isIntegerTy()) CLOS << getTypeNameAsString(KT);
+
+      bool isPointer = false;
+      if (KT->isPointerTy()) {
+	KT = KT->getPointerElementType();
+	isPointer = true;
+      }
+      if (KT->isIntegerTy()) {
+	//A palliative to figure out how to get the name of a primitive type
+	CLOS << getTypeNameAsString(KT);
+      }
+      else if (KT->isArrayTy()) KT->getArrayElementType()->print(CLOS);
+      else if (KT->isVectorTy()) KT->getVectorElementType()->print(CLOS);
       else KT->print(CLOS);
+      if (isPointer) CLOS << "*";
       CLOS << " " << KName << ",\n";
     }
 
