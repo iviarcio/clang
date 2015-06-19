@@ -1008,11 +1008,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
-//    const llvm::StringRef FileName = StringRef(TmpName.str());
     const std::string FileName = TmpName.str();
     
-    llvm::errs() << "__kernel " << TmpName << " - " << FileName << "\n";
-
     CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     CLOS << "__kernel void " << TmpName << " (\n";
     
@@ -1159,20 +1156,21 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     // Change the temporary name to OpenCL kernel name
     const llvm::StringRef clName = TmpName.str() + ".cl";
-    if (verbose) llvm::errs() << ">>> TmpName = " << TmpName << " -> " << clName << "\n";
+    if (verbose) llvm::errs() << ">>> Renaming " << TmpName << " to " << clName << "\n";
     rename(TmpName.str().c_str(), clName.str().c_str());
 
     // Try to compile the kernel source to binary.
     // (Todo in future) In case of success, remove the source code
     llvm::Value *clid = CGM.OpenMPSupport.getOffloadingDevice();
-    if (isa<llvm::ConstantInt>(clid)) {
-      const llvm::StringRef SysArg = "create_binaries " +
-	cast<llvm::ConstantInt>(clid)->getValue().toString(10,false) +
-	" " + TmpName.str();
-      if (verbose) llvm::errs() << ">>> " << SysArg << "\n";    
-      std::system(SysArg.str().c_str());
+    if (clid) {
+      if (isa<llvm::ConstantInt>(clid)) {
+	const llvm::StringRef SysArg = "create_binaries " +
+	  cast<llvm::ConstantInt>(clid)->getValue().toString(10,false) +
+	  " " + TmpName.str();
+	if (verbose) llvm::errs() << ">>> " << SysArg << "\n";    
+	std::system(SysArg.str().c_str());
+      }
     }
-    
     
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
