@@ -2200,6 +2200,7 @@ public:
   void ReleaseBuffers();
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS);
+  void MapStmts(const Stmt *ST, llvm::Value * val);
   
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);

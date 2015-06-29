@@ -45,6 +45,8 @@ namespace {
 // common parent to all the loop-like directives to get rid of these.
 //
 
+std::map<llvm::Value *, std::string> mapping;
+
 static bool isLoopDirective(const OMPExecutableDirective *ED) {
   return isa<OMPForDirective>(ED) || isa<OMPParallelForDirective>(ED) ||
          isa<OMPParallelForSimdDirective>(ED) || isa<OMPSimdDirective>(ED) ||
@@ -957,6 +959,9 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
     
     llvm::Value *BodyVar = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
     if (verbose) llvm::errs() << ">>> BodyVar = " << *BodyVar << "\n";
+
+	VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
+	if (verbose) llvm::errs() << ">>> VarDecl = " << VD->getName() << "\n";
     
     if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
       if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
@@ -971,7 +976,8 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 	CGM.OpenMPSupport.addKernelVar(BodyVar);
-	StringRef BName = getVarNameAsString(BodyVar);
+//	StringRef BName = getVarNameAsString(BodyVar);
+	StringRef BName = VD->getName();
 	llvm::Type *TTy = getVarType (BodyVar);
 
 	CLOS << ",\n";
@@ -1030,7 +1036,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                                  I != E; ++I) {
       llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       CGM.OpenMPSupport.addKernelVar(KV);
-      StringRef KName = getVarNameAsString(KV);
+
+//	VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
+//	if (verbose) llvm::errs() << ">>> KernelVar = " << *(*I) << "\n";
+
+//      StringRef KName = getVarNameAsString(KV);
+		std::string KName = mapping[KV];
+
       llvm::Type *KT = KV->getType()->getScalarType();
 
       if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global const ";
@@ -1098,6 +1110,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     StringRef CName = getVarNameAsString(CV);
     llvm::Type *ITy = getVarType (IV);
     llvm::Type *CTy = getVarType (CV);
+
+	CName = CName.slice(0,CName.find('.'));
 
     //A palliative to figure out how to get the name of a primitive type
     if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
@@ -5589,6 +5603,22 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
   }
 }
 
+void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
+
+    if(isa<DeclRefExpr>(ST)) {
+    const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
+		llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
+		mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+  	}
+
+  // Get the children of the current node in the AST and call the function recursively
+  for(Stmt::const_child_iterator I = ST->child_begin(),
+	                   E = ST->child_end();
+                           I != E; ++I) {
+    if(*I != NULL) MapStmts(*I, val);
+  }	
+}
+
 //
 // Emit RuntimeCalls for Map Clauses in omp target map directive
 //
@@ -5632,6 +5662,9 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value *Args[] = {VSize, VLoc};
     llvm::Value *SizeOnly[] = {VSize};
     if (verbose) llvm::errs() << ">>> (VLoc) " << *VLoc << "; (VSize) " << *VSize << "\n";
+
+	const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
+	MapStmts(ST, VLoc);
 	
     llvm::Value *Status = nullptr;
     int VType;
