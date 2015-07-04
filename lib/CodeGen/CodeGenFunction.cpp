@@ -336,6 +336,12 @@ void CodeGenFunction::EmitMCountInstrumentation() {
   EmitNounwindRuntimeCall(MCountFn);
 }
 
+// Returns true if the given module has SPIR (32/64) target
+static bool isSpirTarget(const llvm::Module *M) {
+  assert (M && "NULL module given");
+  return llvm::StringRef(M->getTargetTriple()).startswith("spir");
+}
+
 // OpenCL v1.2 s5.6.4.6 allows the compiler to store kernel argument
 // information in the program executable. The argument information stored
 // includes the argument name, its type, the address and access qualifiers used.
@@ -343,6 +349,7 @@ static void GenOpenCLArgMetadata(const FunctionDecl *FD, llvm::Function *Fn,
                                  CodeGenModule &CGM,llvm::LLVMContext &Context,
                                  SmallVector <llvm::Value*, 5> &kernelMDArgs,
                                  CGBuilderTy& Builder, ASTContext &ASTCtx) {
+
   // Create MDNodes that represent the kernel arg metadata.
   // Each MDNode is a list in the form of "key", N number of values which is
   // the same number of values as their are kernel arguments.
@@ -460,7 +467,8 @@ void CodeGenFunction::EmitOpenCLKernelMetadata(const FunctionDecl *FD,
   SmallVector <llvm::Value*, 5> kernelMDArgs;
   kernelMDArgs.push_back(Fn);
 
-  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata)
+  if (CGM.getCodeGenOpts().EmitOpenCLArgMetadata ||
+      isSpirTarget(Fn->getParent()))
     GenOpenCLArgMetadata(FD, Fn, CGM, Context, kernelMDArgs,
                          Builder, getContext());
 

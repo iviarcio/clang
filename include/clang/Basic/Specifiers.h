@@ -209,7 +209,9 @@ namespace clang {
     CC_AAPCS,       // __attribute__((pcs("aapcs")))
     CC_AAPCS_VFP,   // __attribute__((pcs("aapcs-vfp")))
     CC_PnaclCall,   // __attribute__((pnaclcall))
-    CC_IntelOclBicc // __attribute__((intel_ocl_bicc))
+    CC_IntelOclBicc, // __attribute__((intel_ocl_bicc))
+    CC_SpirFunction, // default for OpenCL functions on SPIR target
+    CC_SpirKernel    // inferred for OpenCL kernels on SPIR target
   };
 
   /// \brief Checks whether the given calling convention is callee-cleanup.

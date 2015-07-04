@@ -570,6 +570,10 @@ def cl_mad_enable : Flag<["-"], "cl-mad-enable">,
 def cl_std_EQ : Joined<["-"], "cl-std=">,
   HelpText<"OpenCL language standard to compile for">;
 
+//SPIR generator options
+def cl_spir_compile_options : Separate<["-"], "cl-spir-compile-options">,
+  HelpText<"SPIR compilation options to record in metadata">;
+
 //===----------------------------------------------------------------------===//
 // CUDA Options
 //===----------------------------------------------------------------------===//

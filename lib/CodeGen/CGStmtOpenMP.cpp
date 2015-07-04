@@ -5605,16 +5605,18 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 
 void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
 
-    if(isa<DeclRefExpr>(ST)) {
+  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+  
+  if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-		llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
-		mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
-  	}
+    if (verbose) llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
+    mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+  }
 
   // Get the children of the current node in the AST and call the function recursively
-  for(Stmt::const_child_iterator I = ST->child_begin(),
-	                   E = ST->child_end();
-                           I != E; ++I) {
+  for(Stmt::const_child_iterator I  = ST->child_begin(),
+	                         E  = ST->child_end();
+                                 I != E; ++I) {
     if(*I != NULL) MapStmts(*I, val);
   }	
 }
