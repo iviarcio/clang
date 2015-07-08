@@ -1354,6 +1354,10 @@ public:
     bool isKernelVar(llvm::Value *KernelVar);
     int getKernelVarSize() { return OpenMPStack.back().KernelVars.size(); }
 
+	void PrintMapped(OMPStackElemTy *elem);
+	void PrintAllStack();
+	void InheritMapPos();
+
     void addLocalVar(llvm::Value *LocalVar) { OpenMPStack.back().LocalVars.push_back(LocalVar); }
     void clearLocalVars() { OpenMPStack.back().LocalVars.clear(); }
     bool inLocalScope(llvm::Value *LocalVar);

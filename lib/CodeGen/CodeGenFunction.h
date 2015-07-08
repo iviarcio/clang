@@ -2201,6 +2201,7 @@ public:
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS);
   void MapStmts(const Stmt *ST, llvm::Value * val);
+  void EmitInheritedMap();
   
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);

@@ -1097,6 +1097,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
   
+	//TODO handle all kinds of conditions:
+	//	for(i=0; n>i; i++)
+	//	for(i=n-1; i>=0; i--)
+
+	//TODO get induction variable using increment instead condition
+	//
+	
     assert (FS->getCond()); // contains only one expression, like i<n;
     Expr *lhs = dyn_cast<BinaryOperator>(FS->getCond())->getLHS();
     Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
@@ -1106,12 +1113,14 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::Value *CV = dyn_cast<llvm::Instruction>(CondVar)->getOperand(0);
     CGM.OpenMPSupport.addKernelVar(CV);
 
-    StringRef IName = getVarNameAsString(IV);
-    StringRef CName = getVarNameAsString(CV);
+    std::string IName = getVarNameAsString(IV);
+//    StringRef CName = getVarNameAsString(CV);
+	DeclRefExpr *D = dyn_cast<DeclRefExpr>(*(rhs->child_begin()));
+	std::string CName = (D->getDecl())->getNameAsString();
     llvm::Type *ITy = getVarType (IV);
     llvm::Type *CTy = getVarType (CV);
 
-	CName = CName.slice(0,CName.find('.'));
+//	CName = CName.slice(0,CName.find('.'));
 
     //A palliative to figure out how to get the name of a primitive type
     if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
@@ -5609,9 +5618,9 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
   
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-    if (verbose) llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
-    mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
-  }
+//		llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
+		mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+  	}
 
   // Get the children of the current node in the AST and call the function recursively
   for(Stmt::const_child_iterator I  = ST->child_begin(),
@@ -5619,6 +5628,52 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
                                  I != E; ++I) {
     if(*I != NULL) MapStmts(*I, val);
   }	
+}
+
+void CodeGenFunction::EmitInheritedMap() {
+	
+	ArrayRef<llvm::Value*> MapClausePointerValues;
+  ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<unsigned> MapClauseTypeValues;
+  ArrayRef<unsigned> MapClausePositionValues;
+
+  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+			      MapClauseSizeValues,
+			      MapClauseTypeValues,
+			      MapClausePositionValues);
+
+  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+  llvm::Value *Status = nullptr;
+
+	int i;
+	for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+
+		llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
+		llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
+
+	    switch(MapClauseTypeValues[i]){
+	    default:
+		 llvm_unreachable("(target [data] map) Unknown clause type!");
+		 break;
+	    case OMP_TGT_MAPTYPE_TOFROM:
+		Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+		if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
+		 break;
+	    case OMP_TGT_MAPTYPE_TO:
+		Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+		if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
+		 break;
+	    case OMP_TGT_MAPTYPE_FROM:
+		 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
+		 if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
+		 break;
+	    case OMP_TGT_MAPTYPE_ALLOC:
+		 //todo: check the type of memory used by alloc clause
+		 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+		 if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
+		 break;
+	    }
+	}
 }
 
 //
@@ -5676,35 +5731,35 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
-      if (DataDirective) {
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
-	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_write\n";
-      }
-      else {
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+//      if (DataDirective) {
+//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+//	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_write\n";
+//      }
+//      else {
+//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
 	if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
-      }
+//      }
       VType = OMP_TGT_MAPTYPE_TOFROM;
       break;
     case OMPC_MAP_to:
-      if (DataDirective) {
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), SizeOnly);
-	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_only\n";
-      }
-      else {
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+//      if (DataDirective) {
+//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), SizeOnly);
+//	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_only\n";
+//      }
+//      else {
+//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
 	if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
-      }
+//      }
       VType = OMP_TGT_MAPTYPE_TO;
       break;
     case OMPC_MAP_from:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
+//      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
       VType =  OMP_TGT_MAPTYPE_FROM;
       if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
       //todo: check the type of memory used by alloc clause
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+//      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
       VType = OMP_TGT_MAPTYPE_ALLOC;
       if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
       break;
@@ -5798,11 +5853,16 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	      regionStarted = true;
 	      CGM.OpenMPSupport.startOpenMPRegion(true);
 	    }
+		CGM.OpenMPSupport.InheritMapPos();
+		
 	    EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
+		EmitInheritedMap();
 	  }
 	}
       }
     }
+
+	CGM.OpenMPSupport.PrintAllStack();
     
     EmitStmt(CS->getCapturedStmt());
 

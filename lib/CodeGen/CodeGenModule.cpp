@@ -3923,6 +3923,55 @@ bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
   return false;
 }
 
+
+void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
+
+	int i;
+	llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
+	end--;
+  for (llvm::SmallVector<OMPStackElemTy, 16>::iterator IS = OpenMPStack.begin(),
+	                                      ES = end;
+	                                      IS != ES; ++IS) {
+		i = 0;
+		for (SmallVector<llvm::Value*,16>::iterator IM  = IS->MapPointers.begin(),
+	                                      EM  = IS->MapPointers.end();
+	                                      IM != EM; ++IM) {
+			OpenMPStack.back().MapPointers.push_back(IS->MapPointers[i]);
+			OpenMPStack.back().MapSizes.push_back(IS->MapSizes[i]);
+			OpenMPStack.back().MapTypes.push_back(IS->MapTypes[i]);
+			OpenMPStack.back().MapPositions.push_back(IS->MapPositions[i]);
+			i++;
+		  }
+  }
+}
+
+// For testing
+void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
+
+  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
+  for (SmallVector<llvm::Value*,16>::iterator I  = elem->MapPointers.begin(),
+	                                      E  = elem->MapPointers.end();
+	                                      I != E; ++I) {
+    llvm::Value *LV = (*I);
+    llvm::errs() << "  Val : " << *LV << "\n";    
+  }
+}
+
+// For testing
+void CodeGenModule::OpenMPSupportStackTy::PrintAllStack() {
+
+  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
+	int i = 0;
+	llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
+//	end--;
+  for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
+	                                      E = end;//OpenMPStack.end();
+	                                      I != E; ++I) {
+		llvm::errs() << "Item " << i++ << ":\n";
+		PrintMapped(I);
+  }
+}
+
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
 
   //llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
