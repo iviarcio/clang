@@ -221,6 +221,8 @@ namespace clang {
     case CC_X86FastCall:
     case CC_X86ThisCall:
     case CC_X86Pascal:
+    case CC_SpirFunction:
+    case CC_SpirKernel:
       return true;
     default:
       return false;
