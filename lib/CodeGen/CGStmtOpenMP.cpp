@@ -5651,6 +5651,8 @@ void CodeGenFunction::EmitInheritedMap() {
 		llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
 		llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
 
+		if (verbose) llvm::errs() << "Inheriting " << MapClausePointerValues[i] << "\n";
+
 	    switch(MapClauseTypeValues[i]){
 	    default:
 		 llvm_unreachable("(target [data] map) Unknown clause type!");
@@ -5856,11 +5858,13 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 		CGM.OpenMPSupport.InheritMapPos();
 		
 	    EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
-		EmitInheritedMap();
+		
 	  }
 	}
+	
       }
     }
+	EmitInheritedMap();
 
 	CGM.OpenMPSupport.PrintAllStack();
     
