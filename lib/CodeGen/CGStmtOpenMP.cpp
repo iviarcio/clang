@@ -46,6 +46,8 @@ namespace {
 //
 
 std::map<llvm::Value *, std::string> mapping;
+bool isTargetDataIf = false;
+int TargetDataIfRegion = 0;
 
 static bool isLoopDirective(const OMPExecutableDirective *ED) {
   return isa<OMPForDirective>(ED) || isa<OMPParallelForDirective>(ED) ||
@@ -1010,6 +1012,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   if (CGM.getLangOpts().MPtoGPU) {
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
+	if(isTargetDataIf && TargetDataIfRegion == 2) {
+		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+		return;
+	}
+
     // For now, we create a source opencl kernel function
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
@@ -1064,6 +1071,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       if (isPointer) CLOS << "*";
       CLOS << " " << KName << ",\n";
     }
+
+	if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
+		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+		return;
+	}
 
     llvm::Value *Status = nullptr;
     
@@ -5794,6 +5806,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
+	if(TargetDataIfRegion != 2) {
     //First, check if the target directive is empty.
     //In this case, Offloading data are needed
     if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
@@ -5802,6 +5815,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     }
     else {
       
+	if(!isTargetDataIf) {
+
       //If target clause is not empty, look for "if" clause
       for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                   E  = S.clauses().end();
@@ -5818,6 +5833,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	  EmitBlock(ThenBlock);
 	}
       }
+	}
 
       // If the if clause is the only one then offloading data too
       if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
@@ -5867,11 +5883,13 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	EmitInheritedMap();
 
 	CGM.OpenMPSupport.PrintAllStack();
+	}
     
     EmitStmt(CS->getCapturedStmt());
 
     if (regionStarted || emptyTarget) {
       EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+      EmitSyncMapClauses(OMP_TGT_MAPTYPE_TOFROM);
     }
 
     if (regionStarted) {
@@ -6188,9 +6206,11 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 
   bool hasIfClause = false;
-  llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
-  llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
-  llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
+	OMPClause *IC;
+
+  llvm::BasicBlock *ThenBlock = createBasicBlock("target.then");
+  llvm::BasicBlock *ElseBlock = createBasicBlock("target.else");
+  llvm::BasicBlock *ContBlock = createBasicBlock("target.end");
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // *************************************************
@@ -6207,15 +6227,21 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_if) {
-	hasIfClause = true;
-	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
-	EmitBlock(ElseBlock);
-	RunCleanupsScope ElseScope(*this);
-	EmitStmt(CS->getCapturedStmt());
-	EnsureInsertPoint();
-	EmitBranch(ContBlock);
-	EmitBlock(ThenBlock);
-      }
+		hasIfClause = true;
+		IC = *I;
+		isTargetDataIf = true;
+		break;
+	}
+//	break;
+//	EmitBranchOnBoolExpr(cast<OMPIfClause>(IC)->getCondition(), ThenBlock, ElseBlock, 0);
+//	EmitBlock(ElseBlock);
+//	RunCleanupsScope ElseScope(*this);
+//	EmitStmt(CS->getCapturedStmt());
+//	EnsureInsertPoint();
+//	EmitBranch(ContBlock);
+//	TargetDataIfRegion = 1;
+//	EmitBlock(ThenBlock);
+//      }
     }
  
     //Now, look for device clause in the target directive
@@ -6233,6 +6259,12 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
 	if (verbose) llvm::errs() << ">>> (target data map) Emit set_default_device\n";
       }
     }
+
+	if(hasIfClause) {
+		EmitBranchOnBoolExpr(cast<OMPIfClause>(IC)->getCondition(), ThenBlock, ElseBlock, 0);
+		TargetDataIfRegion = 1;
+		EmitBlock(ThenBlock);
+	}
     
     //Finally, start again looking for map clauses
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
@@ -6240,7 +6272,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_map) {
-	EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+		EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
       }
     }
   }
@@ -6249,10 +6281,19 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
 
   if (CGM.getLangOpts().MPtoGPU) {
     if (hasIfClause) {
-      EmitBranch(ContBlock);
-      EmitBlock(ContBlock, true);
+		EmitBranch(ContBlock);
+		TargetDataIfRegion = 2;
+		EmitBlock(ElseBlock, true);
+//		RunCleanupsScope ElseScope(*this);
+		EmitStmt(CS->getCapturedStmt());
+//		EnsureInsertPoint();
+		EmitBranch(ContBlock);
+		TargetDataIfRegion = 0;
+		isTargetDataIf = false;
+		EmitBlock(ContBlock, true);
     }
-    ReleaseBuffers();
+//    ReleaseBuffers();
+
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }
