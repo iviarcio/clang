@@ -33,6 +33,7 @@ cl_kernel         _kernel;
 cl_uint           _npairs;
 cl_uint           _clid;
 cl_int            _status;
+int               _spir_support;
 
 //
 // Initialize cldevice library
@@ -48,6 +49,25 @@ void _cldevice_init () {
     if (_status != CL_SUCCESS || nplatforms <= 0) {
       perror("Failed to find any OpenCL platform");
       exit(1);
+    }
+
+    //Get the name of the plataform
+    char platformName[100];
+    memset(platformName, '\0', 100);
+    _status = clGetPlatformInfo(_platform, CL_PLATFORM_NAME, sizeof(platformName), platformName, NULL);
+
+    //Check if the plataform supports spir
+    char extension_string[1024];
+    memset(extension_string, '\0', 1024);
+    _status = clGetPlatformInfo(_platform, CL_PLATFORM_EXTENSIONS, sizeof(extension_string), extension_string, NULL);
+    char* extStringStart = strstr(extension_string, "cl_khr_spir");
+    if (extStringStart != 0) {
+	printf("Platform %s supports cl_khr_spir extension\n", platformName);
+	_spir_support = 1;
+    }
+    else {
+      printf("Platform %s does not support cl_khr_spir extension\n", platformName);
+      _spir_support = 0;
     }
 
     //Fetch the device list for this platform
@@ -205,8 +225,13 @@ cl_program _create_fromBinary(cl_context context,
     return NULL;
   }
 
-  //errNum = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
-  errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+  if (_spir_support) {
+    const char* flags = "-x spir";
+    errNum = clBuildProgram(program, 1, &device, flags, NULL, NULL);
+  }
+  else {
+    errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
+  }
   if (errNum != CL_SUCCESS) {
     // Determine the reason for the error
     char buildLog[16384];

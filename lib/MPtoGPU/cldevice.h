@@ -36,7 +36,8 @@ extern cl_kernel         _kernel;
 extern cl_uint           _npairs;
 extern cl_uint           _clid;
 extern cl_int            _status;
-  
+extern int               _spir_support;
+    
 void _cldevice_init ();
 
 void _cldevice_finish ();
