@@ -1205,26 +1205,20 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (verbose) llvm::errs() << ">>> Renaming " << TmpName << " to " << clName << "\n";
     rename(TmpName.str().c_str(), clName.str().c_str());
 
-    // Try to compile the kernel source to binary.
-    // (Todo in future) In case of success, remove the source code
-    llvm::Value *clid = CGM.OpenMPSupport.getOffloadingDevice();
-    if (clid) {
-      if (isa<llvm::ConstantInt>(clid)) {
-	const llvm::StringRef SysArg = "create_binaries " +
-	  cast<llvm::ConstantInt>(clid)->getValue().toString(10,false) +
-	  " " + TmpName.str();
-	if (verbose) llvm::errs() << ">>> " << SysArg << "\n";    
-	std::system(SysArg.str().c_str());
-      }
-    }
-
     // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     const std::string tgtStr = Tgt.getTriple();
-    const std::string ClArg = "clang -S -x cl -fno-builtin -emit-llvm -target " +
-      tgtStr + " -c " + clName.str();
+    const std::string bcArg = "clang -cc1 -x cl -fno-builtin -emit-llvm-bc -triple " +
+      tgtStr + " -o " + TmpName.str() + ".bc " + clName.str();
+    if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
+    std::system(bcArg.c_str());
+
+    // generate llvm-IR to check only
+    const std::string ClArg = "clang -cc1 -x cl -fno-builtin -emit-llvm -triple " +
+      tgtStr + " -o " + TmpName.str() + ".ll " + clName.str();
     if (verbose) llvm::errs() << ">>> " << ClArg << "\n";    
     std::system(ClArg.c_str());
+    
     
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
