@@ -1534,23 +1534,13 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     Opts.setMSPointerToMemberRepresentationMethod(InheritanceModel);
   }
 
-  // Check if -fopenmp= is specified.
-  //if (const Arg *A = Args.getLastArg(options::OPT_fopenmp_EQ)) {
-  //  Opts.OpenMP = llvm::StringSwitch<bool>(A->getValue())
-  //      .Case("libiomp5", true)
-  //      .Default(false);
-  //}
-
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
-  Opts.MPtoGPU = Args.hasArg(OPT_mptogpu);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
 
   // Get the OpenMP target triples if any
   if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ){
-
     for (unsigned i=0; i < A->getNumValues(); ++i){
       llvm::Triple TT(A->getValue(i));
-
       if (TT.getArch() == llvm::Triple::UnknownArch)
         Diags.Report(clang::diag::err_drv_invalid_omp_target) << A->getValue(i);
       else
@@ -1558,8 +1548,23 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     }
   }
 
+  // Are we generating code for GPU through OpenCL/SPIR?
+  // In this case, turn off OMPTargetMode and cleanup OMPTargetTriples
+  Opts.MPtoGPU = false;
+  const std::vector<llvm::Triple> &Targets = Opts.OMPTargetTriples;
+  if (Targets.size()==1) {
+    // MPtoGPU only support one target at this time
+    llvm::Triple::ArchType AT = Targets[0].getArch();
+    if (AT == llvm::Triple::spir || AT == llvm::Triple::spir64) {
+      Opts.MPtoGPU = true;
+      Opts.OpenMPTargetMode = false;
+      Opts.OMPtoGPUTriple = Targets[0];
+      Opts.OMPTargetTriples.pop_back();
+    }
+  }
+  
   // Make sure that we have a module ID if we need to generate code for a target
-  if (Opts.OpenMP && (Opts.OpenMPTargetMode || Opts.OMPTargetTriples.size())){
+  if (Opts.OpenMP && (Opts.OpenMPTargetMode || Opts.OMPTargetTriples.size())) {
 
     // Obtain the main file path that is being used to generate target code
     if ( Arg *A = Args.getLastArg(options::OPT_omp_main_file_path) ){

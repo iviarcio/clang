@@ -1015,8 +1015,21 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
-    
+
     CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    CLOS << "#ifndef _OPENCL_H_\n";
+    CLOS << "  typedef unsigned int uint;\n"; 
+    CLOS << "  typedef unsigned long ulong;\n\n";
+
+    CLOS << "  #if defined(__SPIR32__)\n";
+    CLOS << "     typedef uint size_t;\n";
+    CLOS << "  #elif defined (__SPIR64__)\n";
+    CLOS << "     typedef ulong size_t;\n";
+    CLOS << "  #endif\n\n";
+
+    CLOS << "  size_t __attribute__((const)) get_global_id(uint dimindx);\n";
+    CLOS << "#endif\n";
+    
     CLOS << "__kernel void " << TmpName << " (\n";
     
     ArrayRef<llvm::Value*> MapClausePointerValues;
@@ -1037,11 +1050,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       CGM.OpenMPSupport.addKernelVar(KV);
 
-//	VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
-//	if (verbose) llvm::errs() << ">>> KernelVar = " << *(*I) << "\n";
-
-//      StringRef KName = getVarNameAsString(KV);
-		std::string KName = mapping[KV];
+      //VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
+      //StringRef KName = getVarNameAsString(KV);
+      std::string KName = mapping[KV];
 
       llvm::Type *KT = KV->getType()->getScalarType();
 
@@ -1097,12 +1108,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
   
-	//TODO handle all kinds of conditions:
-	//	for(i=0; n>i; i++)
-	//	for(i=n-1; i>=0; i--)
+    //TODO handle all kinds of conditions:
+    //	for(i=0; n>i; i++)
+    //	for(i=n-1; i>=0; i--)
 
-	//TODO get induction variable using increment instead condition
-	//
+    //TODO get induction variable using increment instead condition
 	
     assert (FS->getCond()); // contains only one expression, like i<n;
     Expr *lhs = dyn_cast<BinaryOperator>(FS->getCond())->getLHS();
@@ -1114,13 +1124,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CGM.OpenMPSupport.addKernelVar(CV);
 
     std::string IName = getVarNameAsString(IV);
-//    StringRef CName = getVarNameAsString(CV);
-	DeclRefExpr *D = dyn_cast<DeclRefExpr>(*(rhs->child_begin()));
-	std::string CName = (D->getDecl())->getNameAsString();
+    //StringRef CName = getVarNameAsString(CV);
+    DeclRefExpr *D = dyn_cast<DeclRefExpr>(*(rhs->child_begin()));
+    std::string CName = (D->getDecl())->getNameAsString();
     llvm::Type *ITy = getVarType (IV);
     llvm::Type *CTy = getVarType (CV);
 
-//	CName = CName.slice(0,CName.find('.'));
+    //CName = CName.slice(0,CName.find('.'));
 
     //A palliative to figure out how to get the name of a primitive type
     if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
@@ -1159,17 +1169,18 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CLOS << ") {\n   ";
     
     //A palliative to figure out how to get the name of a primitive type
-    if (ITy->isIntegerTy()) CLOS << getTypeNameAsString(ITy);
-    else ITy->print(CLOS);
-    CLOS << " " << IName << " = get_global_id (0);\n";
+    //if (ITy->isIntegerTy()) CLOS << getTypeNameAsString(ITy);
+    //else ITy->print(CLOS);
+    //CLOS << " " << IName << " = get_global_id (0);\n";
+    CLOS << "size_t " << IName << " = get_global_id (0);\n";
     
     if (isa<CompoundStmt>(Body)) {
-      CLOS << "  if (" << IName << " < " << CName << ")\n";
+      CLOS << "  if (" << IName << " < (size_t)" << CName << ")\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
       CLOS << "\n}\n";
     }
     else {
-      CLOS << "  if (" << IName << " < " << CName << ")\n {\n";
+      CLOS << "  if (" << IName << " < (size_t)" << CName << ")\n {\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
       CLOS << ";\n }\n}\n";
     }
@@ -1194,6 +1205,14 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	std::system(SysArg.str().c_str());
       }
     }
+
+    // generate spir-code
+    llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
+    const std::string tgtStr = Tgt.getTriple();
+    const std::string ClArg = "clang -S -x cl -fno-builtin -emit-llvm -target " +
+      tgtStr + " -c " + clName.str();
+    if (verbose) llvm::errs() << ">>> " << ClArg << "\n";    
+    std::system(ClArg.c_str());
     
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
@@ -5776,21 +5795,19 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
 //
 void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
-  bool regionStarted = false;
-  bool emptyTarget = false;
-  bool hasIfClause = false;
-  llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
-  llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
-  llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
-  // **************************************************
-  // Are we generating code for GPU (via OpenCL/SPIR)?
-  // **************************************************
-
+  // Are we generating code for GPU via OpenCL/SPIR?
   if (CGM.getLangOpts().MPtoGPU) {
-
+  
+    bool regionStarted = false;
+    bool emptyTarget = false;
+    bool hasIfClause = false;
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+
+    llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
+    llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
+    llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
 
     //First, check if the target directive is empty.
     //In this case, Offloading data are needed
@@ -5862,8 +5879,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       }
     }
 
-	CGM.OpenMPSupport.PrintAllStack();
-    
+    CGM.OpenMPSupport.PrintAllStack();   
     EmitStmt(CS->getCapturedStmt());
 
     if (regionStarted || emptyTarget) {
@@ -5882,19 +5898,19 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	
     return;
   }
-  // ************************************************
-  // Finish generating code for GPU (via OpenCL/SPIR)
-  // ************************************************
-
+  
+  // **************************************************
+  // Finish generating code for GPGPU (via OpenCL/SPIR)
+  // **************************************************
+  
   // Are we generating code for a target?
   bool isTargetMode = CGM.getLangOpts().OpenMPTargetMode;
-
   assert( !(isTargetMode && CGM.getLangOpts().OMPTargetTriples.empty())
-	  && "Are we in target mode and no targets were specified??" );
+	  && "No target device specified!" );
 
-  // If there are no devices specified we ignore the target directive and just
-  // produce regular host code
-  if (CGM.getLangOpts().OMPTargetTriples.empty()){
+  // If there are no devices specified we ignore the target directive
+  // and just produce regular host code
+  if (CGM.getLangOpts().OMPTargetTriples.empty()) {
     EmitStmt(CS->getCapturedStmt());
     return;
   }

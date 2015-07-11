@@ -43,6 +43,8 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
+static bool mptogpu;
+
 static void addAssemblerKPIC(const ArgList &Args, ArgStringList &CmdArgs) {
   Arg *LastPICArg = Args.getLastArg(options::OPT_fPIC, options::OPT_fno_PIC,
                                     options::OPT_fpic, options::OPT_fno_pic,
@@ -2586,9 +2588,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       }
     }
 
-    if (Args.hasArg(options::OPT_mptogpu)){
-      CmdArgs.push_back("-mptogpu");
-    }
+    //if (Args.hasArg(options::OPT_mptogpu)){
+      //CmdArgs.push_back("-mptogpu");
+    //}
 
     // inform the frontend we are generating code for a target
     if ( JA.getOffloadingDevice() )
@@ -5913,15 +5915,25 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.AddAllArgs(CmdArgs, options::OPT_L);
 
-  if (Args.hasArg(options::OPT_fopenmp)){
+  mptogpu = false;
+  if (Args.hasArg(options::OPT_fopenmp)) {
+    // Get the first OpenMP target triple if any
+    if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ) {
+      llvm::Triple TT(A->getValue(0));
+      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64)
+	mptogpu = true;
+    }
+    
     // This is more complicated in gcc...
     CmdArgs.push_back("-liomp5");
 
-    if (Args.hasArg(options::OPT_omptargets_EQ))
+    //if (Args.hasArg(options::OPT_omptargets_EQ))
+    if (Args.hasArg(options::OPT_omptargets_EQ) && !mptogpu)
       CmdArgs.push_back("-lomptarget");
   }
 
-  if (Args.hasArg(options::OPT_mptogpu)) {
+  //if (Args.hasArg(options::OPT_mptogpu)) {
+  if (mptogpu) {
     CmdArgs.push_back("-lmptogpu");
 #ifdef __APPLE__
     CmdArgs.push_back("-framework");
@@ -7677,8 +7689,8 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
-      bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
-      if (MPtoGPU){
+      //bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
+      if (mptogpu){
 	CmdArgs.push_back("-lmptogpu");
 #ifdef __APPLE__
 	CmdArgs.push_back("-framework");

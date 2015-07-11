@@ -1225,19 +1225,28 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
   // openmp with target regions. This is done based on the omptarget arguments.
   // All registered targets are considered by default.
   llvm::SmallSetVector<const char*,4> OpenMPTargets;
-
+  bool mptogpu = false;
   if (Args.hasArg(options::OPT_fopenmp)){
 
     // check if there is any openmp target we care generating code to
     Arg *Tgts = Args.getLastArg(options::OPT_omptargets_EQ);
 
+    // Check if we are generating code for GPU through OpenCL/SPIR?
+    if (Tgts->getNumValues()==1) {
+      // MPtoGPU only support one target at this time
+      StringRef spirVal = Tgts->getValue(0);      
+      if (spirVal.startswith("spir")) {
+	mptogpu = true;
+      }
+    }
+    
     // If omptargets was specified use only the required targets
-    if ( Tgts && Tgts->getNumValues() ){
+    if ( Tgts && Tgts->getNumValues() && !mptogpu){
       for (unsigned v=0; v<Tgts->getNumValues(); ++v){
         std::string error;
         const char *val = Tgts->getValue(v);
 
-        llvm::Triple TT(val);
+	llvm::Triple TT(val);
 
         //If the specified target is invalid, emit error
         if (TT.getArch() == llvm::Triple::UnknownArch)

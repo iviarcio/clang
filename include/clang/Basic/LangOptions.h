@@ -101,6 +101,12 @@ public:
   /// accurate offloading translation tables
   std::vector<llvm::Triple> OMPTargetTriples;
 
+  /// \brief OpenMP codegen for GPGPU through OpenCL/SPIR drivers
+  /// and the Triple of the OpenMP target indicating
+  /// OpenCL 32 or 64bits or SPIR 32 or 64 bits
+  bool MPtoGPU;
+  llvm::Triple OMPtoGPUTriple;
+
   LangOptions();
 
   // Define accessors/mutators for language options of enumeration type.
