@@ -7681,11 +7681,18 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       if (Args.hasArg(options::OPT_static))
         CmdArgs.push_back("--start-group");
 
+      mptogpu = false;
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
         CmdArgs.push_back("-liomp5");
-        if (Args.hasArg(options::OPT_omptargets_EQ))
-          CmdArgs.push_back("-lomptarget");
+        if (Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ) {
+	  llvm::Triple TT(A->getValue(0));
+	  if (TT.getArch() == llvm::Triple::spir ||
+	      TT.getArch() == llvm::Triple::spir64)
+	    mptogpu = true;
+	}
+	if (Args.hasArg(options::OPT_omptargets_EQ) && !mptogpu)
+	  CmdArgs.push_back("-lomptarget");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 

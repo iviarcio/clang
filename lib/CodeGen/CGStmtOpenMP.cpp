@@ -1214,11 +1214,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     std::system(bcArg.c_str());
 
     // generate llvm-IR to check only
-    const std::string ClArg = "clang -cc1 -x cl -fno-builtin -emit-llvm -triple " +
-      tgtStr + " -o " + TmpName.str() + ".ll " + clName.str();
-    if (verbose) llvm::errs() << ">>> " << ClArg << "\n";    
-    std::system(ClArg.c_str());
-    
+    //const std::string ClArg = "clang -cc1 -x cl -fno-builtin -emit-llvm -triple " +
+    //  tgtStr + " -o " + TmpName.str() + ".ll " + clName.str();
+    //if (verbose) llvm::errs() << ">>> " << ClArg << "\n";    
+    //std::system(ClArg.c_str());
     
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
