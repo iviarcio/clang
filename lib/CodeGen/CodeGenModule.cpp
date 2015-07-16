@@ -3948,7 +3948,6 @@ void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
 // For testing
 void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
 
-  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
   for (SmallVector<llvm::Value*,16>::iterator I  = elem->MapPointers.begin(),
 	                                      E  = elem->MapPointers.end();
 	                                      I != E; ++I) {
@@ -3960,16 +3959,18 @@ void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
 // For testing
 void CodeGenModule::OpenMPSupportStackTy::PrintAllStack() {
 
-  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
-	int i = 0;
-	llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
-//	end--;
-  for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
-	                                      E = end;//OpenMPStack.end();
-	                                      I != E; ++I) {
-		llvm::errs() << "Item " << i++ << ":\n";
-		PrintMapped(I);
-  }
+    bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+    int i = 0;
+    llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
+
+    for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
+	                                                 E = end;
+	                                                 I != E; ++I) {
+      if (verbose) {
+	llvm::errs() << "Item " << i++ << ":\n";
+	PrintMapped(I);
+      }
+    }
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {

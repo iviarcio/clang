@@ -1023,6 +1023,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
 
+    /*
     CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     CLOS << "#ifndef _OPENCL_H_\n";
     CLOS << "  typedef unsigned int uint;\n"; 
@@ -1036,6 +1037,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     CLOS << "  size_t __attribute__((const)) get_global_id(uint dimindx);\n";
     CLOS << "#endif\n";
+    */
     
     CLOS << "__kernel void " << TmpName << " (\n";
     
@@ -1083,10 +1085,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CLOS << " " << KName << ",\n";
     }
 
-	if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
-		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
-		return;
-	}
+    if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
+      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+      return;
+    }
 
     llvm::Value *Status = nullptr;
     
@@ -1178,12 +1180,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       HandleStmts(Body, CLOS);
     }
 
-    CLOS << ") {\n   ";
-    
-    //A palliative to figure out how to get the name of a primitive type
-    //if (ITy->isIntegerTy()) CLOS << getTypeNameAsString(ITy);
-    //else ITy->print(CLOS);
-    //CLOS << " " << IName << " = get_global_id (0);\n";
+    CLOS << ") {\n   ";    
     CLOS << "size_t " << IName << " = get_global_id (0);\n";
     
     if (isa<CompoundStmt>(Body)) {
@@ -1208,17 +1205,21 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     const std::string tgtStr = Tgt.getTriple();
-    const std::string bcArg = "clang -cc1 -x cl -fno-builtin -emit-llvm-bc -triple " +
-      tgtStr + " -o " + TmpName.str() + ".bc " + clName.str();
+    std::string spirStr;
+    if (StringRef(tgtStr).startswith("spir64")) spirStr = "spir64.pch"; else spirStr = "spir.pch";
+    const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
+      tgtStr + " -include-pch $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_" +
+      spirStr + " -o " + TmpName.str() + ".tmp " + clName.str();
     if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
     std::system(bcArg.c_str());
 
-    // generate llvm-IR to check only
-    //const std::string ClArg = "clang -cc1 -x cl -fno-builtin -emit-llvm -triple " +
-    //  tgtStr + " -o " + TmpName.str() + ".ll " + clName.str();
-    //if (verbose) llvm::errs() << ">>> " << ClArg << "\n";    
-    //std::system(ClArg.c_str());
-    
+    const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
+    if (verbose) llvm::errs() << ">>> " << encodeStr << "\n";    
+    std::system(encodeStr.c_str());
+
+    const std::string rmStr = "rm " + TmpName.str() + ".tmp";
+    std::system(rmStr.c_str());
+
     // Finally, Emit call to execute the kernel
     // Can we assume that WorkSize is determined by Condition Variable?
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(CondVar, CGM.Int64Ty, false)};

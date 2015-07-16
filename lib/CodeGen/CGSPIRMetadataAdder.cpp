@@ -216,10 +216,10 @@ void clang::CodeGen::AddSPIRMetadata(Module &M, int OCLVersion, std::list<std::s
     M.getOrInsertNamedMetadata("opencl.spir.version");
   SPIRVerMD->addOperand(llvm::MDNode::get(M.getContext(), SPIRVerElts));
 
-  // Add OpenCL version (1.2)
+  // Add OpenCL version
   Value *OCLVerElts[] = {
-    ConstantInt::get(Type::getInt32Ty(M.getContext()), 1),
-    ConstantInt::get(Type::getInt32Ty(M.getContext()), 2)
+    ConstantInt::get(Type::getInt32Ty(M.getContext()), OCLVersion / 100),
+    ConstantInt::get(Type::getInt32Ty(M.getContext()), (OCLVersion % 100) / 10)
   };
   llvm::NamedMDNode *OCLVerMD =
     M.getOrInsertNamedMetadata("opencl.ocl.version");

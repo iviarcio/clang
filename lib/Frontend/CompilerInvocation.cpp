@@ -572,6 +572,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   if (NeedLocTracking && Opts.getDebugInfo() == CodeGenOptions::NoDebugInfo)
     Opts.setDebugInfo(CodeGenOptions::LocTrackingOnly);
 
+  Opts.SPIRCompileOptions = Args.getLastArgValue(OPT_cl_spir_compile_options);
+  
   return Success;
 }
 
