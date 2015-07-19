@@ -970,13 +970,6 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 	if (verbose) llvm::errs() << "BodyVar operand not in Kernel Var List\n"; 
 	pos = CGM.OpenMPSupport.getKernelVarSize();
 
-/*    llvm::LoadInst *LI = Builder.CreateLoad(BodyVar);
-	llvm::AllocaInst *AL = Builder.CreateAlloca(LI->getType(), NULL);
-    // Not sure if it is necessary, depends on the scope of the register
-    AL->setUsedWithInAlloca(true);
-    Builder.CreateStore(LI, AL);
-    llvm::Value *BVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);*/
-
 	llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
 	if (verbose) llvm::errs() << ">>> &BodyVar= " << *BVRef << "\n";
 	
@@ -985,7 +978,6 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 	CGM.OpenMPSupport.addKernelVar(BodyVar);
-//	StringRef BName = getVarNameAsString(BodyVar);
 	StringRef BName = VD->getName();
 	llvm::Type *TTy = getVarType (BodyVar);
 
@@ -1024,28 +1016,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 		return;
 	}
 
-    // For now, we create a source opencl kernel function
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
 
-    /*
-    CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    CLOS << "#ifndef _OPENCL_H_\n";
-    CLOS << "  typedef unsigned int uint;\n"; 
-    CLOS << "  typedef unsigned long ulong;\n\n";
-
-    CLOS << "  #if defined(__SPIR32__)\n";
-    CLOS << "     typedef uint size_t;\n";
-    CLOS << "  #elif defined (__SPIR64__)\n";
-    CLOS << "     typedef ulong size_t;\n";
-    CLOS << "  #endif\n\n";
-
-    CLOS << "  size_t __attribute__((const)) get_global_id(uint dimindx);\n";
-    CLOS << "#endif\n";
-    */
-    
     CLOS << "__kernel void " << TmpName << " (\n";
     
     ArrayRef<llvm::Value*> MapClausePointerValues;
@@ -1065,16 +1040,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                                  I != E; ++I) {
       llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       CGM.OpenMPSupport.addKernelVar(KV);
-
-      //VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
-      //StringRef KName = getVarNameAsString(KV);
       std::string KName = mapping[KV];
-
       llvm::Type *KT = KV->getType()->getScalarType();
 
-//      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global const ";
-//      else CLOS << "__global ";
-		CLOS << "__global ";
+      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global "; //Spir 1.2 do not support const attr
+      else CLOS << "__global ";
       j++;
 
       bool isPointer = false;
@@ -1146,7 +1116,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CGM.OpenMPSupport.addKernelVar(CV);
 
     std::string IName = getVarNameAsString(IV);
-    //StringRef CName = getVarNameAsString(CV);
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(*(rhs->child_begin()));
     std::string CName = (D->getDecl())->getNameAsString();
     llvm::Type *ITy = getVarType (IV);
@@ -1213,23 +1182,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     const std::string tgtStr = Tgt.getTriple();
-    std::string spirStr;
-    //if (StringRef(tgtStr).startswith("spir64")) spirStr = "spir64.pch"; else spirStr = "spir.pch";
-	spirStr = "spir.h";
-//	const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
-//      tgtStr + " -include-pch $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_" +
-//      spirStr + " -o " + TmpName.str() + ".tmp " + clName.str();
     const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
-      tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_" +
-      spirStr + " -o " + TmpName.str() + ".tmp " + clName.str() + " -ffp-contract=off";
-	if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
+      tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
+      TmpName.str() + ".tmp " + clName.str();
+    if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
     std::system(bcArg.c_str());
-
-/*	const std::string bcArg2 = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm -triple " +
-      tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_" +
-      spirStr + " -o " + TmpName.str() + ".ll " + clName.str() + " -ffp-contract=off";
-    if (verbose) llvm::errs() << ">>> " << bcArg2 << "\n";    
-    std::system(bcArg2.c_str());*/
 
     const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
     if (verbose) llvm::errs() << ">>> " << encodeStr << "\n";    
