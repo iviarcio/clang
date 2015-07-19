@@ -429,7 +429,6 @@ void CodeGenModule::Release() {
     }
     AddSPIRMetadata(TheModule, getLangOpts().OpenCLVersion, sBuildOptions);
   }
-  
 }
 
 void CodeGenModule::UpdateCompletedType(const TagDecl *TD) {
