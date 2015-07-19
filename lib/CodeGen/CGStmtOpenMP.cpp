@@ -1225,11 +1225,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
     std::system(bcArg.c_str());
 
-	const std::string bcArg2 = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm -triple " +
+/*	const std::string bcArg2 = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm -triple " +
       tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_" +
       spirStr + " -o " + TmpName.str() + ".ll " + clName.str() + " -ffp-contract=off";
     if (verbose) llvm::errs() << ">>> " << bcArg2 << "\n";    
-    std::system(bcArg2.c_str());
+    std::system(bcArg2.c_str());*/
 
     const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
     if (verbose) llvm::errs() << ">>> " << encodeStr << "\n";    
