@@ -5840,6 +5840,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     bool emptyTarget = false;
     bool hasIfClause = false;
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+		OMPClause *IC;
 
     llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
     llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
@@ -5873,25 +5874,52 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	emptyTarget = true;
 	EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
       }
-      else { 
-	//otherwise, look for device clause in the target directive
-	//The device must be set before create the buffers    
-	for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                     E  = S.clauses().end();
-	                                     I != E; ++I) {
-	  OpenMPClauseKind ckind = ((*I)->getClauseKind());
-	  if (ckind == OMPC_device) {
-	    RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
-	    llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
-	    llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
-	    EmitRuntimeCall(func, makeArrayRef(clid));
-	    if (!regionStarted) {
-	      regionStarted = true;
-	      CGM.OpenMPSupport.startOpenMPRegion(true);
-	    }
-	    CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
-	    if (verbose) llvm::errs() << ">>> (target map) Emit set_default_device\n";
+      else {     
+	if(!isTargetDataIf) {
+	  //If target clause is not empty, look for "if" clause
+	  for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                       E  = S.clauses().end();
+                                 	       I != E; ++I) {
+	    OpenMPClauseKind ckind = ((*I)->getClauseKind());
+		if (ckind == OMPC_if) {
+		hasIfClause = true;
+		IC = *I;
+		isTargetDataIf = true;
+		break;
+	}
 	  }
+	}
+
+	// If the if clause is the only one then offloading data too
+	if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
+	  emptyTarget = true;
+	  EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+	}
+	else { 
+	  //otherwise, look for device clause in the target directive
+	  //The device must be set before create the buffers    
+	  for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                       E  = S.clauses().end();
+	                                       I != E; ++I) {
+	    OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	    if (ckind == OMPC_device) {
+	      RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	      llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
+	      llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
+	      EmitRuntimeCall(func, makeArrayRef(clid));
+	      if (!regionStarted) {
+		regionStarted = true;
+		CGM.OpenMPSupport.startOpenMPRegion(true);
+	      }
+	      CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
+	      if (verbose) llvm::errs() << ">>> (target map) Emit set_default_device\n";
+	    }
+	  }
+
+	if(hasIfClause) {
+		EmitBranchOnBoolExpr(cast<OMPIfClause>(IC)->getCondition(), ThenBlock, ElseBlock, 0);
+		TargetDataIfRegion = 1;
+		EmitBlock(ThenBlock);
 	}
       
 	//Finally, start again, looking for map clauses
@@ -5925,9 +5953,21 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       CGM.OpenMPSupport.endOpenMPRegion();
     }
 
-    if (hasIfClause) {
+/*    if (hasIfClause) {
       EmitBranch(ContBlock);
       EmitBlock(ContBlock, true);
+    }*/
+	if (hasIfClause) {
+		EmitBranch(ContBlock);
+		TargetDataIfRegion = 2;
+		EmitBlock(ElseBlock, true);
+//		RunCleanupsScope ElseScope(*this);
+		EmitStmt(CS->getCapturedStmt());
+//		EnsureInsertPoint();
+		EmitBranch(ContBlock);
+		TargetDataIfRegion = 0;
+		isTargetDataIf = false;
+		EmitBlock(ContBlock, true);
     }
 	
     return;
