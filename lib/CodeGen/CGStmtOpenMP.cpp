@@ -5446,93 +5446,173 @@ void CodeGenFunction::CGPragmaOmpSimd::emitLinearFinal(
 
 /// Generate an instructions for '#pragma omp teams' directive.
 void CodeGenFunction::EmitOMPTeamsDirective(const OMPTeamsDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithTeams(OMPD_teams, OMPD_unknown, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp teams is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithTeams(OMPD_teams, OMPD_unknown, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp simd' directive.
 void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  CGPragmaOmpSimd Wrapper(&S);
-  EmitPragmaSimd(Wrapper);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp simd is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    CGPragmaOmpSimd Wrapper(&S);
+    EmitPragmaSimd(Wrapper);
+  }
 }
 
 // Generate the instructions for '#pragma omp for simd' directive.
 void CodeGenFunction::EmitOMPForSimdDirective(const OMPForSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithLoop(OMPD_for_simd, OMPD_for_simd, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp for simd is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithLoop(OMPD_for_simd, OMPD_for_simd, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp distribute simd' directive.
 void CodeGenFunction::EmitOMPDistributeSimdDirective(
     const OMPDistributeSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithLoop(OMPD_distribute_simd, OMPD_distribute_simd, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp distribute simd is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithLoop(OMPD_distribute_simd, OMPD_distribute_simd, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp distribute parallel for'
 // directive.
 void CodeGenFunction::EmitOMPDistributeParallelForDirective(
     const OMPDistributeParallelForDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  assert(S.getLowerBound() && "No lower bound");
-  assert(S.getUpperBound() && "No upper bound");
-  EmitAutoVarDecl(
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp distribute parallel is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    assert(S.getLowerBound() && "No lower bound");
+    assert(S.getUpperBound() && "No upper bound");
+    EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getLowerBound())->getDecl()));
-  EmitAutoVarDecl(
+    EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getUpperBound())->getDecl()));
-  EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for, OMPD_distribute, S);
+    EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for, OMPD_distribute, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp distribute parallel for simd'
 // directive.
 void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(
     const OMPDistributeParallelForSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  assert(S.getLowerBound() && "No lower bound");
-  assert(S.getUpperBound() && "No upper bound");
-  EmitAutoVarDecl(
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp distribute parallel is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    assert(S.getLowerBound() && "No lower bound");
+    assert(S.getUpperBound() && "No upper bound");
+    EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getLowerBound())->getDecl()));
-  EmitAutoVarDecl(
+    EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getUpperBound())->getDecl()));
-  EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for_simd, OMPD_distribute,
-                           S);
+    EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for_simd, OMPD_distribute,
+			     S);
+  }
 }
 
 // Generate the instructions for '#pragma omp teams distribute parallel for'
 // directive.
 void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(
     const OMPTeamsDistributeParallelForDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for,
-                            OMPD_distribute_parallel_for, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp target teams is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for,
+			      OMPD_distribute_parallel_for, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp teams distribute parallel for simd'
 // directive.
 void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(
     const OMPTeamsDistributeParallelForSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for_simd,
-                            OMPD_distribute_parallel_for_simd, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp target teams is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for_simd,
+			      OMPD_distribute_parallel_for_simd, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp target teams distribute parallel
 // for' directive.
 void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForDirective(
     const OMPTargetTeamsDistributeParallelForDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for,
-                            OMPD_distribute_parallel_for, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp target teams is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for,
+			      OMPD_distribute_parallel_for, S);
+  }
 }
 
 // Generate the instructions for '#pragma omp target teams distribute parallel
 // for simd' directive.
 void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
     const OMPTargetTeamsDistributeParallelForSimdDirective &S) {
-  RunCleanupsScope ExecutedScope(*this);
-  EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for_simd,
-                            OMPD_distribute_parallel_for_simd, S);
+
+  if (CGM.getLangOpts().MPtoGPU) {
+      llvm_unreachable("(omp target teams is not supported for this target yet!");
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
+  }
+  else {
+    RunCleanupsScope ExecutedScope(*this);
+    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for_simd,
+			      OMPD_distribute_parallel_for_simd, S);
+  }
 }
 
 
@@ -5565,11 +5645,9 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
     if (VType == OMP_TGT_MAPTYPE_TO &&
 	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
 
-      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
-	  
+      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);	  
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
-
       llvm::Value *Args[] = {MapClauseSizeValues[i],
 			     VMapPos,
 			     MapClausePointerValues[i]};
@@ -5589,11 +5667,9 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
 	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
 
-      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);
-	  
+      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0); 
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
-
       llvm::Value *Args[] = {MapClauseSizeValues[i],
 			     VMapPos,
 			     MapClausePointerValues[i]};
@@ -5618,9 +5694,8 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
   
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-//		llvm::errs() << (D->getDecl())->getNameAsString() << "\n" << *dyn_cast<llvm::Instruction>(val)->getOperand(0) << "\n";
-		mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
-  	}
+    mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+  }
 
   // Get the children of the current node in the AST and call the function recursively
   for(Stmt::const_child_iterator I  = ST->child_begin(),
@@ -5632,7 +5707,7 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
 
 void CodeGenFunction::EmitInheritedMap() {
 	
-	ArrayRef<llvm::Value*> MapClausePointerValues;
+  ArrayRef<llvm::Value*> MapClausePointerValues;
   ArrayRef<llvm::Value*> MapClauseSizeValues;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
@@ -5645,37 +5720,36 @@ void CodeGenFunction::EmitInheritedMap() {
   bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   llvm::Value *Status = nullptr;
 
-	int i;
-	for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+  int i;
+  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+    llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
+    llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
 
-		llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
-		llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
+    if (verbose) llvm::errs() << "Inheriting " << MapClausePointerValues[i] << "\n";
 
-		if (verbose) llvm::errs() << "Inheriting " << MapClausePointerValues[i] << "\n";
-
-	    switch(MapClauseTypeValues[i]){
-	    default:
-		 llvm_unreachable("(target [data] map) Unknown clause type!");
-		 break;
-	    case OMP_TGT_MAPTYPE_TOFROM:
-		Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
-		if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
-		 break;
-	    case OMP_TGT_MAPTYPE_TO:
-		Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
-		if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
-		 break;
-	    case OMP_TGT_MAPTYPE_FROM:
-		 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
-		 if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
-		 break;
-	    case OMP_TGT_MAPTYPE_ALLOC:
-		 //todo: check the type of memory used by alloc clause
-		 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
-		 if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
-		 break;
-	    }
-	}
+    switch(MapClauseTypeValues[i]){
+    default:
+      llvm_unreachable("(target [data] map) Unknown clause type!");
+      break;
+    case OMP_TGT_MAPTYPE_TOFROM:
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+      if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
+      break;
+    case OMP_TGT_MAPTYPE_TO:
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+      if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
+      break;
+    case OMP_TGT_MAPTYPE_FROM:
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
+      if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
+      break;
+    case OMP_TGT_MAPTYPE_ALLOC:
+      //todo: check the type of memory used by alloc clause
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+      if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
+      break;
+    }
+  }
 }
 
 //
@@ -5722,8 +5796,8 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     llvm::Value *SizeOnly[] = {VSize};
     if (verbose) llvm::errs() << ">>> (VLoc) " << *VLoc << "; (VSize) " << *VSize << "\n";
 
-	const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
-	MapStmts(ST, VLoc);
+    const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
+    MapStmts(ST, VLoc);
 	
     llvm::Value *Status = nullptr;
     int VType;
@@ -5733,37 +5807,16 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
       break;
     case OMPC_MAP_unknown:
     case OMPC_MAP_tofrom:
-//      if (DataDirective) {
-//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
-//	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_write\n";
-//      }
-//      else {
-//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
-	if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
-//      }
       VType = OMP_TGT_MAPTYPE_TOFROM;
       break;
     case OMPC_MAP_to:
-//      if (DataDirective) {
-//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), SizeOnly);
-//	if (verbose) llvm::errs() << ">>> (target data map) Emit cl_create_read_only\n";
-//      }
-//      else {
-//	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
-	if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
-//      }
       VType = OMP_TGT_MAPTYPE_TO;
       break;
     case OMPC_MAP_from:
-//      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
       VType =  OMP_TGT_MAPTYPE_FROM;
-      if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
       break;
     case OMPC_MAP_alloc:
-      //todo: check the type of memory used by alloc clause
-//      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
       VType = OMP_TGT_MAPTYPE_ALLOC;
-      if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
       break;
     }
    
@@ -5792,72 +5845,67 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     llvm::BasicBlock *ElseBlock = createBasicBlock("omp.else");
     llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
 
-    if(TargetDataIfRegion != 2) {
-      //First, check if the target directive is empty.
-      //In this case, Offloading data are needed
-      if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
+    //First, check if the target directive is empty.
+    //In this case, Offloading data are needed
+    if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
+      emptyTarget = true;
+      EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+    }
+    else {     
+      //If target clause is not empty, look for "if" clause
+      for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                   E  = S.clauses().end();
+                                 	   I != E; ++I) {
+	OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	if (ckind == OMPC_if) {
+	  hasIfClause = true;
+	  EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+	  EmitBlock(ElseBlock);
+	  RunCleanupsScope ElseScope(*this);
+	  EnsureInsertPoint();
+	  EmitBranch(ContBlock);
+	  EmitBlock(ThenBlock);
+	}
+      }
+
+      // If the if clause is the only one then offloading data too
+      if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
 	emptyTarget = true;
 	EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
       }
-      else {     
-	if(!isTargetDataIf) {
-	  //If target clause is not empty, look for "if" clause
-	  for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                       E  = S.clauses().end();
-                                 	       I != E; ++I) {
-	    OpenMPClauseKind ckind = ((*I)->getClauseKind());
-	    if (ckind == OMPC_if) {
-	      hasIfClause = true;
-	      EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
-	      EmitBlock(ElseBlock);
-	      RunCleanupsScope ElseScope(*this);
-	      EmitStmt(CS->getCapturedStmt());
-	      EnsureInsertPoint();
-	      EmitBranch(ContBlock);
-	      EmitBlock(ThenBlock);
+      else { 
+	//otherwise, look for device clause in the target directive
+	//The device must be set before create the buffers    
+	for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                     E  = S.clauses().end();
+	                                     I != E; ++I) {
+	  OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	  if (ckind == OMPC_device) {
+	    RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+	    llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
+	    llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
+	    EmitRuntimeCall(func, makeArrayRef(clid));
+	    if (!regionStarted) {
+	      regionStarted = true;
+	      CGM.OpenMPSupport.startOpenMPRegion(true);
 	    }
+	    CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
+	    if (verbose) llvm::errs() << ">>> (target map) Emit set_default_device\n";
 	  }
 	}
-
-	// If the if clause is the only one then offloading data too
-	if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
-	  emptyTarget = true;
-	  EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
-	}
-	else { 
-	  //otherwise, look for device clause in the target directive
-	  //The device must be set before create the buffers    
-	  for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                       E  = S.clauses().end();
-	                                       I != E; ++I) {
-	    OpenMPClauseKind ckind = ((*I)->getClauseKind());
-	    if (ckind == OMPC_device) {
-	      RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
-	      llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
-	      llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
-	      EmitRuntimeCall(func, makeArrayRef(clid));
-	      if (!regionStarted) {
-		regionStarted = true;
-		CGM.OpenMPSupport.startOpenMPRegion(true);
-	      }
-	      CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
-	      if (verbose) llvm::errs() << ">>> (target map) Emit set_default_device\n";
-	    }
-	  }
       
-	  //Finally, start again, looking for map clauses
-	  for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                       E  = S.clauses().end();
-	                                       I != E; ++I) {
-	    OpenMPClauseKind ckind = ((*I)->getClauseKind());    
-	    if (ckind == OMPC_map) {
-	      if (!regionStarted) {
-		regionStarted = true;
-		CGM.OpenMPSupport.startOpenMPRegion(true);
-	      }
-	      CGM.OpenMPSupport.InheritMapPos();
-	      EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);	
+	//Finally, start again, looking for map clauses
+	for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                     E  = S.clauses().end();
+	                                     I != E; ++I) {
+	  OpenMPClauseKind ckind = ((*I)->getClauseKind());    
+	  if (ckind == OMPC_map) {
+	    if (!regionStarted) {
+	      regionStarted = true;
+	      CGM.OpenMPSupport.startOpenMPRegion(true);
 	    }
+	    CGM.OpenMPSupport.InheritMapPos();
+	    EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);	
 	  }
 	}
       }
@@ -6186,18 +6234,17 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 
   bool hasIfClause = false;
-	OMPClause *IC;
 
   llvm::BasicBlock *ThenBlock = createBasicBlock("target.then");
   llvm::BasicBlock *ElseBlock = createBasicBlock("target.else");
   llvm::BasicBlock *ContBlock = createBasicBlock("target.end");
+
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
   // *************************************************
   // Are we generating code for GPU (via OpenCL/SPIR)?
   // *************************************************
   if (CGM.getLangOpts().MPtoGPU) {
-
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
     CGM.OpenMPSupport.startOpenMPRegion(true);
 
@@ -6207,21 +6254,14 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_if) {
-		hasIfClause = true;
-		IC = *I;
-		isTargetDataIf = true;
-		break;
-	}
-//	break;
-//	EmitBranchOnBoolExpr(cast<OMPIfClause>(IC)->getCondition(), ThenBlock, ElseBlock, 0);
-//	EmitBlock(ElseBlock);
-//	RunCleanupsScope ElseScope(*this);
-//	EmitStmt(CS->getCapturedStmt());
-//	EnsureInsertPoint();
-//	EmitBranch(ContBlock);
-//	TargetDataIfRegion = 1;
-//	EmitBlock(ThenBlock);
-//      }
+	hasIfClause = true;
+	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+	EmitBlock(ElseBlock);
+	RunCleanupsScope ElseScope(*this);
+	EnsureInsertPoint();
+	EmitBranch(ContBlock);
+	EmitBlock(ThenBlock);
+      }
     }
  
     //Now, look for device clause in the target directive
@@ -6240,40 +6280,21 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
       }
     }
 
-	if(hasIfClause) {
-		EmitBranchOnBoolExpr(cast<OMPIfClause>(IC)->getCondition(), ThenBlock, ElseBlock, 0);
-		TargetDataIfRegion = 1;
-		EmitBlock(ThenBlock);
-	}
-    
     //Finally, start again looking for map clauses
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_map) {
-		EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+	EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
       }
     }
-  }
   
-  EmitStmt(CS->getCapturedStmt());
-
-  if (CGM.getLangOpts().MPtoGPU) {
+    EmitStmt(CS->getCapturedStmt());
     if (hasIfClause) {
-		EmitBranch(ContBlock);
-		TargetDataIfRegion = 2;
-		EmitBlock(ElseBlock, true);
-//		RunCleanupsScope ElseScope(*this);
-		EmitStmt(CS->getCapturedStmt());
-//		EnsureInsertPoint();
-		EmitBranch(ContBlock);
-		TargetDataIfRegion = 0;
-		isTargetDataIf = false;
-		EmitBlock(ContBlock, true);
+      EmitBranch(ContBlock);
+      EmitBlock(ContBlock, true);
     }
-//    ReleaseBuffers();
-
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }
