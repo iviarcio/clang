@@ -1011,6 +1011,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   if (CGM.getLangOpts().MPtoGPU) {
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
+	if(isTargetDataIf && TargetDataIfRegion == 2) {
+		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+		return;
+	}
+
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
@@ -1057,6 +1062,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       if (isPointer) CLOS << "*";
       CLOS << " " << KName << ",\n";
     }
+
+	if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
+		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+		return;
+	}
 
     llvm::Value *Status = nullptr;
     
