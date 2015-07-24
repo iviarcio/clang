@@ -2570,27 +2570,49 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasArg(options::OPT_fopenmp)){
     CmdArgs.push_back("-fopenmp");
-
+    
     // pass the targets we are generating code to
     if ( Arg *Tgts = Args.getLastArg(options::OPT_omptargets_EQ) ){
 
       ArrayRef<const char *> Vals = Tgts->getValues();
-
       if (!Vals.empty()){
 
-        std::string S("-omptargets=");
-        S += Vals[0];
-        for (unsigned i=1; i <Vals.size(); ++i ){
-          S += ',';
-          S += Vals[i];
-        }
-        CmdArgs.push_back(Args.MakeArgString(S));
+	llvm::Triple TT(Tgts->getValue(0));
+	// This code can be removed later ...
+	if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64) {
+	  mptogpu = true;
+	  CmdArgs.push_back("-mptogpu");
+	}
+	
+	if (mptogpu) {
+	  std::string Sp("-gputargets=");
+	  Sp += Vals[0];
+	  CmdArgs.push_back(Args.MakeArgString(Sp));
+	  llvm::errs() << "Tools:2593\n";
+	}
+	else {
+	  // ... Only this code is necessary
+	  std::string S("-omptargets=");
+	  S += Vals[0];
+	  for (unsigned i=1; i <Vals.size(); ++i ) {
+	    S += ',';
+	    S += Vals[i];
+	  }
+	  CmdArgs.push_back(Args.MakeArgString(S));
+	}
       }
     }
 
-    //if (Args.hasArg(options::OPT_mptogpu)){
-      //CmdArgs.push_back("-mptogpu");
-    //}
+    // pass the gputarget we are generating code to
+    if ( Arg *Tgpu = Args.getLastArg(options::OPT_gputargets_EQ) ){
+      llvm::Triple TT(Tgpu->getValue(0));
+      if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64) {
+	CmdArgs.push_back("-mptogpu");
+	std::string Sp("-gputargets=");
+	Sp += Tgpu->getValue(0);
+	CmdArgs.push_back(Args.MakeArgString(Sp));
+      }
+    }
 
     // inform the frontend we are generating code for a target
     if ( JA.getOffloadingDevice() )
@@ -2629,9 +2651,17 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (isa<AnalyzeJobAction>(JA)) {
     assert(JA.getType() == types::TY_Plist && "Invalid output type.");
     CmdArgs.push_back("-analyze");
-  } else if (isa<MigrateJobAction>(JA)) {
+  }
+  else if (isa<MigrateJobAction>(JA)) {
     CmdArgs.push_back("-migrate");
-  } else if (isa<PreprocessJobAction>(JA)) {
+  }
+  else if (isa<AssembleJobAction>(JA)) {
+    CmdArgs.push_back("-emit-obj");
+    CollectArgsForIntegratedAssembler(C, Args, CmdArgs, D);
+    // Also ignore explicit -force_cpusubtype_ALL option.
+    (void) Args.hasArg(options::OPT_force__cpusubtype__ALL);
+  }
+  else if (isa<PreprocessJobAction>(JA)) {
     if (Output.getType() == types::TY_Dependencies)
       CmdArgs.push_back("-Eonly");
     else {
@@ -2640,14 +2670,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
           !Args.hasArg(options::OPT_g_Group))
         CmdArgs.push_back("-P");
     }
-  } else if (isa<AssembleJobAction>(JA)) {
-    CmdArgs.push_back("-emit-obj");
-
-    CollectArgsForIntegratedAssembler(C, Args, CmdArgs, D);
-
-    // Also ignore explicit -force_cpusubtype_ALL option.
-    (void) Args.hasArg(options::OPT_force__cpusubtype__ALL);
-  } else if (isa<PrecompileJobAction>(JA)) {
+  }
+  else if (isa<PrecompileJobAction>(JA)) {
     // Use PCH if the user requested it.
     bool UsePCH = D.CCCUsePCH;
 
@@ -5918,8 +5942,15 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   mptogpu = false;
   if (Args.hasArg(options::OPT_fopenmp)) {
     // Get the first OpenMP target triple if any
-    if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ) {
-      llvm::Triple TT(A->getValue(0));
+    if ( Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ) ) {
+      llvm::Triple TT(A1->getValue(0));
+      // This code can be removed ...
+      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64)
+	mptogpu = true;
+    }
+    // ... Only this code is necessary
+    else if ( Arg *A2 = Args.getLastArg(options::OPT_gputargets_EQ) ) {
+      llvm::Triple TT(A2->getValue(0));
       if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64)
 	mptogpu = true;
     }
@@ -5927,12 +5958,10 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
     // This is more complicated in gcc...
     CmdArgs.push_back("-liomp5");
 
-    //if (Args.hasArg(options::OPT_omptargets_EQ))
     if (Args.hasArg(options::OPT_omptargets_EQ) && !mptogpu)
       CmdArgs.push_back("-lomptarget");
   }
 
-  //if (Args.hasArg(options::OPT_mptogpu)) {
   if (mptogpu) {
     CmdArgs.push_back("-lmptogpu");
 #ifdef __APPLE__

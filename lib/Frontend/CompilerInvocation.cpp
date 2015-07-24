@@ -1552,7 +1552,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   // Are we generating code for GPU through OpenCL/SPIR?
   // In this case, turn off OMPTargetMode and cleanup OMPTargetTriples
-  Opts.MPtoGPU = false;
+  //Opts.MPtoGPU = false;
   const std::vector<llvm::Triple> &Targets = Opts.OMPTargetTriples;
   if (Targets.size()==1) {
     // MPtoGPU only support one target at this time
@@ -1562,7 +1562,20 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Opts.OpenMPTargetMode = false;
       Opts.OMPtoGPUTriple = Targets[0];
       Opts.OMPTargetTriples.pop_back();
+      llvm::errs() << "CI:1565\n";
     }
+  }
+
+  // Get the OMPtoGPU target triple if any
+  if ( Arg *A = Args.getLastArg(options::OPT_gputargets_EQ) ){
+      llvm::Triple TT(A->getValue(0));
+      if (TT.getArch() == llvm::Triple::UnknownArch)
+        Diags.Report(clang::diag::err_drv_invalid_omp_target) << A->getValue(0);
+      else {
+	Opts.MPtoGPU = true;
+        Opts.OMPtoGPUTriple = TT;
+	llvm::errs() << "CI:1577\n";
+      }
   }
   
   // Make sure that we have a module ID if we need to generate code for a target

@@ -1021,6 +1021,7 @@ static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
 // Construct a the list of inputs and their types.
 void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
                          InputList &Inputs) const {
+
   // Track the current user specified (-x) input. We also explicitly track the
   // argument used to set the type; we only want to claim the type when we
   // actually use it, so we warn about unused -x arguments.
@@ -1052,10 +1053,10 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
     assert(!Args.hasArg(options::OPT_x) && "-x and /TC or /TP is not allowed");
   }
 
-  for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
-       it != ie; ++it) {
+  for (ArgList::const_iterator it = Args.begin(),
+	                       ie = Args.end();
+                               it != ie; ++it) {
     Arg *A = *it;
-
     if (A->getOption().getKind() == Option::InputClass) {
       const char *Value = A->getValue();
       types::ID Ty = types::TY_INVALID;
@@ -1167,8 +1168,8 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
 
 void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
                           const InputList &Inputs, ActionList &Actions) const {
-  llvm::PrettyStackTraceString CrashInfo("Building compilation actions");
 
+  llvm::PrettyStackTraceString CrashInfo("Building compilation actions");
   if (!SuppressMissingInputWarning && Inputs.empty()) {
     Diag(clang::diag::err_drv_no_input_files);
     return;
@@ -1222,32 +1223,45 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
   }
 
   // Determine how many compile phases need to be spawned in case we are using
-  // openmp with target regions. This is done based on the omptarget arguments.
-  // All registered targets are considered by default.
+  // openmp with target regions, except spir. This is done based on the omptarget
+  // arguments. All registered targets are considered by default.
+
   llvm::SmallSetVector<const char*,4> OpenMPTargets;
   bool mptogpu = false;
-  if (Args.hasArg(options::OPT_fopenmp)){
+
+  if (Args.hasArg(options::OPT_fopenmp)) {
 
     // check if there is any openmp target we care generating code to
     Arg *Tgts = Args.getLastArg(options::OPT_omptargets_EQ);
 
     // Check if we are generating code for GPU through OpenCL/SPIR?
-    if (Tgts->getNumValues()==1) {
-      // MPtoGPU only support one target at this time
-      StringRef spirVal = Tgts->getValue(0);      
-      if (spirVal.startswith("spir")) {
-	mptogpu = true;
+    if ( Tgts && Tgts->getNumValues()) {
+      for (unsigned v=0; v<Tgts->getNumValues(); ++v) {
+	StringRef spirVal = Tgts->getValue(v);      
+	if (spirVal.startswith("spir")) {
+	  if (v==0) {
+	    mptogpu = true;
+	  }
+	  else {
+	    const char *sv = "spir target must appear alone";
+	    Diag(clang::diag::err_drv_invalid_omp_target) << sv;
+	  }
+	}
       }
     }
-    
-    // If omptargets was specified use only the required targets
-    if ( Tgts && Tgts->getNumValues() && !mptogpu){
-      for (unsigned v=0; v<Tgts->getNumValues(); ++v){
+
+    if (mptogpu) {
+      Args.eraseArg(options::OPT_omptargets_EQ);
+      Args.AddFlagArg(Tgts, Opts->getOption(options::OPT_mptogpu));
+      Args.AddSeparateArg(Tgts, Opts->getOption(options::OPT_gputargets_EQ),
+			  Tgts->getValue(0));
+    }
+    else if ( Tgts && Tgts->getNumValues() ) {
+      // If omptargets was specified use only the required targets
+      for (unsigned v=0; v<Tgts->getNumValues(); ++v) {
         std::string error;
         const char *val = Tgts->getValue(v);
-
 	llvm::Triple TT(val);
-
         //If the specified target is invalid, emit error
         if (TT.getArch() == llvm::Triple::UnknownArch)
           Diag(clang::diag::err_drv_invalid_omp_target) << val;
@@ -1255,6 +1269,7 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
           OpenMPTargets.insert(val);
       }
     }
+    
   }
 
   // We need an array of actions to trace the actions for the main target

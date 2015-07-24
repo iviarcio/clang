@@ -1011,10 +1011,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   if (CGM.getLangOpts().MPtoGPU) {
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
-	if(isTargetDataIf && TargetDataIfRegion == 2) {
-		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
-		return;
-	}
+    // When an if clause is present and the if clause expression
+    // evaluates to false, the device is the host.
+    if(isTargetDataIf && TargetDataIfRegion == 2) {
+      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+      return;
+    }
 
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
@@ -1043,8 +1045,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::string KName = mapping[KV];
       llvm::Type *KT = KV->getType()->getScalarType();
 
-      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO) CLOS << "__global "; //Spir 1.2 do not support const attr
-      else CLOS << "__global ";
+      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO)
+	CLOS << "__global "; //Spir 1.2 do not support const attr
+      else
+	CLOS << "__global ";
       j++;
 
       bool isPointer = false;
@@ -1063,10 +1067,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CLOS << " " << KName << ",\n";
     }
 
-	if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
-		EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
-		return;
-	}
+    if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
+      // Need to remove the tmpFile?
+      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+      return;
+    }
 
     llvm::Value *Status = nullptr;
     
@@ -1161,7 +1166,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
 
     if (FS->getInit()) {
-      // contains list of initializations, like i=0;
+      // init-expr is one of the following:
+      //   var = lb; integer-type var = lb;
+      //   random-access-iterator-type var = lb; pointer-type var = lb
+      // where lb expressions of a type compatible with the type of var.
       Stmt *list = FS->getInit();
       for(Stmt::child_iterator I = list->child_begin(),
 	                       E = list->child_end();
@@ -1174,13 +1182,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
   
-    //TODO handle all kinds of conditions:
-    //	for(i=0; n>i; i++)
-    //	for(i=n-1; i>=0; i--)
-
-    //TODO get induction variable using increment instead condition
-	
-    assert (FS->getCond()); // contains only one expression, like i<n;
+    //TODO ? get induction variable using increment instead condition
+    //TODO handle all kinds of conditions
+    assert (FS->getCond());
+    // test-expr is one of the following:
+    //   var relational-op b; b relational-op var
+    // where Relational-op is <, <=, >, >=
     Expr *lhs = dyn_cast<BinaryOperator>(FS->getCond())->getLHS();
     Expr *rhs = dyn_cast<BinaryOperator>(FS->getCond())->getRHS();
     llvm::Value *IdxVar = EmitAnyExprToTemp(lhs).getScalarVal();
@@ -1194,8 +1201,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     std::string CName = (D->getDecl())->getNameAsString();
     llvm::Type *ITy = getVarType (IV);
     llvm::Type *CTy = getVarType (CV);
-
-    //CName = CName.slice(0,CName.find('.'));
 
     //A palliative to figure out how to get the name of a primitive type
     if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
