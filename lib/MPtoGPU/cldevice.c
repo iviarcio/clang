@@ -15,6 +15,7 @@
 #include <string.h>
 #include <math.h>
 #include "cldevice.h"
+#include <sys/stat.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -226,13 +227,12 @@ cl_program _create_fromBinary(cl_context context,
     return NULL;
   }
 
+  const char* flags = NULL;
   if (_spir_support) {
-    const char* flags = "-x spir";
-    errNum = clBuildProgram(program, 1, &device, flags, NULL, NULL);
+    flags = "-x spir";
   }
-  else {
-    errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
-  }
+  errNum = clBuildProgram(program, 1, &device, flags, NULL, NULL);
+
   if (errNum != CL_SUCCESS) {
     // Determine the reason for the error
     char buildLog[16384];
@@ -417,8 +417,6 @@ int _cl_offloading_read_only (long size, void* loc) {
     _curid--;
     return 0;
   }
-//  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-//				 size, NULL, &_status);
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
@@ -504,6 +502,15 @@ int _cl_write_buffer (long size, int id, void* loc) {
 }
 
 //
+// Auxiliary Function. Return true if file exist.
+//
+int _does_file_exist(const char *filename) {
+    struct stat st;
+    int result = stat(filename, &st);
+    return result == 0;
+}
+
+//
 // Create OpenCL program - first attempt to load cached binary.
 // If that is not available, then create the program from source
 // and store the binary for future use. Return 1, if success and
@@ -517,26 +524,25 @@ int _cl_create_program (char* str) {
   strcpy(cl_file, str); strcat(cl_file, ".cl");
   strcpy(bc_file, str); strcat(bc_file, ".bc");
 
-  printf("Attempting to create program from binary %s\n", bc_file);
-
-  _program = _create_fromBinary(_context[_clid],
-  				_device[_clid],
-  				bc_file);
-  if (_program == NULL) {
-
-    printf("Binary not loaded, create from source %s\n", cl_file);
-    
-    _program = _create_fromSource(_context[_clid],
+  if (_does_file_exist(bc_file)) {
+    printf("Attempting to create program from binary %s\n", bc_file);
+    _program = _create_fromBinary(_context[_clid],
 				  _device[_clid],
-				  cl_file);
-    if (_program == NULL) {
-      perror("Attempting to create program failed");
-      return 0;
-    }
-    if (_save_toBinary(_program, _device[_clid], bc_file) == 0) {
-      perror("Failed to write program binary");
-      return 0;
-    }
+				  bc_file);
+    if (_program != NULL) return 1;
+  }
+  
+  printf("Binary not loaded, create from source %s\n", cl_file);
+  _program = _create_fromSource(_context[_clid],
+				_device[_clid],
+				cl_file);
+  if (_program == NULL) {
+    perror("Attempting to create program failed");
+    return 0;
+  }
+  if (_save_toBinary(_program, _device[_clid], bc_file) == 0) {
+    perror("Failed to write program binary");
+    return 0;
   }
   return 1;
 }

@@ -54,6 +54,8 @@ int _save_toBinary(cl_program program,
 		    cl_device_id device,
 		    const char* fileName);
 
+cl_uint _get_num_cores (int A, int B, int C, int T);
+
 cl_uint _get_num_devices ();
     
 cl_uint _get_default_device ();
