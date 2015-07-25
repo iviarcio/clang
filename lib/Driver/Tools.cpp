@@ -7714,8 +7714,16 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
         CmdArgs.push_back("-liomp5");
-        if (Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ) {
-	  llvm::Triple TT(A->getValue(0));
+        if (Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ)) {
+	  llvm::Triple TT(A1->getValue(0));
+	  // This code can be removed ...
+	  if (TT.getArch() == llvm::Triple::spir ||
+	      TT.getArch() == llvm::Triple::spir64)
+	    mptogpu = true;
+	}
+	else if (Arg *A2 = Args.getLastArg(options::OPT_gputargets_EQ)) {
+	  // ... Only this code is necessary
+	  llvm::Triple TT(A2->getValue(0));
 	  if (TT.getArch() == llvm::Triple::spir ||
 	      TT.getArch() == llvm::Triple::spir64)
 	    mptogpu = true;
@@ -7725,7 +7733,6 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
-      //bool MPtoGPU = Args.hasArg(options::OPT_mptogpu);
       if (mptogpu){
 	CmdArgs.push_back("-lmptogpu");
 #ifdef __APPLE__
