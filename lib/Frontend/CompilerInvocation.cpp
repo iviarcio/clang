@@ -1562,7 +1562,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Opts.OpenMPTargetMode = false;
       Opts.OMPtoGPUTriple = Targets[0];
       Opts.OMPTargetTriples.pop_back();
-      llvm::errs() << "CI:1565\n";
     }
   }
 
@@ -1574,7 +1573,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       else {
 	Opts.MPtoGPU = true;
         Opts.OMPtoGPUTriple = TT;
-	llvm::errs() << "CI:1577\n";
       }
   }
   

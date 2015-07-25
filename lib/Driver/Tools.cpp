@@ -2588,7 +2588,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 	  std::string Sp("-gputargets=");
 	  Sp += Vals[0];
 	  CmdArgs.push_back(Args.MakeArgString(Sp));
-	  llvm::errs() << "Tools:2593\n";
 	}
 	else {
 	  // ... Only this code is necessary
