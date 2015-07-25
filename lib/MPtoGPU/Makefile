@@ -16,4 +16,6 @@ SHARED_LIBRARY = 1
 # Build and install this archive.                                                                                                                  
 BUILD_ARCHIVE = 1
 
+CFLAGS += -lm
+
 include $(CLANG_LEVEL)/Makefile

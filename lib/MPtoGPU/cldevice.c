@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "cldevice.h"
 
 #ifdef __APPLE__
@@ -338,6 +339,15 @@ int _save_toBinary(cl_program program,
 //
 cl_uint _get_num_devices () {
   return _npairs;
+}
+
+//
+// Return the number of devices of the Main Plataform
+//
+cl_uint _get_num_cores (int A, int B, int C, int T) {
+	int N = abs(B-T-A+1);
+	float K = (float)N/C;
+  return (int)ceil(K);
 }
 
 //

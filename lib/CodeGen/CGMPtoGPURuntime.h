@@ -40,6 +40,7 @@ class Value;
 namespace {
   typedef void(_set_default_device)(int32_t id);
   typedef int32_t(_get_num_devices)();
+  typedef int32_t(_get_num_cores)(int32_t A, int32_t B, int32_t C, int32_t T);
   typedef int32_t(_get_default_device)();
   typedef void(_cldevice_init)();
   typedef void(_cldevice_finish)();
@@ -74,6 +75,7 @@ public:
   enum MPtoGPURTLFunction {
     MPtoGPURTL_set_default_device,
     MPtoGPURTL_get_num_devices,
+    MPtoGPURTL_get_num_cores,
     MPtoGPURTL_get_default_device,
     MPtoGPURTL_cldevice_init,
     MPtoGPURTL_cldevice_finish,
@@ -102,6 +104,7 @@ public:
 
   virtual llvm::Value* Set_default_device();
   virtual llvm::Value* Get_num_devices();
+  virtual llvm::Value* Get_num_cores();
   virtual llvm::Value* Get_default_device();
   virtual llvm::Value* cldevice_init();
   virtual llvm::Value* cldevice_finish();

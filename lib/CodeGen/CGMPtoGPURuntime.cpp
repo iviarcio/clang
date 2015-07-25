@@ -57,6 +57,14 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_get_num_devices");
     break;
   }
+  case MPtoGPURTL_get_num_cores: {
+    // Build cl_uint _get_num_cores();
+    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty};
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_get_num_cores");
+    break;
+  }
   case MPtoGPURTL_get_default_device: {
     // Build cl_uint _get_default_device();
     llvm::FunctionType *FnTy =
@@ -204,6 +212,13 @@ CGMPtoGPURuntime::Get_num_devices() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_get_num_devices, false>::get(CGM.getLLVMContext())
 	 , "_get_num_devices");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::Get_num_cores() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_get_num_cores, false>::get(CGM.getLLVMContext())
+	 , "_get_num_cores");
 }
 
 llvm::Value*
