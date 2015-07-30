@@ -1349,19 +1349,26 @@ public:
 
     int getMapSize() { return OpenMPStack.back().MapPointers.size(); }
 
-    void addKernelVar(llvm::Value *KernelVar) { OpenMPStack.back().KernelVars.push_back(KernelVar); }
+    void addKernelVar(llvm::Value *KernelVar) {
+      OpenMPStack.back().KernelVars.push_back(KernelVar);
+    }
     void clearKernelVars() { OpenMPStack.back().KernelVars.clear(); }
     bool isKernelVar(llvm::Value *KernelVar);
     int getKernelVarSize() { return OpenMPStack.back().KernelVars.size(); }
 
-	void PrintMapped(OMPStackElemTy *elem);
-	void PrintAllStack();
-	void InheritMapPos();
+    void PrintMapped(OMPStackElemTy *elem);
+    void PrintAllStack();
+    void InheritMapPos();
 
-    void addLocalVar(llvm::Value *LocalVar) { OpenMPStack.back().LocalVars.push_back(LocalVar); }
+    void addLocalVar(llvm::Value *LocalVar) {
+      OpenMPStack.back().LocalVars.push_back(LocalVar);
+    }
     void clearLocalVars() { OpenMPStack.back().LocalVars.clear(); }
     bool inLocalScope(llvm::Value *LocalVar);
-       
+    void getLocalVars(SmallVector<llvm::Value*,16> &LocalVars) {
+      LocalVars = OpenMPStack.back().LocalVars;
+    }
+    
     void setOffloadingDevice(llvm::Value *device);
     llvm::Value* getOffloadingDevice();
 
