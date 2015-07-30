@@ -57,6 +57,7 @@ namespace {
   typedef int32_t(_cl_set_kernel_hostArg)(int32_t pos, int32_t size, void* loc);
   typedef int32_t(_cl_execute_kernel)(int64_t size);
   typedef void(_cl_release_buffers)(int32_t upper);
+  typedef void(_cl_release_buffer)(int32_t index);
 }
 
 namespace clang {
@@ -91,7 +92,8 @@ public:
     MPtoGPURTL_cl_set_kernel_args,
     MPtoGPURTL_cl_set_kernel_hostArg,
     MPtoGPURTL_cl_execute_kernel,
-    MPtoGPURTL_cl_release_buffers
+    MPtoGPURTL_cl_release_buffers,
+    MPtoGPURTL_cl_release_buffer
   };
   
   explicit CGMPtoGPURuntime(CodeGenModule &CGM);
@@ -121,6 +123,7 @@ public:
   virtual llvm::Value* cl_set_kernel_hostArg();
   virtual llvm::Value* cl_execute_kernel();
   virtual llvm::Value* cl_release_buffers();  
+  virtual llvm::Value* cl_release_buffer();
 };
   
 /// \brief Returns an implementation of the OpenMP to GPU RTL for a given target

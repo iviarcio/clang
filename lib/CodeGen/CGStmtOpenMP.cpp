@@ -5815,6 +5815,18 @@ void CodeGenFunction::ReleaseBuffers() {
 }
 
 //
+// Release Buffers of mapped locations
+//
+void CodeGenFunction::ReleaseBuffers(int init, int count) {
+	int i;
+	for(i=(init+count-1); i>=init; i--) {
+	  llvm::Value *Status = nullptr;
+	  llvm::Value *Args[] = {Builder.getInt32(i)};
+	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Args);
+	}
+}
+
+//
 // Emit RuntimeCalls to sync host and device at the end of MPRegion
 //
 void CodeGenFunction::EmitSyncMapClauses(const int VType) {
@@ -5891,7 +5903,7 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
   }	
 }
 
-void CodeGenFunction::EmitInheritedMap() {
+void CodeGenFunction::EmitInheritedMap(int init, int count) {
 	
   ArrayRef<llvm::Value*> MapClausePointerValues;
   ArrayRef<llvm::Value*> MapClauseSizeValues;
@@ -5906,7 +5918,8 @@ void CodeGenFunction::EmitInheritedMap() {
   bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   llvm::Value *Status = nullptr;
 
-  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+//  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
+  for(unsigned i=init; i<(count+init); ++i) {
     llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
     llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
 
@@ -6021,6 +6034,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     bool regionStarted = false;
     bool emptyTarget = false;
     bool hasIfClause = false;
+	int init = 0, end = 0, first = -1, count = 0;
     bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 		OMPClause *IC;
 
@@ -6034,6 +6048,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       if (cast<OMPExecutableDirective>(S).getNumClauses() == 0) {
 	emptyTarget = true;
 	EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+		init = CGM.OpenMPSupport.getMapSize();
+		end = init;
       }
       else {     
 	if(!isTargetDataIf) {
@@ -6065,6 +6081,8 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	if (hasIfClause && cast<OMPExecutableDirective>(S).getNumClauses() == 1) {
 	  emptyTarget = true;
 	  EmitSyncMapClauses (OMP_TGT_MAPTYPE_TO);
+		init = CGM.OpenMPSupport.getMapSize();
+		end = init;
 	}
 	else { 
 	  //otherwise, look for device clause in the target directive
@@ -6104,12 +6122,19 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 		CGM.OpenMPSupport.startOpenMPRegion(true);
 	      }
 	      CGM.OpenMPSupport.InheritMapPos();
-	      EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);	
+		init = CGM.OpenMPSupport.getMapSize();
+	      EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
+		end = CGM.OpenMPSupport.getMapSize();
+		if (verbose) llvm::errs() << ">>> Init: " <<  init << "\n>>> End: " << end << "\n";
+		EmitInheritedMap(init, end-init);
+		if(first == -1) first = init;
+		count += end - init;
 	    }
 	  }
+	
 	}
       }
-      EmitInheritedMap();
+      
       CGM.OpenMPSupport.PrintAllStack();
     }
     
@@ -6121,7 +6146,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
     }
 
     if (regionStarted) {
-      ReleaseBuffers(); 
+      ReleaseBuffers(first, count); 
       CGM.OpenMPSupport.endOpenMPRegion();
     }
 
@@ -6450,6 +6475,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
   llvm::BasicBlock *ThenBlock = createBasicBlock("target.then");
   llvm::BasicBlock *ElseBlock = createBasicBlock("target.else");
   llvm::BasicBlock *ContBlock = createBasicBlock("target.end");
+	int init = 0, end = 0, first = -1, count = 0;
 
   CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
@@ -6498,7 +6524,13 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_map) {
-	EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+		init = CGM.OpenMPSupport.getMapSize();
+		EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+		end = CGM.OpenMPSupport.getMapSize();
+		if (verbose) llvm::errs() << ">>>>> Init: " <<  init << "\n>>>>> End: " << end << "\n";
+	      EmitInheritedMap(init, end-init);
+		if(first == -1) first = init;
+		count += end - init;
       }
     }
   
@@ -6507,6 +6539,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
       EmitBranch(ContBlock);
       EmitBlock(ContBlock, true);
     }
+      ReleaseBuffers(first, count); 
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }

@@ -633,3 +633,12 @@ void _cl_release_buffers(int upper) {
   }
   _curid = -1;
 }
+
+//
+// Release an OpenCL allocated buffer inside the map region, given an index.
+//
+void _cl_release_buffer(int index) {
+    _status = clReleaseMemObject(_locs[index]);
+    _locs[index] = NULL;
+  _curid--;
+}

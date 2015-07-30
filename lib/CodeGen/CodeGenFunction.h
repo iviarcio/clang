@@ -2198,10 +2198,11 @@ public:
 			      const llvm::Value *MapSize);
 
   void ReleaseBuffers();
+  void ReleaseBuffers(int init, int count);
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS);
   void MapStmts(const Stmt *ST, llvm::Value * val);
-  void EmitInheritedMap();
+  void EmitInheritedMap(int init, int count);
   
   void EmitAfterInitOMPIfClause(const OMPIfClause &C,
                                 const OMPExecutableDirective &S);

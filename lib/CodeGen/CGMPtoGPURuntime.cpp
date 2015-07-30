@@ -181,6 +181,13 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
       llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_release_buffers");
     break;
+  }
+  case MPtoGPURTL_cl_release_buffer: {
+    // Build void _set_release_buffer(int index);
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.VoidTy, CGM.Int32Ty, false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_release_buffer");
+    break;
   }  
   }
   return RTLFn;
@@ -317,6 +324,13 @@ CGMPtoGPURuntime::cl_release_buffers() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cl_release_buffers, false>::get(CGM.getLLVMContext())
 	 , "_cl_release_buffers");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cl_release_buffer() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_release_buffer, false>::get(CGM.getLLVMContext())
+	 , "_cl_release_buffer");
 }
 
 //
