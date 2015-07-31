@@ -345,8 +345,8 @@ cl_uint _get_num_devices () {
 // Return the number of devices of the Main Plataform
 //
 cl_uint _get_num_cores (int A, int B, int C, int T) {
-	int N = abs(B-T-A+1);
-	float K = (float)N/C;
+  int N = abs(B-T-A+1);
+  float K = (float)N/C;
   return (int)ceil(K);
 }
 
@@ -591,26 +591,28 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
 // Enqueues a command to execute a kernel on a device.
 //
 int _cl_execute_kernel(long work_size, int dim) {
-	int i;
-  cl_uint wd = dim; // number of dimmensions. assume equals 1
-//  size_t global_size = (size_t) work_size;
-  size_t *global_size;// = (size_t) work_size;
-	global_size = (size_t *)malloc(wd*sizeof(size_t));
-	for(i=0;i<wd;i++) global_size[i] = (size_t)work_size;
-  size_t *local_size;// = (size_t) work_size;
-	local_size = (size_t *)malloc(wd*sizeof(size_t));
-	for(i=0;i<wd;i++) local_size[i] = 1;
-//  size_t local_size  = 1;  // Fix-me
+  int i;
+  cl_uint wd = dim;
+  size_t *global_size;
+  size_t *local_size;
+
+  global_size = (size_t *)malloc(wd*sizeof(size_t));
+  for (i=0; i<wd; i++)
+    global_size[i] = (size_t)work_size;
+
+  local_size = (size_t *)malloc(wd*sizeof(size_t));
+  for (i=0; i<wd; i++)
+    local_size[i] = 1;
 
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
 				   _kernel,
-				   wd, // work_dim
-				   NULL, // global_work_offset
+				   wd,          // number of dimmensions
+				   NULL,        // global_work_offset
 				   global_size, // global_work_size
-				   local_size, // local_work_size
-				   0, // num_events_in_wait_list
-				   NULL, // event_wait_list
-				   NULL // event
+				   local_size,  // local_work_size
+				   0,           // num_events_in_wait_list
+				   NULL,        // event_wait_list
+				   NULL         // event
 				   );
   if (_status == CL_SUCCESS) {
     return 1;

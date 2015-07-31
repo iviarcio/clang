@@ -3908,15 +3908,13 @@ void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
 
 bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
 
-  //llvm::errs() << "Comparing : " << *KernelVar << " with :\n";  
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().KernelVars.begin(),
 	                                      E  = OpenMPStack.back().KernelVars.end();
 	                                      I != E; ++I) {
     llvm::Value *LV = (*I);
-    if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
-    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
-    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
-    //llvm::errs() << "  value : " << *LV << "\n";    
+    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
+    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
+    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
     if (LV == KernelVar) return true;
   }
   return false;

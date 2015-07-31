@@ -947,7 +947,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
   llvm::Value *Status = nullptr;  
   bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
-    if(isa<DeclRefExpr>(ST)) {
+  if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
     // Is a scalar variable? (including pointers to arrays, dynamically allocated)
     if (D->getDecl()->getType()->isScalarType()) {
@@ -1199,15 +1199,17 @@ unsigned CodeGenFunction::GetNumNestedLoops(const OMPParallelForDirective &S) {
   bool SkippedContainers = false;
   const ForStmt *For;
   const Stmt* Body = S.getAssociatedStmt();
-  if (const CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body))
+  if (const CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
     Body = CS->getCapturedStmt();
+  }
   while (!SkippedContainers) {
     if (For = dyn_cast<ForStmt>(Body)) {
-	Body = For->getBody();
-	nLoops++;
+      Body = For->getBody();
+      nLoops++;
     }
-    else if (const AttributedStmt *AS = dyn_cast_or_null<AttributedStmt>(Body))
+    else if (const AttributedStmt *AS = dyn_cast_or_null<AttributedStmt>(Body)) {
       Body = AS->getSubStmt();
+    }
     else if (const CompoundStmt *CS = dyn_cast_or_null<CompoundStmt>(Body)) {
       if (CS->size() != 1) {
 	SkippedContainers = true;
@@ -1312,14 +1314,15 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     SmallVector<llvm::Value*,3> nCores;
     unsigned CollapseNum = S.getCollapsedNumber();
     assert(CollapseNum<=3 && "Invalid number of Collapsed Loops");
-    if (CollapseNum == 0) {
+    if (CollapseNum <= 1) {
       CollapseNum = GetNumNestedLoops(S);
     }
     unsigned nLoops = CollapseNum;
     ForStmt *For;
     Stmt *Body = S.getAssociatedStmt();
-    if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body))
+    if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
       Body = CS->getCapturedStmt();
+    }
     while (CollapseNum > 0) {
       For = dyn_cast<ForStmt>(Body);
       if (For) {
@@ -5941,7 +5944,7 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
     llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
     llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
 
-    if (verbose) llvm::errs() << "Inheriting " << MapClausePointerValues[i] << "\n";
+    if (verbose) llvm::errs() << "Inheriting " << *MapClausePointerValues[i] << "\n";
 
     switch(MapClauseTypeValues[i]){
     default:
