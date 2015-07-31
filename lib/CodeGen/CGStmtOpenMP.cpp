@@ -1404,7 +1404,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     // Finally, Emit call to execute the kernel
     // Fix-me: The WorkSize must be determined by product of nCores
-    llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0], CGM.Int64Ty, false)};
+    llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0], CGM.Int64Ty, false), Builder.getInt32(nLoops)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     
@@ -6557,6 +6557,10 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
       EmitBranch(ContBlock);
       EmitBlock(ContBlock, true);
     }
+
+      EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+      EmitSyncMapClauses(OMP_TGT_MAPTYPE_TOFROM);
+
       ReleaseBuffers(first, count); 
     CGM.OpenMPSupport.endOpenMPRegion();
   }

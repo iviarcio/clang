@@ -84,7 +84,7 @@ int _cl_set_kernel_args (int nargs);
 
 int _cl_set_kernel_hostArg (int pos, int size, void* loc);
     
-int _cl_execute_kernel (long work_size);
+int _cl_execute_kernel (long work_size, int dim);
 
 void _cl_release_buffers (int upper);    
     

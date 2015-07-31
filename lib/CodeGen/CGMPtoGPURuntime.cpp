@@ -170,8 +170,9 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
   }
   case MPtoGPURTL_cl_execute_kernel: {
     // Build int _set_execute_kernel(long size);
+	llvm::Type *TParams[] = {CGM.Int64Ty, CGM.Int32Ty};
     llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.Int32Ty, CGM.Int64Ty, false);
+      llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_execute_kernel");
     break;
   }
