@@ -1313,10 +1313,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     SmallVector<llvm::Value*,3> nCores;
     unsigned CollapseNum = S.getCollapsedNumber();
-    assert(CollapseNum<=3 && "Invalid number of Collapsed Loops");
     if (CollapseNum <= 1) {
       CollapseNum = GetNumNestedLoops(S);
     }
+    assert(CollapseNum<=3 && "Invalid number of Collapsed Loops");
     unsigned nLoops = CollapseNum;
     ForStmt *For;
     Stmt *Body = S.getAssociatedStmt();
@@ -1406,8 +1406,17 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     std::system(rmStr.c_str());
 
     // Finally, Emit call to execute the kernel
-    // Fix-me: The WorkSize must be determined by product of nCores
-    llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0], CGM.Int64Ty, false), Builder.getInt32(nLoops)};
+    if (nLoops == 1) {
+      nCores.push_back(Builder.getInt32(0));
+      nCores.push_back(Builder.getInt32(0));
+    }
+    else if (nLoops == 2) {
+      nCores.push_back(Builder.getInt32(0));
+    }
+    llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
+			       Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
+			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
+			       Builder.getInt32(nLoops)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     
@@ -5896,6 +5905,7 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
+      // Fix-me: Instruction does not dominate all uses! in target-data-6c.c example
 
       if (verbose) {
 	llvm::errs() << ">>> (VLoc) ";

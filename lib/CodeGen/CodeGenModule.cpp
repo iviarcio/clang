@@ -3912,9 +3912,9 @@ bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
 	                                      E  = OpenMPStack.back().KernelVars.end();
 	                                      I != E; ++I) {
     llvm::Value *LV = (*I);
-    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
-    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
-    if (isa<llvm::User>(LV)) LV = cast<llvm::User>(LV)->getOperand(0);
+    while (!isa<llvm::AllocaInst>(LV)) {
+      LV = cast<llvm::User>(LV)->getOperand(0);
+    }
     if (LV == KernelVar) return true;
   }
   return false;

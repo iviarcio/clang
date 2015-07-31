@@ -342,7 +342,7 @@ cl_uint _get_num_devices () {
 }
 
 //
-// Return the number of devices of the Main Plataform
+// Return the number of iterations in the loop
 //
 cl_uint _get_num_cores (int A, int B, int C, int T) {
   int N = abs(B-T-A+1);
@@ -590,15 +590,16 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
 //
 // Enqueues a command to execute a kernel on a device.
 //
-int _cl_execute_kernel(long work_size, int dim) {
-  int i;
+int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
+  cl_uint i;
   cl_uint wd = dim;
   size_t *global_size;
   size_t *local_size;
 
   global_size = (size_t *)malloc(wd*sizeof(size_t));
-  for (i=0; i<wd; i++)
-    global_size[i] = (size_t)work_size;
+  global_size[0] = (size_t)size1;
+  if (wd>1) global_size[1] = (size_t)size2;
+  if (wd>2) global_size[2] = (size_t)size3;
 
   local_size = (size_t *)malloc(wd*sizeof(size_t));
   for (i=0; i<wd; i++)
