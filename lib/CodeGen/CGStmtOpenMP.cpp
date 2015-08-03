@@ -1284,8 +1284,20 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	//A palliative to figure out how to get the name of a primitive type
 	CLOS << getTypeNameAsString(KT);
       }
-      else if (KT->isArrayTy()) KT->getArrayElementType()->print(CLOS);
-      else if (KT->isVectorTy()) KT->getVectorElementType()->print(CLOS);
+      else if (KT->isArrayTy()) {
+	KT = KT->getArrayElementType();
+	if (KT->isArrayTy()) {
+	  KT = KT->getArrayElementType();
+	}
+	KT->print(CLOS);
+      }
+      else if (KT->isVectorTy()) {
+	KT = KT->getVectorElementType();
+	if (KT->isVectorTy()) {
+	  KT = KT->getVectorElementType();
+	}
+	KT->print(CLOS);
+      }
       else KT->print(CLOS);
       if (isPointer) CLOS << "*";
       CLOS << " " << KName << ",\n";
@@ -1389,6 +1401,19 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (verbose) llvm::errs() << ">>> Renaming " << TmpName << " to " << clName << "\n";
     rename(TmpName.str().c_str(), clName.str().c_str());
 
+    //If vector dimmension > 1 then we need to linearize the matrix.
+    // 2-dimmension:
+    // mat[n][m]  == mat[n*m] & mat[i][j] => mat [i*m + j]
+    // In our case, n == _UB_0 and m == _UB_1
+    //
+    // 3-dimmension:
+    // mat[n][m][q] == mat[n*m*q] & mat[i][j][k] => mat[i*m*q + j*q + k]
+    // idem, n == _UB_0, m == _UB_1 & q == _UB_2
+    //
+    const std::string saux ("perl -p -i~ -w -e 'if (m/\\w+\\[\\w+\\]\\[\\w+\\]\\[\\w+\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1\\*_UB_2 \\+ $3\\*_UB_2 \\+ $4\\]/g;} elsif (m/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1 \\+ $3\\]/g;}' ");
+    const std::string linearize = saux + clName.str();
+    std::system(linearize.c_str());
+    
     // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     const std::string tgtStr = Tgt.getTriple();
