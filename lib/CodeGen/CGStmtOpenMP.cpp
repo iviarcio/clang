@@ -941,7 +941,7 @@ llvm::Type* getVarType (llvm::Value *FV) {
 //    
 // Recursively transverse the body of the for loop looking for uses or assigns.
 //
-void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
+void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args) {
 
   int pos = 0;
   llvm::Value *Status = nullptr;  
@@ -968,12 +968,12 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
     if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
       if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 	if (verbose) llvm::errs() << "BodyVar operand not in Kernel Var List\n"; 
-	pos = CGM.OpenMPSupport.getKernelVarSize();
+	//pos = CGM.OpenMPSupport.getKernelVarSize();
 
 	llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
 	if (verbose) llvm::errs() << ">>> &BodyVar= " << *BVRef << "\n";
 	
-	llvm::Value *CArg[] = { Builder.getInt32(pos),
+	llvm::Value *CArg[] = { Builder.getInt32(num_args++),
 				Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 	if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
@@ -994,7 +994,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS) {
   for(Stmt::child_iterator I = ST->child_begin(),
 	                   E = ST->child_end();
                            I != E; ++I) {
-    if(*I != NULL) HandleStmts(*I, CLOS);
+    if(*I != NULL) HandleStmts(*I, CLOS, num_args);
   }	
 }
 
@@ -1350,11 +1350,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       for (CompoundStmt::body_iterator I = BS->body_begin(),
 	                               E = BS->body_end();
 	                               I != E; ++I) {
-	HandleStmts(*I, CLOS);
+	HandleStmts(*I, CLOS, num_args);
       }
     }
     else {
-      HandleStmts(Body, CLOS);
+      HandleStmts(Body, CLOS, num_args);
     }
 
     CLOS << ") {\n   ";

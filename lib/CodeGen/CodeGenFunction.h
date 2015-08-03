@@ -2207,7 +2207,7 @@ public:
 				  int &num_args,
 				  unsigned CN);
 
-  void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS);
+  void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args);
   void MapStmts(const Stmt *ST, llvm::Value * val);
   void EmitInheritedMap(int init, int count);
   
