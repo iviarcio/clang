@@ -943,32 +943,20 @@ llvm::Type* getVarType (llvm::Value *FV) {
 //
 void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args) {
 
-  int pos = 0;
   llvm::Value *Status = nullptr;  
   bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
   if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-    // Is a scalar variable? (including pointers to arrays, dynamically allocated)
-    if (D->getDecl()->getType()->isScalarType()) {
-      if (verbose) llvm::errs() << ">>>Found scalar variable: ";
-    }
-    // Is an aggregate variable? (statically allocated arrays, for example)
-    else if (D->getDecl()->getType()->isAggregateType()) {
-      if (verbose) llvm::errs() << ">>>Found aggregate variable: ";
-    }
-    if (verbose) llvm::errs() << (cast<NamedDecl>(D->getDecl())->getNameAsString()) << "\n";
+    VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
+    if (verbose) llvm::errs() << ">>> Found Var Decl = " << VD->getName() << "\n";
     
     llvm::Value *BodyVar = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
-    if (verbose) llvm::errs() << ">>> BodyVar = " << *BodyVar << "\n";
-
-	VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
-	if (verbose) llvm::errs() << ">>> VarDecl = " << VD->getName() << "\n";
+    if (verbose) llvm::errs() << ">>> Body Var = " << *BodyVar << "\n";
     
     if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
       if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
-	if (verbose) llvm::errs() << "BodyVar operand not in Kernel Var List\n"; 
-	//pos = CGM.OpenMPSupport.getKernelVarSize();
+	if (verbose) llvm::errs() << "Operand not in Kernel Var List\n"; 
 
 	llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
 	if (verbose) llvm::errs() << ">>> &BodyVar= " << *BVRef << "\n";
@@ -999,12 +987,13 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
 }
 
 ///
-/// Emit Kernel Host Args
+/// Emit host arg values that will be passed to kernel function
 ///
 llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 						  llvm::raw_fd_ostream &CLOS,
 						  int &num_args,
-						  unsigned CN) {
+						  bool Collapse,
+						  unsigned loopNest) {
 /*
   Restriction for the Canonical Loop Form (Lines 19-26, Page 60,
   Document http://www.openmp.org/mp-documents/OpenMP4.0.0.pdf)
@@ -1045,7 +1034,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 
   BinaryOperator *INIT = dyn_cast<BinaryOperator>(FS->getInit());
   llvm::Value *IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
-  CGM.OpenMPSupport.addLocalVar(IVal);
+  if (Collapse) CGM.OpenMPSupport.addLocalVar(IVal);
   Expr *init = INIT->getRHS();
   A = EmitAnyExprToTemp(init).getScalarVal();
 
@@ -1135,7 +1124,8 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   //A palliative to figure out how to get the name of a primitive type
   if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
   else CTy->print(CLOS);
-  CLOS << " _UB_" << CN << ", ";
+  CLOS << " _UB_" << loopNest;
+  if (Collapse) CLOS << ", ";
     
   llvm::AllocaInst *AL = Builder.CreateAlloca(B->getType(), NULL);
   // Not sure if it is necessary, depends on the scope of the register
@@ -1150,44 +1140,43 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   Builder.CreateStore(nCores, AL);
   llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
 	
-  // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
+  // Create hostArg to represent _UB_n (i.e., nCores)
   llvm::Value *CArg[] = {Builder.getInt32(num_args++),
 			 Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef};	
   Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 
-  if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-  else CTy->print(CLOS);
-  CLOS << " _MIN_" << CN << ", ";
+  if (Collapse) {    
+    if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+    else CTy->print(CLOS);
+    CLOS << " _MIN_" << loopNest << ", ";
 
-  llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
-  // Not sure if it is necessary, depends on the scope of the register
-  AL2->setUsedWithInAlloca(true);
+    llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
+    // Not sure if it is necessary, depends on the scope of the register
+    AL2->setUsedWithInAlloca(true);
+    Builder.CreateStore(MIN, AL2);
+    llvm::Value *CVRef2 = Builder.CreateBitCast(AL2, CGM.VoidPtrTy);
 
-  Builder.CreateStore(MIN, AL2);
-  llvm::Value *CVRef2 = Builder.CreateBitCast(AL2, CGM.VoidPtrTy);
+    // Create hostArg to represent _MIN_n
+    llvm::Value *CArg2[] = {Builder.getInt32(num_args++),
+	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
 
-  // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-  llvm::Value *CArg2[] = {Builder.getInt32(num_args++),
-			  Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
-  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
+    if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+    else CTy->print(CLOS);
+    CLOS << " _INC_" << loopNest;
+    if (loopNest!=0) CLOS << ",\n";
 
-  if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-  else CTy->print(CLOS);
-  CLOS << " _INC_" << CN;
-  if (CN!=0) CLOS << ",\n";
+    llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
+    // Not sure if it is necessary, depends on the scope of the register
+    AL2->setUsedWithInAlloca(true);
+    Builder.CreateStore(C, AL3);
+    llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
 
-  llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
-  // Not sure if it is necessary, depends on the scope of the register
-  AL2->setUsedWithInAlloca(true);
-
-  Builder.CreateStore(C, AL3);
-  llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
-
-  // Create hostArg to represent Condition Variable (i.e., pos and *Loc)
-  llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
-			  Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
-  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
-
+  // Create hostArg to represent _INC_n
+    llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
+			    Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
+  }
   return nCores;
 }
 
@@ -1203,7 +1192,7 @@ unsigned CodeGenFunction::GetNumNestedLoops(const OMPParallelForDirective &S) {
     Body = CS->getCapturedStmt();
   }
   while (!SkippedContainers) {
-    if (For = dyn_cast<ForStmt>(Body)) {
+    if ((For = dyn_cast<ForStmt>(Body))) {
       Body = For->getBody();
       nLoops++;
     }
@@ -1324,23 +1313,39 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_args\n";
 
     SmallVector<llvm::Value*,3> nCores;
-    unsigned CollapseNum = S.getCollapsedNumber();
-    if (CollapseNum <= 1) {
-      CollapseNum = GetNumNestedLoops(S);
+    bool hasCollapseClause = false;
+    unsigned CollapseNum, loopNest;
+    // If Collapse clause is not empty, get the collapsedNum,
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_collapse) {
+	hasCollapseClause = true;
+	CollapseNum = S.getCollapsedNumber();
+      }
     }
-    assert(CollapseNum<=3 && "Invalid number of Collapsed Loops");
-    unsigned nLoops = CollapseNum;
+
+    // Look for number of loop nest.
+    loopNest =  GetNumNestedLoops(S);
+    if (!hasCollapseClause) CollapseNum = loopNest;
+    if (verbose) llvm::errs() << "CollapseNum = " << CollapseNum << "\n";
+    if (verbose) llvm::errs() << "Loop Nest = " << loopNest << "\n";
+    assert(loopNest<=3 && "Invalid number of Loop nest.");
+    assert(CollapseNum<=3 && "Invalid number of Collapsed Loops.");
+
     ForStmt *For;
     Stmt *Body = S.getAssociatedStmt();
     if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
       Body = CS->getCapturedStmt();
     }
-    while (CollapseNum > 0) {
+    unsigned nLoops = CollapseNum;
+    while (nLoops > 0) {
       For = dyn_cast<ForStmt>(Body);
       if (For) {
-	nCores.push_back(EmitHostParameters (For, CLOS, num_args, CollapseNum-1));
+	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, nLoops-1));
 	Body = For->getBody();
-	--CollapseNum;
+	--nLoops;
       } else if (AttributedStmt *AS = dyn_cast<AttributedStmt>(Body)) {
 	Body = AS->getSubStmt();
       } else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Body)) {
@@ -1353,7 +1358,27 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	assert(0 && "Unexpected stmt in the loop nest");
       }
     }
+    
     assert(Body && "Failed to extract the loop body");
+
+    if (loopNest > CollapseNum) {
+      CLOS << ",\n";
+      Stmt *Aux = Body;
+      while (loopNest > CollapseNum) {
+	For = dyn_cast<ForStmt>(Aux);
+	if (For) {
+	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loopNest-1);
+	  Aux = For->getBody();
+	  --loopNest;
+	} else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Aux)) {
+	  if (CS->size() == 1) {
+	    Aux = CS->body_back();
+	} else {	
+	    assert(0 && "Unexpected compound stmt in the loop nest");
+	  }
+	}
+      }
+    }
     
     // Traverse the Body looking for all scalar variables declared out of
     // "for" scope and generate value reference to pass to kernel function
@@ -1371,12 +1396,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     CLOS << ") {\n   ";
 
-    for (unsigned i=0; i<nLoops; ++i)
+    for (unsigned i=0; i<CollapseNum; ++i)
       CLOS << "int _ID_" << i << " = get_global_id(" << i << ");\n   ";
 
     SmallVector<llvm::Value*,16> LocalVars;
     CGM.OpenMPSupport.getLocalVars(LocalVars);    
-    for (unsigned i=0; i<nLoops; ++i) {
+    for (unsigned i=0; i<CollapseNum; ++i) {
       std::string IName = getVarNameAsString(LocalVars[i]);
       CLOS << "int " << IName << " = _INC_" << i;
       CLOS << " * _ID_" << i << " + _MIN_" << i << ";\n   ";
@@ -1413,7 +1438,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const std::string saux ("perl -p -i~ -w -e 'if (m/\\w+\\[\\w+\\]\\[\\w+\\]\\[\\w+\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1\\*_UB_2 \\+ $3\\*_UB_2 \\+ $4\\]/g;} elsif (m/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1 \\+ $3\\]/g;}' ");
     const std::string linearize = saux + clName.str();
     std::system(linearize.c_str());
-    
+
     // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     const std::string tgtStr = Tgt.getTriple();
@@ -1431,17 +1456,17 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     std::system(rmStr.c_str());
 
     // Finally, Emit call to execute the kernel
-    if (nLoops == 1) {
+    if (CollapseNum == 1) {
       nCores.push_back(Builder.getInt32(0));
       nCores.push_back(Builder.getInt32(0));
     }
-    else if (nLoops == 2) {
+    else if (CollapseNum == 2) {
       nCores.push_back(Builder.getInt32(0));
     }
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
-			       Builder.getInt32(nLoops)};
+			       Builder.getInt32(CollapseNum)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_execute_kernel\n";
     
@@ -5973,8 +5998,7 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
   bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   llvm::Value *Status = nullptr;
 
-//  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
-  for(unsigned i=init; i<(count+init); ++i) {
+  for(int i=init; i<(count+init); ++i) {
     llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
     llvm::Value *SizeOnly[] = {MapClauseSizeValues[i]};
 

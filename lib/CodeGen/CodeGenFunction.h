@@ -2205,7 +2205,8 @@ public:
   llvm::Value *EmitHostParameters(ForStmt *FS,
 				  llvm::raw_fd_ostream &CLOS,
 				  int &num_args,
-				  unsigned CN);
+				  bool Collapse,
+				  unsigned loopNest);
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args);
   void MapStmts(const Stmt *ST, llvm::Value * val);
