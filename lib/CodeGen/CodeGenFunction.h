@@ -2206,7 +2206,8 @@ public:
 				  llvm::raw_fd_ostream &CLOS,
 				  int &num_args,
 				  bool Collapse,
-				  unsigned loopNest);
+				  unsigned loopNest,
+				  unsigned lastLoop);
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args);
   void MapStmts(const Stmt *ST, llvm::Value * val);
