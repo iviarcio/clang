@@ -1827,6 +1827,75 @@ static LValue EmitGlobalNamedRegister(const VarDecl *VD,
   }
   return LValue::MakeGlobalReg(M->getOperand(0), VD->getType(), Alignment);
 }
+//
+// Emit Decl Ref LValues to construct Spir Functions
+//
+llvm::Value *CodeGenFunction::EmitSpirDeclRefLValue(const DeclRefExpr *D) {
+  const NamedDecl *ND = D->getDecl();
+  const VarDecl *VD = dyn_cast<VarDecl>(ND);
+  CharUnits Alignment = getContext().getDeclAlign(ND);
+  QualType T = D->getType();
+
+  // check if global Named registers accessed via intrinsics only
+  if (VD->getStorageClass() == SC_Register &&
+      VD->hasAttr<AsmLabelAttr>() && !VD->isLocalVarDecl()) {
+    return (EmitGlobalNamedRegister(VD, CGM, Alignment)).getAddress();
+  }
+
+  // DeclRefExpr for a reference initialized by a constant expression
+  const Expr *Init = VD->getAnyInitializer(VD);
+  if (Init && !isa<ParmVarDecl>(VD) && VD->getType()->isReferenceType()) {
+    llvm::Constant *Val =
+      CGM.EmitConstantValue(*VD->evaluateValue(), VD->getType(), this);
+    assert(Val && "failed to emit reference constant expression");
+    return (MakeAddrLValue(Val, T, Alignment)).getAddress();
+  }
+      
+  if (ND->hasAttr<WeakRefAttr>()) {
+    const auto *VD = cast<ValueDecl>(ND);
+    llvm::Constant *Aliasee = CGM.GetWeakRefReference(VD);
+    return (MakeAddrLValue(Aliasee, T, Alignment)).getAddress();
+  }
+
+  if (const auto *VD = dyn_cast<VarDecl>(ND)) {
+    // Check if this is a global variable.
+    if (VD->hasLinkage() || VD->isStaticDataMember()) {
+      return (EmitGlobalVarDeclLValue(*this, D, VD)).getAddress();
+    }
+    else {
+      bool isBlockVariable = VD->hasAttr<BlocksAttr>();
+      llvm::Value *V = LocalDeclMap.lookup(VD);
+      if (!V && VD->isStaticLocal())
+	V = CGM.getStaticLocalDeclAddress(VD);
+      if (!V) return nullptr;
+      else {
+	LValue LV;
+	if (isBlockVariable) V = BuildBlockByrefAddress(V, VD);
+	if (VD->getType()->isReferenceType()) {
+	  llvm::LoadInst *LI = Builder.CreateLoad(V);
+	  LI->setAlignment(Alignment.getQuantity());
+	  V = LI;
+	  LV = MakeNaturalAlignAddrLValue(V, T);
+	} else {
+	  LV = MakeAddrLValue(V, T, Alignment);
+	}
+	bool isLocalStorage = VD->hasLocalStorage();
+	bool NonGCable = isLocalStorage &&
+	  !VD->getType()->isReferenceType() &&
+	  !isBlockVariable;
+	if (NonGCable) {
+	  LV.getQuals().removeObjCGCAttr();
+	  LV.setNonGC(true);
+	}
+	bool isImpreciseLifetime = (isLocalStorage && !VD->hasAttr<ObjCPreciseLifetimeAttr>());
+	if (isImpreciseLifetime) LV.setARCPreciseLifetime(ARCImpreciseLifetime);
+	setObjCGCLValueClass(getContext(), D, LV);
+	return LV.getAddress();
+      }
+      return nullptr;
+    }
+  }
+}
 
 LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   const NamedDecl *ND = E->getDecl();

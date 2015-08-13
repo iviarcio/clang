@@ -461,6 +461,7 @@ int _cl_offloading_read_write (long size, void* loc) {
     _curid--;
     return 0;
   }
+
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
@@ -596,13 +597,13 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   size_t *global_size;
   size_t *local_size;
 
-  global_size = (size_t *)malloc(wd*sizeof(size_t));
+  global_size = (size_t *)malloc(3*sizeof(size_t));
   global_size[0] = (size_t)size1;
-  if (wd>1) global_size[1] = (size_t)size2;
-  if (wd>2) global_size[2] = (size_t)size3;
+  global_size[1] = (size_t)size2;
+  global_size[2] = (size_t)size3;
 
-  local_size = (size_t *)malloc(wd*sizeof(size_t));
-  for (i=0; i<wd; i++)
+  local_size = (size_t *)malloc(3*sizeof(size_t));
+  for (i=0; i<3; i++)
     local_size[i] = 1;
 
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],

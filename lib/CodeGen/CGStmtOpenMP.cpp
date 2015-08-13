@@ -948,36 +948,41 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
 
   if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-    VarDecl *VD = dyn_cast<VarDecl>(D->getDecl());
+    llvm::Value *BodyVar = EmitSpirDeclRefLValue(D);
+   
+    const NamedDecl *ND = D->getDecl();
+    const VarDecl *VD = dyn_cast<VarDecl>(ND);
     if (verbose) llvm::errs() << ">>> Found Var Decl = " << VD->getName() << "\n";
+  
+    if (BodyVar) {	     
+      if (verbose) llvm::errs() << ">>> Body Var = " << *BodyVar << "\n";
     
-    llvm::Value *BodyVar = EmitLValue(dyn_cast<Expr>(ST)).getAddress();
-    if (verbose) llvm::errs() << ">>> Body Var = " << *BodyVar << "\n";
-    
-    if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
-      if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
-	if (verbose) llvm::errs() << "Operand not in Kernel Var List\n"; 
+      if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
+	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 
-	llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
-	if (verbose) llvm::errs() << ">>> &BodyVar= " << *BVRef << "\n";
+	  llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
+	  if (verbose) llvm::errs() << ">>> Inserted in Var list = " << *BVRef << "\n";
 	
-	llvm::Value *CArg[] = { Builder.getInt32(num_args++),
-				Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
-	if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
-	CGM.OpenMPSupport.addKernelVar(BodyVar);
-	StringRef BName = VD->getName();
-	llvm::Type *TTy = getVarType (BodyVar);
+	  llvm::Value *CArg[] = { Builder.getInt32(num_args++),
+				  Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
+	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+	
+	  if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 
-	CLOS << ",\n";
-	//A palliative to figure out how to get the name of a primitive type
-	if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
-	else TTy->print(CLOS); 
-	CLOS << " " << BName;
-      }
-    }	      
+	  CGM.OpenMPSupport.addKernelVar(BodyVar);
+	  StringRef BName = VD->getName();
+	  llvm::Type *TTy = getVarType (BodyVar);
+
+	  CLOS << ",\n";
+	  //A palliative to figure out how to get the name of a primitive type
+	  if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
+	  else TTy->print(CLOS); 
+	  CLOS << " " << BName;
+	}
+      }	      
+    }
   }
-
+  
   // Get the children of the current node in the AST and call the function recursively
   for(Stmt::child_iterator I = ST->child_begin(),
 	                   E = ST->child_end();

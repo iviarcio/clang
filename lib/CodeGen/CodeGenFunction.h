@@ -2207,6 +2207,8 @@ public:
 				  int &num_args,
 				  bool Collapse,
 				  unsigned loopNest);
+  
+  llvm::Value *EmitSpirDeclRefLValue(const DeclRefExpr *D);
 
   void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args);
   void MapStmts(const Stmt *ST, llvm::Value * val);
