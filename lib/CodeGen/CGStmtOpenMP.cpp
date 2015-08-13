@@ -998,7 +998,8 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 						  llvm::raw_fd_ostream &CLOS,
 						  int &num_args,
 						  bool Collapse,
-						  unsigned loopNest) {
+						  unsigned loopNest,
+						  unsigned lastLoop) {
 /*
   Restriction for the Canonical Loop Form (Lines 19-26, Page 60,
   Document http://www.openmp.org/mp-documents/OpenMP4.0.0.pdf)
@@ -1169,7 +1170,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
     if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
     else CTy->print(CLOS);
     CLOS << " _INC_" << loopNest;
-    if (loopNest!=0) CLOS << ",\n";
+    if (loopNest != lastLoop) CLOS << ",\n";
 
     llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
     // Not sure if it is necessary, depends on the scope of the register
@@ -1345,12 +1346,15 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       Body = CS->getCapturedStmt();
     }
     unsigned nLoops = CollapseNum;
+	int loop = 0;
     while (nLoops > 0) {
       For = dyn_cast<ForStmt>(Body);
       if (For) {
-	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, nLoops-1));
+//	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, nLoops-1));
+	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, loop, CollapseNum-1));
 	Body = For->getBody();
 	--nLoops;
+	loop++;
       } else if (AttributedStmt *AS = dyn_cast<AttributedStmt>(Body)) {
 	Body = AS->getSubStmt();
       } else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Body)) {
@@ -1371,10 +1375,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       Stmt *Aux = Body;
       while (loopNest > CollapseNum) {
 	For = dyn_cast<ForStmt>(Aux);
+	int loop = loopNest-1;
 	if (For) {
-	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loopNest-1);
+//	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loopNest-1);
+	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loop, CollapseNum-1);
 	  Aux = For->getBody();
 	  --loopNest;
+		loop--;
 	} else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Aux)) {
 	  if (CS->size() == 1) {
 	    Aux = CS->body_back();

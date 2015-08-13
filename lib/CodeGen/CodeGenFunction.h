@@ -2206,7 +2206,8 @@ public:
 				  llvm::raw_fd_ostream &CLOS,
 				  int &num_args,
 				  bool Collapse,
-				  unsigned loopNest);
+				  unsigned loopNest,
+				  unsigned lastLoop);
   
   llvm::Value *EmitSpirDeclRefLValue(const DeclRefExpr *D);
 
