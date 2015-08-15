@@ -1447,8 +1447,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // mat[n][m][q] == mat[n*m*q] & mat[i][j][k] => mat[i*m*q + j*q + k]
     // idem, n == _UB_0, m == _UB_1 & q == _UB_2
     //
-    const std::string saux ("perl -p -i~ -w -e 'if (m/\\w+\\[\\w+\\]\\[\\w+\\]\\[\\w+\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1\\*_UB_2 \\+ $3\\*_UB_2 \\+ $4\\]/g;} elsif (m/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/){s/(\\w+)\\[(\\w+)\\]\\[(\\w+)\\]/$1\\[$2\\*_UB_1 \\+ $3\\]/g;}' ");
+    const std::string saux ("perl -p -i~ -w -e '$x=\".[^\\]]*?\"; if (m!\\[$x\\]\\[$x\\]\\[$x\\]!){s/\\[($x)\\]\\[($x)\\]\\[($x)\\]/\\[($1)\\*_UB_1\\*_UB_2 \\+ ($2)\\*_UB_2 \\+ $3\\]/g;} elsif (m!\\[$x\\]\\[$x\\]!){s/\\[($x)\\]\\[($x)\\]/\\[($1)\\*_UB_1 \\+ $2\\]/g;}' ");
     const std::string linearize = saux + clName.str();
+    if (verbose) llvm::errs() << linearize << "\n";
     std::system(linearize.c_str());
 
     // generate spir-code
