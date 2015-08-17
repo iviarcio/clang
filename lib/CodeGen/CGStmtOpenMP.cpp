@@ -1259,7 +1259,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
 	                                  E  = MapClausePointerValues.end();
 	                                  I != E; ++I) {
-      llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
+
+      //llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
+      llvm::Value *KV = dyn_cast<llvm::User>(*I)->getOperand(0);
+      
       CGM.OpenMPSupport.addKernelVar(KV);
       std::string KName = mapping[KV];
       llvm::Type *KT = KV->getType()->getScalarType();
@@ -1350,7 +1353,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     while (nLoops > 0) {
       For = dyn_cast<ForStmt>(Body);
       if (For) {
-//	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, nLoops-1));
 	nCores.push_back(EmitHostParameters (For, CLOS, num_args, true, loop, CollapseNum-1));
 	Body = For->getBody();
 	--nLoops;
@@ -1377,7 +1379,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	For = dyn_cast<ForStmt>(Aux);
 	int loop = loopNest-1;
 	if (For) {
-//	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loopNest-1);
 	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loop, CollapseNum-1);
 	  Aux = For->getBody();
 	  --loopNest;
@@ -5939,7 +5940,8 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
     if (VType == OMP_TGT_MAPTYPE_TO &&
 	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
 
-      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);	  
+      //llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);	  
+      llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0);	  
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
       llvm::Value *Args[] = {MapClauseSizeValues[i],
@@ -5961,7 +5963,8 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
 	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
 
-      llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0); 
+      //llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0); 
+      llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0); 
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
       llvm::Value *Args[] = {MapClauseSizeValues[i],
@@ -5986,8 +5989,12 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
 
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-    mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+
+//  mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+    mapping[dyn_cast<llvm::User>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
+    
   }
+
   // Get the children of the current node in the AST and call the function recursively
   for(Stmt::const_child_iterator I  = ST->child_begin(),
 	                         E  = ST->child_end();
@@ -6658,22 +6665,37 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
 			      MapClausePositionValues);
 
   const llvm::Value *COper = CurOperand;
-  if (isa<llvm::CastInst>(COper)) COper = cast<llvm::CastInst>(COper)->getOperand(0);
-  if (isa<llvm::GetElementPtrInst>(COper)) COper = cast<llvm::GetElementPtrInst>(COper)->getPointerOperand();
-  if (isa<llvm::LoadInst>(COper)) COper = cast<llvm::LoadInst>(COper)->getPointerOperand();
+
+  unsigned nop = dyn_cast<llvm::User>(COper)->getNumOperands();
+  while (!isa<llvm::AllocaInst>(COper) && nop>0) {
+    COper = cast<llvm::User>(COper)->getOperand(0);
+    nop = dyn_cast<llvm::User>(COper)->getNumOperands();
+  }
+
+  //if (isa<llvm::CastInst>(COper)) COper = cast<llvm::CastInst>(COper)->getOperand(0);
+  //if (isa<llvm::GetElementPtrInst>(COper)) COper = cast<llvm::GetElementPtrInst>(COper)->getPointerOperand();
+  //if (isa<llvm::LoadInst>(COper)) COper = cast<llvm::LoadInst>(COper)->getPointerOperand();
+  
   if (verbose) llvm::errs() << "CurOperand = " << *COper << "\n";
  
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {    
     llvm::Value *LV = MapClausePointerValues[i];
-    if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
-    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
-    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
-    if (verbose) llvm::errs() << "MapOperand = " << *LV << "\n";
-    if (LV == COper) {
-      //TODO: Check if size matches
-      return i;
+
+    unsigned oper = dyn_cast<llvm::User>(LV)->getNumOperands();
+    while (!isa<llvm::AllocaInst>(LV) && oper>0) {
+      LV = cast<llvm::User>(LV)->getOperand(0);
+      oper = dyn_cast<llvm::User>(LV)->getNumOperands();
     }
-  }  
+    
+    //if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
+    //if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+    //if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+    
+    if (verbose) llvm::errs() << "MapOperand = " << *LV << "\n";
+    
+    if (LV == COper) return i;
+  }
+  
   llvm_unreachable("[data] map position for the clause not found!");
   return 0;  
 }
