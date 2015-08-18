@@ -1832,10 +1832,12 @@ static LValue EmitGlobalNamedRegister(const VarDecl *VD,
 //
 llvm::Value *CodeGenFunction::EmitSpirDeclRefLValue(const DeclRefExpr *D) {
   const NamedDecl *ND = D->getDecl();
+  if (!isa<VarDecl>(ND)) return nullptr;
+  
   const VarDecl *VD = dyn_cast<VarDecl>(ND);
   CharUnits Alignment = getContext().getDeclAlign(ND);
   QualType T = D->getType();
-
+  
   // check if global Named registers accessed via intrinsics only
   if (VD->getStorageClass() == SC_Register &&
       VD->hasAttr<AsmLabelAttr>() && !VD->isLocalVarDecl()) {
@@ -1895,6 +1897,7 @@ llvm::Value *CodeGenFunction::EmitSpirDeclRefLValue(const DeclRefExpr *D) {
       return nullptr;
     }
   }
+  return nullptr;
 }
 
 LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {

@@ -950,11 +950,10 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
     llvm::Value *BodyVar = EmitSpirDeclRefLValue(D);
    
-    const NamedDecl *ND = D->getDecl();
-    const VarDecl *VD = dyn_cast<VarDecl>(ND);
-    if (verbose) llvm::errs() << ">>> Found Var Decl = " << VD->getName() << "\n";
-  
     if (BodyVar) {	     
+      const NamedDecl *ND = D->getDecl();
+      const VarDecl *VD = dyn_cast<VarDecl>(ND);
+      if (verbose) llvm::errs() << ">>> Found Var Decl = " << VD->getName() << "\n";
       if (verbose) llvm::errs() << ">>> Body Var = " << *BodyVar << "\n";
     
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
