@@ -3874,34 +3874,46 @@ llvm::Constant *CodeGenModule::GetAddrOfRTTIDescriptor(QualType Ty,
   return getCXXABI().getAddrOfRTTIDescriptor(Ty);
 }
 
-void CodeGenModule::OpenMPSupportStackTy::getMapData(ArrayRef<llvm::Value*> &MapPointers, ArrayRef<llvm::Value*> &MapSizes, ArrayRef<unsigned> &MapTypes){
+void CodeGenModule::OpenMPSupportStackTy::getMapData(ArrayRef<llvm::Value*> &MapPointers,
+						     ArrayRef<llvm::Value*> &MapSizes,
+						     ArrayRef<QualType> &MapQualTypes,
+						     ArrayRef<unsigned> &MapTypes){
   MapPointers = OpenMPStack.back().MapPointers;
   MapSizes = OpenMPStack.back().MapSizes;
+  MapQualTypes = OpenMPStack.back().MapQualTypes;
   MapTypes = OpenMPStack.back().MapTypes;
 }
 
-void CodeGenModule::OpenMPSupportStackTy::addMapData(llvm::Value *MapPointer, llvm::Value *MapSize, unsigned MapType){
+void CodeGenModule::OpenMPSupportStackTy::addMapData(llvm::Value *MapPointer,
+						     llvm::Value *MapSize,
+						     QualType MapQualType,
+						     unsigned MapType){
   OpenMPStack.back().MapPointers.push_back(MapPointer);
   OpenMPStack.back().MapSizes.push_back(MapSize);
+  OpenMPStack.back().MapQualTypes.push_back(MapQualType);
   OpenMPStack.back().MapTypes.push_back(MapType);
 }
 
 void CodeGenModule::OpenMPSupportStackTy::getMapPos(ArrayRef<llvm::Value*> &MapPointers,
 						    ArrayRef<llvm::Value*> &MapSizes,
+						    ArrayRef<QualType> &MapQualTypes,
 						    ArrayRef<unsigned> &MapTypes,
 						    ArrayRef<unsigned> &MapPositions){
   MapPointers = OpenMPStack.back().MapPointers;
   MapSizes = OpenMPStack.back().MapSizes;
+  MapQualTypes = OpenMPStack.back().MapQualTypes;
   MapTypes = OpenMPStack.back().MapTypes;
   MapPositions = OpenMPStack.back().MapPositions;
 }
 
 void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
 						    llvm::Value *MapSize,
+						    QualType MapQualType,
 						    unsigned MapType,
 						    unsigned MapPosition){
   OpenMPStack.back().MapPointers.push_back(MapPointer);
   OpenMPStack.back().MapSizes.push_back(MapSize);
+  OpenMPStack.back().MapQualTypes.push_back(MapQualType);
   OpenMPStack.back().MapTypes.push_back(MapType);
   OpenMPStack.back().MapPositions.push_back(MapPosition);
 }
@@ -3937,6 +3949,7 @@ void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
 	                                      IM != EM; ++IM) {
 			OpenMPStack.back().MapPointers.push_back(IS->MapPointers[i]);
 			OpenMPStack.back().MapSizes.push_back(IS->MapSizes[i]);
+			OpenMPStack.back().MapQualTypes.push_back(IS->MapQualTypes[i]);
 			OpenMPStack.back().MapTypes.push_back(IS->MapTypes[i]);
 			OpenMPStack.back().MapPositions.push_back(IS->MapPositions[i]);
 			i++;
@@ -3974,15 +3987,23 @@ void CodeGenModule::OpenMPSupportStackTy::PrintAllStack() {
 
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
 
-  //llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
+  llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().LocalVars.begin(),
 	                                      E  = OpenMPStack.back().LocalVars.end();
 	                                      I != E; ++I) {
+
     llvm::Value *LV = (*I);
-    if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
-    if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
-    if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
-    //llvm::errs() << "  value : " << *LV << "\n";
+    unsigned nop = dyn_cast<llvm::User>(LV)->getNumOperands();
+    while (!isa<llvm::AllocaInst>(LV) && nop>0) {
+      LV = cast<llvm::User>(LV)->getOperand(0);
+      nop = dyn_cast<llvm::User>(LV)->getNumOperands();
+    }
+
+    //if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
+    //if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
+    //if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
+
+    llvm::errs() << "  value : " << *LV << "\n";
     if (LV == LocalVar) return true;
   }
   return false;

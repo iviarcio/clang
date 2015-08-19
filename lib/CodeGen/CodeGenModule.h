@@ -1197,10 +1197,13 @@ public:
       llvm::Value **WaitDepsArgs;
       llvm::SmallVector<llvm::Value*,16> MapPointers;
       llvm::SmallVector<llvm::Value*,16> MapSizes;
+      llvm::SmallVector<QualType,16> MapQualTypes;
       llvm::SmallVector<unsigned,16> MapTypes;
       llvm::SmallVector<unsigned,16> MapPositions;
       llvm::SmallVector<llvm::Value*,16> KernelVars;
+      llvm::SmallVector<QualType, 16> KernelTypes;
       llvm::SmallVector<llvm::Value*,16> LocalVars;
+      llvm::SmallVector<QualType, 16> LocalTypes;
       llvm::Value* OffloadingDevice;
       std::string KernelName;
       OMPStackElemTy(CodeGenModule &CGM);
@@ -1334,16 +1337,26 @@ public:
     llvm::Value *getThreadLimit();
     void setWaitDepsArgs(llvm::Value **Args);
     llvm::Value **getWaitDepsArgs();
-    void getMapData(ArrayRef<llvm::Value*> &MapPointers, ArrayRef<llvm::Value*> &MapSizes, ArrayRef<unsigned> &MapTypes);
-    void addMapData(llvm::Value *MapPointer, llvm::Value *MapSize, unsigned MapType);
+    
+    void getMapData(ArrayRef<llvm::Value*> &MapPointers,
+		    ArrayRef<llvm::Value*> &MapSizes,
+		    ArrayRef<QualType> &MapQualTypes,
+		    ArrayRef<unsigned> &MapTypes);
+    
+    void addMapData(llvm::Value *MapPointer,
+		    llvm::Value *MapSize,
+		    QualType MapQualType,
+		    unsigned MapType);
 
     void getMapPos(ArrayRef<llvm::Value*> &MapPointers,
 		   ArrayRef<llvm::Value*> &MapSizes,
+		   ArrayRef<QualType> &MapQualTypes,
 		   ArrayRef<unsigned> &MapTypes,
 		   ArrayRef<unsigned> &MapPositions);
 
     void addMapPos(llvm::Value *MapPointer,
 		   llvm::Value *MapSize,
+		   QualType MapQualType,
 		   unsigned MapType,
 		   unsigned MapPosition);
 
@@ -1352,8 +1365,18 @@ public:
     void addKernelVar(llvm::Value *KernelVar) {
       OpenMPStack.back().KernelVars.push_back(KernelVar);
     }
-    void clearKernelVars() { OpenMPStack.back().KernelVars.clear(); }
+
+    void addKernelType(QualType KernelType) {
+      OpenMPStack.back().KernelTypes.push_back(KernelType);
+    }
+    
+    void clearKernelVars() {
+      OpenMPStack.back().KernelVars.clear();
+      OpenMPStack.back().KernelTypes.clear();
+    }
+    
     bool isKernelVar(llvm::Value *KernelVar);
+    
     int getKernelVarSize() { return OpenMPStack.back().KernelVars.size(); }
 
     void PrintMapped(OMPStackElemTy *elem);
@@ -1363,10 +1386,24 @@ public:
     void addLocalVar(llvm::Value *LocalVar) {
       OpenMPStack.back().LocalVars.push_back(LocalVar);
     }
-    void clearLocalVars() { OpenMPStack.back().LocalVars.clear(); }
+
+    void addLocalType(QualType LocalType) {
+      OpenMPStack.back().LocalTypes.push_back(LocalType);
+    }
+   
+    void clearLocalVars() {
+      OpenMPStack.back().LocalVars.clear();
+      OpenMPStack.back().LocalTypes.clear();
+    }
+    
     bool inLocalScope(llvm::Value *LocalVar);
+    
     void getLocalVars(SmallVector<llvm::Value*,16> &LocalVars) {
       LocalVars = OpenMPStack.back().LocalVars;
+    }
+
+    void getLocalTypes(SmallVector<QualType,16> &LocalTypes) {
+      LocalTypes = OpenMPStack.back().LocalTypes;
     }
     
     void setOffloadingDevice(llvm::Value *device);

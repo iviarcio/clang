@@ -49,6 +49,20 @@ std::map<llvm::Value *, std::string> mapping;
 bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
 
+llvm::SmallVector<const QualType*, 16> deftypes;
+  
+static bool dumpedDefType(const QualType* T) {
+  for (ArrayRef<const QualType*>::iterator I  = deftypes.begin(),
+	                                   E  = deftypes.end();
+	                                   I != E; ++I) {
+    if ((*I)->getBaseTypeIdentifier()->getName() ==
+	T->getBaseTypeIdentifier()->getName())
+      return true;
+  }
+  deftypes.push_back(T);
+  return false;
+}
+
 static bool isLoopDirective(const OMPExecutableDirective *ED) {
   return isa<OMPForDirective>(ED) || isa<OMPParallelForDirective>(ED) ||
          isa<OMPParallelForSimdDirective>(ED) || isa<OMPSimdDirective>(ED) ||
@@ -969,14 +983,15 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
 	  if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 
 	  CGM.OpenMPSupport.addKernelVar(BodyVar);
-	  StringRef BName = VD->getName();
-	  llvm::Type *TTy = getVarType (BodyVar);
+	  //StringRef BName = VD->getName();
+	  //llvm::Type *TTy = getVarType (BodyVar);
 
 	  CLOS << ",\n";
 	  //A palliative to figure out how to get the name of a primitive type
-	  if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
-	  else TTy->print(CLOS); 
-	  CLOS << " " << BName;
+	  //if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
+	  //else TTy->print(CLOS); 
+	  //CLOS << " " << BName;
+	  CLOS << D->getType().getAsString() << " " << ND->getDeclName();
 	}
       }	      
     }
@@ -1125,10 +1140,11 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   }
   
   std::string IName = getVarNameAsString(IVal);
-  llvm::Type *CTy = CGM.IntTy;
+  //llvm::Type *CTy = CGM.IntTy;
   //A palliative to figure out how to get the name of a primitive type
-  if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-  else CTy->print(CLOS);
+  //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+  //else CTy->print(CLOS);
+  CLOS << INIT->getType().getAsString();
   CLOS << " _UB_" << loopNest;
   if (Collapse) CLOS << ", ";
     
@@ -1151,8 +1167,9 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 
   if (Collapse) {    
-    if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-    else CTy->print(CLOS);
+    //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+    //else CTy->print(CLOS);
+    CLOS << INIT->getType().getAsString();
     CLOS << " _MIN_" << loopNest << ", ";
 
     llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
@@ -1166,8 +1183,9 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
 
-    if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-    else CTy->print(CLOS);
+    //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
+    //else CTy->print(CLOS);
+    CLOS << INIT->getType().getAsString();
     CLOS << " _INC_" << loopNest;
     if (loopNest != lastLoop) CLOS << ",\n";
 
@@ -1241,18 +1259,35 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
 
-    CLOS << "__kernel void " << TmpName << " (\n";
-    
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
+    ArrayRef<QualType> MapClauseQualTypes;
     ArrayRef<unsigned> MapClauseTypeValues;
 
     CGM.OpenMPSupport.getMapData(MapClausePointerValues,
 				 MapClauseSizeValues,
+				 MapClauseQualTypes,
 				 MapClauseTypeValues);
 
+    
+    // Dump necessary typedefs in kernel file
+    deftypes.clear();
+    for (ArrayRef<QualType>::iterator T  = MapClauseQualTypes.begin(),
+	                              E  = MapClauseQualTypes.end();
+	                              T != E; ++T) {
+      if (!T->isCanonical()) {
+	if (!dumpedDefType(T)) {
+	    StringRef defty = T->getBaseTypeIdentifier()->getName();
+	    const Type* Ty = T->getTypePtr()->getCanonicalTypeInternal().getTypePtr();	
+	    CLOS << "typedef " << Ty->getPointeeType().getAsString() << " " << defty << ";\n";
+	}
+      }
+    }
+    
     CGM.OpenMPSupport.clearKernelVars();
     CGM.OpenMPSupport.clearLocalVars();
+
+    CLOS << "\n__kernel void " << TmpName << " (\n";
     
     int j = 0;
     for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
@@ -1261,10 +1296,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       //llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       llvm::Value *KV = dyn_cast<llvm::User>(*I)->getOperand(0);
+      QualType QT = MapClauseQualTypes[j];
       
       CGM.OpenMPSupport.addKernelVar(KV);
+      CGM.OpenMPSupport.addKernelType(QT);
+      
       std::string KName = mapping[KV];
-      llvm::Type *KT = KV->getType()->getScalarType();
+      //llvm::Type *KT = KV->getType()->getScalarType();
 
       if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO)
 	CLOS << "__global "; //Spir 1.2 do not support const attr
@@ -1272,6 +1310,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	CLOS << "__global ";
       j++;
 
+      /*
       bool isPointer = false;
       if (KT->isPointerTy()) {
 	KT = KT->getPointerElementType();
@@ -1297,6 +1336,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
       else KT->print(CLOS);
       if (isPointer) CLOS << "*";
+      */
+      CLOS << QT.getAsString();
       CLOS << " " << KName << ",\n";
     }
 
@@ -3343,7 +3384,8 @@ CodeGenFunction::EmitInitOMPMapClause(const OMPMapClause &C,
   for (unsigned i=0; i<RangeBegin.size(); ++i){
     llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
     llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
-
+    QualType QT = RangeBegin[i]->getType();
+    
     // Subtract the two pointers to obtain the size or
     // use the value directly if it is a constant
     llvm::Value *Size = RE;
@@ -3384,7 +3426,7 @@ CodeGenFunction::EmitInitOMPMapClause(const OMPMapClause &C,
     // Store the map data into the stack. After all map clauses are codegen,
     // the afterinit emission is going to allocate the arrays in the program
     // stack
-    CGM.OpenMPSupport.addMapData(VP,VS,VT);
+    CGM.OpenMPSupport.addMapData(VP,VS, QT, VT);
   }
 }
 
@@ -5925,11 +5967,13 @@ void CodeGenFunction::ReleaseBuffers(int init, int count) {
 void CodeGenFunction::EmitSyncMapClauses(const int VType) {
   ArrayRef<llvm::Value*> MapClausePointerValues;
   ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<QualType> MapClauseQualTypes;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
 
   CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
 			      MapClauseSizeValues,
+			      MapClauseQualTypes,
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
@@ -5939,7 +5983,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
     if (VType == OMP_TGT_MAPTYPE_TO &&
 	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
 
-      //llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0);	  
       llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0);	  
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
@@ -5962,7 +6005,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
 	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
 
-      //llvm::Value *operand = (cast<llvm::CastInst>(MapClausePointerValues[i]))->getOperand(0); 
       llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0); 
       //get the position of location in target [data] map
       llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
@@ -5970,7 +6012,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
-      // Fix-me: Instruction does not dominate all uses! in target-data-6c.c example
 
       if (verbose) {
 	llvm::errs() << ">>> (VLoc) ";
@@ -5988,10 +6029,7 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
 
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-
-//  mapping[dyn_cast<llvm::Instruction>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
-    mapping[dyn_cast<llvm::User>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();
-    
+    mapping[dyn_cast<llvm::User>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();    
   }
 
   // Get the children of the current node in the AST and call the function recursively
@@ -6006,11 +6044,13 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
 	
   ArrayRef<llvm::Value*> MapClausePointerValues;
   ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<QualType> MapClauseQualTypes;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
 
   CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
 			      MapClauseSizeValues,
+			      MapClauseQualTypes,
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
@@ -6092,6 +6132,9 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
 
     const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
     MapStmts(ST, VLoc);
+
+    QualType VQual = cast<Expr>(ST)->getType();
+    llvm::errs() << "QualType: " << VQual.getAsString() << "\n";
 	
     int VType;
     switch(C.getKind()){
@@ -6115,7 +6158,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
    
     //Save the position of location in the [data] map clause
     //This also define the buffer index (used to offloading)
-    CGM.OpenMPSupport.addMapPos(VLoc, VSize, VType, i);
+    CGM.OpenMPSupport.addMapPos(VLoc, VSize, VQual, VType, i);
   }
 }
 
@@ -6390,10 +6433,12 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
+    ArrayRef<QualType> MapClauseQualTypes;
     ArrayRef<unsigned> MapClauseTypeValues;
 
     CGM.OpenMPSupport.getMapData(MapClausePointerValues,
 				 MapClauseSizeValues,
+				 MapClauseQualTypes,
 				 MapClauseTypeValues);
     // Allocate arrays in the stack or internal constants to keep the map data
     // information
@@ -6655,11 +6700,13 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
 
   ArrayRef<llvm::Value*> MapClausePointerValues;
   ArrayRef<llvm::Value*> MapClauseSizeValues;
+  ArrayRef<QualType> MapClauseQualTypes;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
 
   CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
 			      MapClauseSizeValues,
+			      MapClauseQualTypes,
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
@@ -6670,10 +6717,6 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
     COper = cast<llvm::User>(COper)->getOperand(0);
     nop = dyn_cast<llvm::User>(COper)->getNumOperands();
   }
-
-  //if (isa<llvm::CastInst>(COper)) COper = cast<llvm::CastInst>(COper)->getOperand(0);
-  //if (isa<llvm::GetElementPtrInst>(COper)) COper = cast<llvm::GetElementPtrInst>(COper)->getPointerOperand();
-  //if (isa<llvm::LoadInst>(COper)) COper = cast<llvm::LoadInst>(COper)->getPointerOperand();
   
   if (verbose) llvm::errs() << "CurOperand = " << *COper << "\n";
  
@@ -6685,10 +6728,6 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
       LV = cast<llvm::User>(LV)->getOperand(0);
       oper = dyn_cast<llvm::User>(LV)->getNumOperands();
     }
-    
-    //if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
-    //if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
-    //if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
     
     if (verbose) llvm::errs() << "MapOperand = " << *LV << "\n";
     
