@@ -6134,7 +6134,7 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     MapStmts(ST, VLoc);
 
     QualType VQual = cast<Expr>(ST)->getType();
-    llvm::errs() << "QualType: " << VQual.getAsString() << "\n";
+    if (verbose) llvm::errs() << "QualType: " << VQual.getAsString() << "\n";
 	
     int VType;
     switch(C.getKind()){

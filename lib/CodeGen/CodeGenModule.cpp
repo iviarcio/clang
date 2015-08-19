@@ -3934,30 +3934,28 @@ bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
   return false;
 }
 
-
 void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
-
-	int i;
-	llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
-	end--;
+  int i;
+  llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
+  end--;
   for (llvm::SmallVector<OMPStackElemTy, 16>::iterator IS = OpenMPStack.begin(),
-	                                      ES = end;
-	                                      IS != ES; ++IS) {
-		i = 0;
-		for (SmallVector<llvm::Value*,16>::iterator IM  = IS->MapPointers.begin(),
-	                                      EM  = IS->MapPointers.end();
-	                                      IM != EM; ++IM) {
-			OpenMPStack.back().MapPointers.push_back(IS->MapPointers[i]);
-			OpenMPStack.back().MapSizes.push_back(IS->MapSizes[i]);
-			OpenMPStack.back().MapQualTypes.push_back(IS->MapQualTypes[i]);
-			OpenMPStack.back().MapTypes.push_back(IS->MapTypes[i]);
-			OpenMPStack.back().MapPositions.push_back(IS->MapPositions[i]);
-			i++;
-		  }
+    	                                               ES = end;
+	                                               IS != ES; ++IS) {
+    i = 0;
+    for (SmallVector<llvm::Value*,16>::iterator IM  = IS->MapPointers.begin(),
+	                                        EM  = IS->MapPointers.end();
+	                                        IM != EM; ++IM) {
+      OpenMPStack.back().MapPointers.push_back(IS->MapPointers[i]);
+      OpenMPStack.back().MapSizes.push_back(IS->MapSizes[i]);
+      OpenMPStack.back().MapQualTypes.push_back(IS->MapQualTypes[i]);
+      OpenMPStack.back().MapTypes.push_back(IS->MapTypes[i]);
+      OpenMPStack.back().MapPositions.push_back(IS->MapPositions[i]);
+      i++;
+    }
   }
 }
 
-// For testing
+// Only for test purposes
 void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
 
   for (SmallVector<llvm::Value*,16>::iterator I  = elem->MapPointers.begin(),
@@ -3968,26 +3966,27 @@ void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
   }
 }
 
-// For testing
+// Only for test purposes
 void CodeGenModule::OpenMPSupportStackTy::PrintAllStack() {
 
-    bool verbose = CGM.getCodeGenOpts().AsmVerbose;
-    int i = 0;
-    llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
+  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+  int i = 0;
+  llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
 
-    for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
-	                                                 E = end;
-	                                                 I != E; ++I) {
-      if (verbose) {
-	llvm::errs() << "Item " << i++ << ":\n";
-	PrintMapped(I);
-      }
+  for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
+	                                               E = end;
+	                                               I != E; ++I) {
+    if (verbose) {
+      llvm::errs() << "Item " << i++ << ":\n";
+      PrintMapped(I);
     }
+  }
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
 
-  llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
+  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+  if (verbose) llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().LocalVars.begin(),
 	                                      E  = OpenMPStack.back().LocalVars.end();
 	                                      I != E; ++I) {
@@ -3999,11 +3998,7 @@ bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
       nop = dyn_cast<llvm::User>(LV)->getNumOperands();
     }
 
-    //if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
-    //if (isa<llvm::GetElementPtrInst>(LV)) LV = cast<llvm::GetElementPtrInst>(LV)->getPointerOperand();
-    //if (isa<llvm::LoadInst>(LV)) LV = cast<llvm::LoadInst>(LV)->getPointerOperand();
-
-    llvm::errs() << "  value : " << *LV << "\n";
+    if (verbose) llvm::errs() << "  value : " << *LV << "\n";
     if (LV == LocalVar) return true;
   }
   return false;

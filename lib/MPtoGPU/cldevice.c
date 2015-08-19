@@ -64,8 +64,8 @@ void _cldevice_init () {
     _status = clGetPlatformInfo(_platform, CL_PLATFORM_EXTENSIONS, sizeof(extension_string), extension_string, NULL);
     char* extStringStart = strstr(extension_string, "cl_khr_spir");
     if (extStringStart != 0) {
-	printf("Platform %s supports cl_khr_spir extension\n", platformName);
-	_spir_support = 1;
+      //printf("Platform %s supports cl_khr_spir extension\n", platformName);
+      _spir_support = 1;
     }
     else {
       printf("Platform %s does not support cl_khr_spir extension\n", platformName);
@@ -239,7 +239,7 @@ cl_program _create_fromBinary(cl_context context,
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			  sizeof(buildLog), buildLog, NULL);
 
-    perror("Error in program: ");
+    //perror("Error in program: ");
     perror(buildLog);
     clReleaseProgram(program);
     return NULL;
@@ -526,14 +526,14 @@ int _cl_create_program (char* str) {
   strcpy(bc_file, str); strcat(bc_file, ".bc");
 
   if (_does_file_exist(bc_file)) {
-    printf("Attempting to create program from binary %s\n", bc_file);
+    //printf("Attempting to create program from binary %s\n", bc_file);
     _program = _create_fromBinary(_context[_clid],
 				  _device[_clid],
 				  bc_file);
     if (_program != NULL) return 1;
   }
   
-  printf("Binary not loaded, create from source %s\n", cl_file);
+  //printf("Binary not loaded, create from source %s\n", cl_file);
   _program = _create_fromSource(_context[_clid],
 				_device[_clid],
 				cl_file);
