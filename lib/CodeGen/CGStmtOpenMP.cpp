@@ -1269,9 +1269,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  StringRef defty = Q.getAsString();
 	  ty = ty->getCanonicalTypeInternal().getTypePtr();
 	  QualType B = ty->getPointeeType();
-	  if (B.isCanonical()) {
-	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
-	  }
+//	  if (B.isCanonical()) {
+//	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
+//	  }
 
 	  if (isa<RecordType>(*B.getTypePtr())) {
 	    const RecordType *RT = dyn_cast<RecordType>(B.getTypePtr());
