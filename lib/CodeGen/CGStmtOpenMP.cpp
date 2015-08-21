@@ -55,8 +55,7 @@ static bool dumpedDefType(const QualType* T) {
   for (ArrayRef<const QualType*>::iterator I  = deftypes.begin(),
 	                                   E  = deftypes.end();
 	                                   I != E; ++I) {
-    if ((*I)->getBaseTypeIdentifier()->getName() ==
-	T->getBaseTypeIdentifier()->getName())
+    if ((*I)->getAsString() == T->getAsString())
       return true;
   }
   deftypes.push_back(T);
@@ -983,14 +982,8 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
 	  if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_set_kernel_hostArg\n";	    
 
 	  CGM.OpenMPSupport.addKernelVar(BodyVar);
-	  //StringRef BName = VD->getName();
-	  //llvm::Type *TTy = getVarType (BodyVar);
 
 	  CLOS << ",\n";
-	  //A palliative to figure out how to get the name of a primitive type
-	  //if (TTy->isIntegerTy()) CLOS << getTypeNameAsString(TTy);
-	  //else TTy->print(CLOS); 
-	  //CLOS << " " << BName;
 	  CLOS << D->getType().getAsString() << " " << ND->getDeclName();
 	}
       }	      
@@ -1140,10 +1133,6 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   }
   
   std::string IName = getVarNameAsString(IVal);
-  //llvm::Type *CTy = CGM.IntTy;
-  //A palliative to figure out how to get the name of a primitive type
-  //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-  //else CTy->print(CLOS);
   CLOS << INIT->getType().getAsString();
   CLOS << " _UB_" << loopNest;
   if (Collapse) CLOS << ", ";
@@ -1167,8 +1156,6 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
 
   if (Collapse) {    
-    //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-    //else CTy->print(CLOS);
     CLOS << INIT->getType().getAsString();
     CLOS << " _MIN_" << loopNest << ", ";
 
@@ -1183,8 +1170,6 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
 
-    //if (CTy->isIntegerTy()) CLOS << getTypeNameAsString(CTy);
-    //else CTy->print(CLOS);
     CLOS << INIT->getType().getAsString();
     CLOS << " _INC_" << loopNest;
     if (loopNest != lastLoop) CLOS << ",\n";
@@ -1195,7 +1180,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
     Builder.CreateStore(C, AL3);
     llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
 
-  // Create hostArg to represent _INC_n
+    // Create hostArg to represent _INC_n
     llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
 			    Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
@@ -1269,21 +1254,35 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				 MapClauseQualTypes,
 				 MapClauseTypeValues);
 
-    
     // Dump necessary typedefs in kernel file
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T  = MapClauseQualTypes.begin(),
 	                              E  = MapClauseQualTypes.end();
 	                              T != E; ++T) {
-      if (!T->isCanonical()) {
-	if (!dumpedDefType(T)) {
-	    StringRef defty = T->getBaseTypeIdentifier()->getName();
-	    const Type* Ty = T->getTypePtr()->getCanonicalTypeInternal().getTypePtr();	
-	    CLOS << "typedef " << Ty->getPointeeType().getAsString() << " " << defty << ";\n";
+      QualType Q = (*T);
+      if (!Q.isCanonical()) {
+	const Type *ty = Q.getTypePtr();
+	if (ty->isPointerType() || ty->isReferenceType())
+	  Q = ty->getPointeeType();
+
+	if (!dumpedDefType(&Q)) {
+	  StringRef defty = Q.getAsString();
+	  ty = ty->getCanonicalTypeInternal().getTypePtr();
+	  QualType B = ty->getPointeeType();
+	  if (B.isCanonical()) {
+	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
+	  }
+
+	  if (isa<RecordType>(*B.getTypePtr())) {
+	    const RecordType *RT = dyn_cast<RecordType>(B.getTypePtr());
+	    RecordDecl *RD = RT->getDecl()->getDefinition();
+	    // TODO: Check if RecordDecl was already dumped
+	    RD->print(CLOS); CLOS << ";\n";
+	  }
 	}
       }
     }
-    
+
     CGM.OpenMPSupport.clearKernelVars();
     CGM.OpenMPSupport.clearLocalVars();
 
@@ -1302,7 +1301,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CGM.OpenMPSupport.addKernelType(QT);
       
       std::string KName = mapping[KV];
-      //llvm::Type *KT = KV->getType()->getScalarType();
 
       if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO)
 	CLOS << "__global "; //Spir 1.2 do not support const attr
@@ -1310,33 +1308,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	CLOS << "__global ";
       j++;
 
-      /*
-      bool isPointer = false;
-      if (KT->isPointerTy()) {
-	KT = KT->getPointerElementType();
-	isPointer = true;
-      }
-      if (KT->isIntegerTy()) {
-	//A palliative to figure out how to get the name of a primitive type
-	CLOS << getTypeNameAsString(KT);
-      }
-      else if (KT->isArrayTy()) {
-	KT = KT->getArrayElementType();
-	if (KT->isArrayTy()) {
-	  KT = KT->getArrayElementType();
-	}
-	KT->print(CLOS);
-      }
-      else if (KT->isVectorTy()) {
-	KT = KT->getVectorElementType();
-	if (KT->isVectorTy()) {
-	  KT = KT->getVectorElementType();
-	}
-	KT->print(CLOS);
-      }
-      else KT->print(CLOS);
-      if (isPointer) CLOS << "*";
-      */
       CLOS << QT.getAsString();
       CLOS << " " << KName << ",\n";
     }
