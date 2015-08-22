@@ -1268,7 +1268,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  if (verbose) llvm::errs() << "Pointee Type: " << Q.getAsString() << "\n";
 	}
 
-	if (Q.getTypePtr()->isArrayType()) {
+	while (Q.getTypePtr()->isArrayType()) {
 	  Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
 	  if (verbose) llvm::errs() << "ElementType: " << Q.getAsString() << "\n";
 	}
@@ -1291,8 +1291,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	    if (verbose) {
 	      llvm::errs() << "Record Type: ";
 	      RD->print(llvm::errs());
-	      RD->print(CLOS); CLOS << ";\n";
 	    }
+	    RD->print(CLOS); CLOS << ";\n";
 	  }
 
 	  if (B.isCanonical()) {
