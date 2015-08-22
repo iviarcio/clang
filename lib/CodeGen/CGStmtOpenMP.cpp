@@ -1260,25 +1260,45 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                              E  = MapClauseQualTypes.end();
 	                              T != E; ++T) {
       QualType Q = (*T);
+      if (verbose) llvm::errs() << "QualType: " << Q.getAsString() << "\n";
       if (!Q.isCanonical()) {
 	const Type *ty = Q.getTypePtr();
-	if (ty->isPointerType() || ty->isReferenceType())
+	if (ty->isPointerType() || ty->isReferenceType()) {
 	  Q = ty->getPointeeType();
+	  if (verbose) llvm::errs() << "Pointee Type: " << Q.getAsString() << "\n";
+	}
+
+	if (Q.getTypePtr()->isArrayType()) {
+	  Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+	  if (verbose) llvm::errs() << "ElementType: " << Q.getAsString() << "\n";
+	}
 
 	if (!dumpedDefType(&Q)) {
 	  StringRef defty = Q.getAsString();
-	  ty = ty->getCanonicalTypeInternal().getTypePtr();
-	  QualType B = ty->getPointeeType();
+	  QualType B = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
+	  if (verbose) llvm::errs() << "Internal Type: " << B.getAsString() << "\n";
+
+	  if (B.getTypePtr()->isArrayType()) {
+	    B = dyn_cast<ArrayType>(B.getTypePtr())->getElementType();
+	    if (verbose) llvm::errs() << "Internal ElementType: " << B.getAsString() << "\n";
+	  }
+
+	  ty = B.getTypePtr();
+	  if (isa<RecordType>(ty)) {
+	    const RecordType *RT = dyn_cast<RecordType>(ty);
+	    RecordDecl *RD = RT->getDecl()->getDefinition();
+	    // Need to check if RecordDecl was already dumped?
+	    if (verbose) {
+	      llvm::errs() << "Record Type: ";
+	      RD->print(llvm::errs());
+	      RD->print(CLOS); CLOS << ";\n";
+	    }
+	  }
+
 	  if (B.isCanonical()) {
 	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
 	  }
 
-	  if (isa<RecordType>(*B.getTypePtr())) {
-	    const RecordType *RT = dyn_cast<RecordType>(B.getTypePtr());
-	    RecordDecl *RD = RT->getDecl()->getDefinition();
-	    // TODO: Check if RecordDecl was already dumped
-	    RD->print(CLOS); CLOS << ";\n";
-	  }
 	}
       }
     }
@@ -1293,14 +1313,23 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                                  E  = MapClausePointerValues.end();
 	                                  I != E; ++I) {
 
-      //llvm::Value *KV = dyn_cast<llvm::Instruction>(*I)->getOperand(0);
       llvm::Value *KV = dyn_cast<llvm::User>(*I)->getOperand(0);
       QualType QT = MapClauseQualTypes[j];
+      std::string KName = mapping[KV];
       
       CGM.OpenMPSupport.addKernelVar(KV);
       CGM.OpenMPSupport.addKernelType(QT);
       
-      std::string KName = mapping[KV];
+      bool isPointer = false;
+      const Type *ty = QT.getTypePtr();
+      if (ty->isPointerType() || ty->isReferenceType()) {
+	isPointer = true;
+	QT = ty->getPointeeType();
+      }
+      while (QT.getTypePtr()->isArrayType()) {
+	isPointer = true;
+	QT = dyn_cast<ArrayType>(QT.getTypePtr())->getElementType();
+      }
 
       if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO)
 	CLOS << "__global "; //Spir 1.2 do not support const attr
@@ -1309,7 +1338,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       j++;
 
       CLOS << QT.getAsString();
-      CLOS << " " << KName << ",\n";
+      if (isPointer) {
+	CLOS << " *" << KName << ",\n";
+      }
+      else {
+	CLOS << " " << KName << ",\n";
+      }
     }
 
     if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
@@ -1318,8 +1352,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       return;
     }
 
-    llvm::Value *Status = nullptr;
-    
+    llvm::Value *Status = nullptr;   
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     if (verbose) llvm::errs() << ">>> (parallel for) Emit cl_create_program\n";
@@ -6104,7 +6137,10 @@ void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
     const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
     MapStmts(ST, VLoc);
 
-    QualType VQual = cast<Expr>(ST)->getType();
+    //QualType VQual = cast<Expr>(ST)->getType();
+    const Expr *E = RangeBegin[i];
+    if (isa<CastExpr>(E)) E = cast<CastExpr>(E)->getSubExprAsWritten();
+    QualType VQual = E->getType();
     if (verbose) llvm::errs() << "QualType: " << VQual.getAsString() << "\n";
 	
     int VType;
