@@ -36,6 +36,7 @@ cl_uint           _npairs;
 cl_uint           _clid;
 cl_int            _status;
 int               _spir_support;
+int               _gpu_present;
 
 //
 // Initialize cldevice library
@@ -68,7 +69,7 @@ void _cldevice_init () {
       _spir_support = 1;
     }
     else {
-      printf("Platform %s does not support cl_khr_spir extension\n", platformName);
+      //printf("Platform %s does not support cl_khr_spir extension\n", platformName);
       _spir_support = 0;
     }
 
@@ -83,9 +84,11 @@ void _cldevice_init () {
     _context = (cl_context *) malloc(sizeof(cl_context)*_npairs);
     _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue)*_npairs);
   
+    _gpu_present = 0;
     for (i = 0; i < _npairs; i++) {
-      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL,
-			       _npairs, &_device[i], NULL);
+      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, _npairs, &_device[i], NULL);
+      _gpu_present = _gpu_present || (_status == CL_SUCCESS);
+      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, _npairs, &_device[i], NULL);
       //Create one OpenCL context for each device in the platform
       _context[i] = clCreateContext( NULL, _npairs, &_device[i], NULL, NULL, &_status);
       if (_status != CL_SUCCESS) {
@@ -100,7 +103,7 @@ void _cldevice_init () {
       }
     }
   }
-  _clid = 0;      // initialize default device with 0 (CPU?)
+  _clid = 0;      // initialize default device with 0 (CPU)
   _upperid = 16;  // max num of buffer memory locations
   _curid = -1;    // points to invalid location
   _locs = (cl_mem *) malloc(sizeof(cl_mem)*_upperid);
@@ -351,17 +354,20 @@ cl_uint _get_num_cores (int A, int B, int C, int T) {
 }
 
 //
-// Returns the default device id
+// Returns the current device id
 //
 cl_uint _get_default_device () {
   return _clid;
 }
 
 //
-// Set the default device id
+// Set the device id
 //
 void _set_default_device (cl_uint id) {
-  _clid = id;
+  if ((id == 1 /* GPU */) && (!_gpu_present))
+    _clid = 0; // force execution into CPU 
+  else
+    _clid = id;
 }
 
 //
