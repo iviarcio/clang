@@ -7,7 +7,7 @@
 //   creating contexts and command queues for main plataform
 //   used by the host and manage opencl source and binary files
 // AUTHOR
-//    Marcio Machado Pereira
+//    Marcio Machado Pereira <mpereira@ic.unicamp.br>
 // COPYLEFT
 //   Copyleft (C) 2015 -- UNICAMP & Samsumg R&D
 
@@ -50,7 +50,7 @@ void _cldevice_init () {
     //Fetch the main Platform (the first one)
     _status = clGetPlatformIDs(1, &_platform, &nplatforms);
     if (_status != CL_SUCCESS || nplatforms <= 0) {
-      perror("Failed to find any OpenCL platform");
+      fprintf(stderr, "<libmptogpu> Failed to find any OpenCL platform.\n");
       exit(1);
     }
 
@@ -65,18 +65,17 @@ void _cldevice_init () {
     _status = clGetPlatformInfo(_platform, CL_PLATFORM_EXTENSIONS, sizeof(extension_string), extension_string, NULL);
     char* extStringStart = strstr(extension_string, "cl_khr_spir");
     if (extStringStart != 0) {
-      //printf("Platform %s supports cl_khr_spir extension\n", platformName);
       _spir_support = 1;
     }
     else {
-      //printf("Platform %s does not support cl_khr_spir extension\n", platformName);
+      //Platform does not support cl_khr_spir extension
       _spir_support = 0;
     }
 
     //Fetch the device list for this platform
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_npairs);
     if (_status != CL_SUCCESS) {
-      perror("Failed to find any OpenCL device");
+      fprintf(stderr, "<libmptogpu> Failed to find any OpenCL device.\n");
       exit(1);
     }
   
@@ -92,13 +91,13 @@ void _cldevice_init () {
       //Create one OpenCL context for each device in the platform
       _context[i] = clCreateContext( NULL, _npairs, &_device[i], NULL, NULL, &_status);
       if (_status != CL_SUCCESS) {
-	perror("Failed to create an OpenCL GPU or CPU context.");
+	fprintf(stderr, "<libmptogpu> Failed to create an OpenCL GPU or CPU context.\n");
 	exit(1);
       }
       //Create a command queue for each context to communicate with the device
       _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
       if (_status != CL_SUCCESS) {
-	perror("Failed to create commandQueue for devices");
+	fprintf(stderr, "<libmptogpu> Failed to create commandQueue for devices.\n");
 	exit(1);
       }
     }
@@ -145,8 +144,7 @@ cl_program _create_fromSource(cl_context context,
 
     FILE* file = fopen(fileName, "r");
     if (file == NULL) {
-      perror("Failed to open file for reading: ");
-      perror(fileName);
+      fprintf(stderr, "<libmptogpu> Failed to open file for reading: %s\n", fileName);
       return NULL;
     }
 
@@ -163,7 +161,7 @@ cl_program _create_fromSource(cl_context context,
                                         (const char**)&buffer,
                                         NULL, NULL);
     if (program == NULL) {
-      perror("Failed to create CL program from source.");
+      fprintf(stderr, "<libmptogpu> Failed to create CL program from source.\n");
       return NULL;
     }
 
@@ -175,8 +173,7 @@ cl_program _create_fromSource(cl_context context,
       clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			    sizeof(buildLog), buildLog, NULL);
 
-      perror("Error in kernel: ");
-      perror(buildLog);
+      fprintf(stderr, "<libmptogpu> Error in kernel: %s\n", buildLog);
       clReleaseProgram(program);
       return NULL;
     }
@@ -221,12 +218,12 @@ cl_program _create_fromBinary(cl_context context,
   free(programBinary);
 
   if (errNum != CL_SUCCESS) {
-    perror("Error loading program binary.");
+    fprintf(stderr, "<libmptogpu> Error loading program binary.\n");
     return NULL;
   }
 
   if (binaryStatus != CL_SUCCESS) {
-    perror("Invalid binary for device");
+    fprintf(stderr, "<libmptogpu> Invalid binary for device.\n");
     return NULL;
   }
 
@@ -242,8 +239,12 @@ cl_program _create_fromBinary(cl_context context,
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			  sizeof(buildLog), buildLog, NULL);
 
-    //perror("Error in program: ");
-    perror(buildLog);
+    if (!_spir_support) {
+      fprintf(stderr, "<libmptogpu> %s: This platform does not support cl_khr_spir extension!\n", buildLog);
+    }
+    else {
+      fprintf(stderr, "<libmptogpu> %s\n", buildLog);
+    }
     clReleaseProgram(program);
     return NULL;
   }
@@ -266,7 +267,7 @@ int _save_toBinary(cl_program program,
     errNum = clGetProgramInfo(program, CL_PROGRAM_NUM_DEVICES, sizeof(cl_uint),
                               &numDevices, NULL);
     if (errNum != CL_SUCCESS) {
-      perror("Error querying for number of devices.");
+      fprintf(stderr, "<libmptogpu> Error querying for number of devices.\n");
       return 0;
     }
 
@@ -276,7 +277,7 @@ int _save_toBinary(cl_program program,
                               sizeof(cl_device_id) * numDevices,
                               devices, NULL);
     if (errNum != CL_SUCCESS) {
-      perror("Error querying for devices.");
+      fprintf(stderr, "<libmptogpu> Error querying for devices.\n");
       free(devices);
       return 0;
     }
@@ -287,7 +288,7 @@ int _save_toBinary(cl_program program,
                               sizeof(size_t) * numDevices,
                               programBinarySizes, NULL);
     if (errNum != CL_SUCCESS) {
-      perror("Error querying for program binary sizes.");
+      fprintf(stderr, "<libmptogpu> Error querying for program binary sizes.\n");
       free(devices);
       free(programBinarySizes);
       return 0;
@@ -305,7 +306,7 @@ int _save_toBinary(cl_program program,
 			      sizeof(unsigned char*) * numDevices,
                               programBinaries, NULL);
     if (errNum != CL_SUCCESS) {
-      perror("Error querying for program binaries");
+      fprintf(stderr, "<libmptogpu> Error querying for program binaries.\n");
       free(devices);
       free(programBinarySizes);
       for (i = 0; i < numDevices; i++) {
@@ -384,7 +385,7 @@ int _cl_create_write_only (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    perror("Failed to create a write-only buffer for the selected device");
+    fprintf(stderr, "<libmptogpu> Failed to create a write-only buffer for the device.\n");
     _curid--;
     return 0;
   }
@@ -405,7 +406,7 @@ int _cl_create_read_only (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    perror("Failed to create a read-only device buffer");
+    fprintf(stderr, "<libmptogpu> Failed to create a read-only device buffer.\n");
     _curid--;
     return 0;
   }
@@ -428,7 +429,7 @@ int _cl_offloading_read_only (long size, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    perror("Failed to write the host location to device buffer");
+    fprintf(stderr, "<libmptogpu> Failed to write the host location to device buffer.\n");
     _curid--;
     return 0;
   }
@@ -449,7 +450,7 @@ int _cl_create_read_write (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    perror("Failed to create a read & write device buffer");
+    fprintf(stderr, "<libmptogpu> Failed to create a read & write device buffer.\n");
     _curid--;
     return 0;
   }
@@ -473,7 +474,7 @@ int _cl_offloading_read_write (long size, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    perror("Failed to write the host location to device buffer");
+    fprintf(stderr, "<libmptogpu> Failed to write the host location to device buffer.\n");
     _curid--;
     return 0;
   }
@@ -488,7 +489,7 @@ int _cl_read_buffer (long size, int id, void* loc) {
   _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
              CL_TRUE, 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    perror("Failed to read to host location from the device buffer");
+    fprintf(stderr, "<libmptogpu> Failed to read to host location from the device buffer.\n");
     return 0;
   }
   return 1;
@@ -502,7 +503,7 @@ int _cl_write_buffer (long size, int id, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    perror("Failed to write the host location to the selected buffer");
+    fprintf(stderr, "<libmptogpu> Failed to write the host location to the selected buffer.\n");
     return 0;
   }
   return 1;
@@ -532,23 +533,23 @@ int _cl_create_program (char* str) {
   strcpy(bc_file, str); strcat(bc_file, ".bc");
 
   if (_does_file_exist(bc_file)) {
-    //printf("Attempting to create program from binary %s\n", bc_file);
+    //Attempting to create program from binary
     _program = _create_fromBinary(_context[_clid],
 				  _device[_clid],
 				  bc_file);
     if (_program != NULL) return 1;
   }
   
-  //printf("Binary not loaded, create from source %s\n", cl_file);
+  //Binary not loaded, create from source
   _program = _create_fromSource(_context[_clid],
 				_device[_clid],
 				cl_file);
   if (_program == NULL) {
-    perror("Attempting to create program failed");
+    fprintf(stderr, "<libmptogpu> Attempting to create program failed.\n");
     return 0;
   }
   if (_save_toBinary(_program, _device[_clid], bc_file) == 0) {
-    perror("Failed to write program binary");
+    fprintf(stderr, "<libmptogpu> Failed to write program binary.\n");
     return 0;
   }
   return 1;
@@ -560,7 +561,7 @@ int _cl_create_program (char* str) {
 int _cl_create_kernel (char* str) {
   _kernel = clCreateKernel(_program, str, NULL);
   if (_kernel == NULL) {
-    perror("Failed to create kernel on the selected device.");
+    fprintf(stderr, "<libmptogpu> Failed to create kernel on device.\n");
     return 0;
   }
   return 1;
@@ -576,7 +577,7 @@ int _cl_set_kernel_args (int nargs) {
     _status |= clSetKernelArg (_kernel, i, sizeof(cl_mem), &_locs[i]);
   }
   if (_status != CL_SUCCESS) {
-    perror("Error setting kernel buffers on selected device.");
+    fprintf(stderr, "<libmptogpu> Error setting kernel buffers on device.\n");
     return 0;
   }
   return 1;
@@ -588,7 +589,7 @@ int _cl_set_kernel_args (int nargs) {
 int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
   _status = clSetKernelArg (_kernel, pos, size, loc);
   if (_status != CL_SUCCESS) {
-    perror("Error setting host args on selected device.");
+    fprintf(stderr, "<libmptogpu> Error setting host args on device.\n");
     return 0;
   }
   return 1;
@@ -627,13 +628,13 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   }
   else {
     if (_status == CL_INVALID_WORK_DIMENSION)
-      perror("Error exec kernel. Work_dim is not a valid value");
+      fprintf(stderr, "<libmptogpu> Error executing kernel. Number of dimmensions is not a valid value.\n");
     else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
-      perror("Error exec kernel. Global_work_size is NULL or exceed valid range.");
+      fprintf(stderr, "<libmptogpu> Error executing kernel. Global work size is NULL or exceed valid range.\n");
     else if (_status == CL_INVALID_WORK_GROUP_SIZE)
-      perror("Error exec kernel. Local_work_size does not match the work-group size.");
+      fprintf(stderr, "<libmptogpu> Error executing kernel. Local work size does not match the work-group size.\n");
     else
-      perror("Error executing kernel.");
+      fprintf(stderr, "<libmptogpu> Error executing kernel on device.\n");
   }
   return 0;
 }
