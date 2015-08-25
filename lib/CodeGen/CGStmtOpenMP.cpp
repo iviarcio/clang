@@ -898,34 +898,6 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
 }
 
 //
-// Get the Primitive Integer Type Name as String
-//
-llvm::StringRef getTypeNameAsString(llvm::Type *FT) {
-  llvm::StringRef TName;
-  switch (FT->getPrimitiveSizeInBits()/8) {
-  case 1:
-    TName = "char";
-    break;
-  case 2:
-    TName = "short";
-    break;
-  case 4:
-    TName = "int";
-    break;
-  case 8:
-    TName = "long";
-    break;
-  case 16:
-    TName = "unsigned long long";
-    break;
-  default:
-    TName = "int";
-    break;
-  }
-  return TName;
-}
-
-//
 // Get the Variable Name inside the Value argument
 //
 llvm::StringRef getVarNameAsString (llvm::Value *FV) {
@@ -1278,7 +1250,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  QualType B = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
 	  if (verbose) llvm::errs() << "Internal Type: " << B.getAsString() << "\n";
 
-	  if (B.getTypePtr()->isArrayType()) {
+	  while (B.getTypePtr()->isArrayType()) {
 	    B = dyn_cast<ArrayType>(B.getTypePtr())->getElementType();
 	    if (verbose) llvm::errs() << "Internal ElementType: " << B.getAsString() << "\n";
 	  }
