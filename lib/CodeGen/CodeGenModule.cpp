@@ -3969,24 +3969,19 @@ void CodeGenModule::OpenMPSupportStackTy::PrintMapped(OMPStackElemTy *elem) {
 // Only for test purposes
 void CodeGenModule::OpenMPSupportStackTy::PrintAllStack() {
 
-  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   int i = 0;
   llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
 
   for (llvm::SmallVector<OMPStackElemTy, 16>::iterator I  = OpenMPStack.begin(),
 	                                               E = end;
 	                                               I != E; ++I) {
-    if (verbose) {
-      llvm::errs() << "Item " << i++ << ":\n";
-      PrintMapped(I);
-    }
+    llvm::errs() << "Item " << i++ << ":\n";
+    PrintMapped(I);
   }
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
 
-  bool verbose = CGM.getCodeGenOpts().AsmVerbose;
-  if (verbose) llvm::errs() << "Comparing : " << *LocalVar << " with :\n";
   for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().LocalVars.begin(),
 	                                      E  = OpenMPStack.back().LocalVars.end();
 	                                      I != E; ++I) {
@@ -3997,8 +3992,6 @@ bool CodeGenModule::OpenMPSupportStackTy::inLocalScope(llvm::Value *LocalVar) {
       LV = cast<llvm::User>(LV)->getOperand(0);
       nop = dyn_cast<llvm::User>(LV)->getNumOperands();
     }
-
-    if (verbose) llvm::errs() << "  value : " << *LV << "\n";
     if (LV == LocalVar) return true;
   }
   return false;
