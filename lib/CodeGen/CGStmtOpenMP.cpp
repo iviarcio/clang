@@ -6557,11 +6557,15 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_if) {
 	hasIfClause = true;
+	isTargetDataIf = true;
 	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+	TargetDataIfRegion = 2;
 	EmitBlock(ElseBlock);
 	RunCleanupsScope ElseScope(*this);
 	EnsureInsertPoint();
+	EmitStmt(CS->getCapturedStmt());
 	EmitBranch(ContBlock);
+	TargetDataIfRegion = 1;
 	EmitBlock(ThenBlock);
       }
     }
@@ -6600,12 +6604,12 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
     EmitStmt(CS->getCapturedStmt());
     EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM); 
 
+	ReleaseBuffers(first, count);
     if (hasIfClause) {
       EmitBranch(ContBlock);
       EmitBlock(ContBlock, true);
     }
-
-    ReleaseBuffers(first, count); 
+ 
     CGM.OpenMPSupport.endOpenMPRegion();
   }
 }
