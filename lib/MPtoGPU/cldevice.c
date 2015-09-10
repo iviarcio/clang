@@ -23,6 +23,11 @@
 #include <CL/cl.h>
 #endif
 
+/* Thread block dimensions */
+#define DIM_LOCAL_WORK_GROUP_X 32
+#define DIM_LOCAL_WORK_GROUP_Y 1
+#define DIM_LOCAL_WORK_GROUP_Z 1
+
 cl_device_id     *_device    = NULL;
 cl_context       *_context   = NULL;
 cl_command_queue *_cmd_queue = NULL;
@@ -605,13 +610,14 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   size_t *local_size;
 
   global_size = (size_t *)malloc(3*sizeof(size_t));
-  global_size[0] = (size_t)size1;
-  global_size[1] = (size_t)size2;
-  global_size[2] = (size_t)size3;
+  global_size[0] = (size_t)ceil(((float)size1) / ((float)DIM_LOCAL_WORK_GROUP_X)) * DIM_LOCAL_WORK_GROUP_X;
+  global_size[1] = (size_t)ceil(((float)size2) / ((float)DIM_LOCAL_WORK_GROUP_Y)) * DIM_LOCAL_WORK_GROUP_Y;
+  global_size[2] = (size_t)ceil(((float)size2) / ((float)DIM_LOCAL_WORK_GROUP_Z)) * DIM_LOCAL_WORK_GROUP_Z;
 
   local_size = (size_t *)malloc(3*sizeof(size_t));
-  for (i=0; i<3; i++)
-    local_size[i] = 1;
+  local_size[0] = DIM_LOCAL_WORK_GROUP_X;
+  local_size[1] = DIM_LOCAL_WORK_GROUP_Y;
+  local_size[2] = DIM_LOCAL_WORK_GROUP_Z;
 
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
 				   _kernel,
