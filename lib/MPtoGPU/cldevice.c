@@ -31,7 +31,7 @@ cl_mem           *_locs      = NULL;
 cl_platform_id    _platform;
 cl_program        _program;
 cl_kernel         _kernel;
-cl_uint           _npairs;
+cl_uint           _ndevices;
 cl_uint           _clid;
 cl_int            _status;
 
@@ -42,109 +42,116 @@ int               _curid;
 int               _verbose;
 int               _work_group[9] = {128, 1, 1, 512, 1, 1, 32, 16, 1};
 
-void _cldevice_details(cl_device_id id,
+void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
-                       const char* paramNameAsStr) {
-  cl_int error = 0;
+                       const char*    param_str) {
   cl_uint i;
-  size_t paramSize = 0;
+  cl_int  status = 0;
+  size_t  param_size = 0;
 
-  error = clGetDeviceInfo( id, param_name, 0, NULL, &paramSize );
-  if (error != CL_SUCCESS ) {
-    perror("Unable to obtain device info for param\n");
+  status = clGetDeviceInfo( id, param_name, 0, NULL, &param_size );
+  if (status != CL_SUCCESS ) {
+    fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
     return;
   }
 
   /* the cl_device_info are preprocessor directives defined in cl.h */
   switch (param_name) {
     case CL_DEVICE_TYPE: {
-            cl_device_type* devType = (cl_device_type*) alloca(sizeof(cl_device_type) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, devType, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device info for param\n");
-                return;
-            }
-            switch (*devType) {
-              case CL_DEVICE_TYPE_CPU : printf("CPU detected\n");break;
-              case CL_DEVICE_TYPE_GPU : printf("GPU detected\n");break;
-              case CL_DEVICE_TYPE_ACCELERATOR : printf("Accelerator detected\n");break;
-              case CL_DEVICE_TYPE_DEFAULT : printf("default detected\n");break;
-            }
-            }break;
+      cl_device_type* devType = (cl_device_type*) alloca(sizeof(cl_device_type) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, devType, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      switch (*devType) {
+        case CL_DEVICE_TYPE_CPU : printf("\tDevice is CPU\n"); break;
+        case CL_DEVICE_TYPE_GPU : printf("\tDevice is GPU\n"); break;
+        case CL_DEVICE_TYPE_ACCELERATOR : printf("\tDevice is Accelerator\n"); break;
+        case CL_DEVICE_TYPE_DEFAULT : printf("\tDevice is Unknown\n"); break;
+      }
+    } break;
     case CL_DEVICE_VENDOR_ID : 
     case CL_DEVICE_MAX_COMPUTE_UNITS : 
     case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS : {
-            cl_uint* ret = (cl_uint*) alloca(sizeof(cl_uint) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, ret, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device info for param\n");
-                return;
-            }
-            switch (param_name) {
-                case CL_DEVICE_VENDOR_ID: printf("\tVENDOR ID: 0x%x\n", *ret); break;
-                case CL_DEVICE_MAX_COMPUTE_UNITS: printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
-                case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
-            }
-         }break;
+      cl_uint* ret = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      switch (param_name) {
+        case CL_DEVICE_VENDOR_ID:
+	  printf("\tVendor ID: 0x%x\n", *ret); break;
+        case CL_DEVICE_MAX_COMPUTE_UNITS:
+	  printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
+        case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS:
+	  printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
+      }
+    } break;
     case CL_DEVICE_MAX_WORK_ITEM_SIZES : {
-            cl_uint maxWIDimensions;
-            size_t* ret = (size_t*) alloca(sizeof(size_t) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, ret, NULL );
+      cl_uint maxWIDimensions;
+      size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
 
-            error = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device info for param\n");
-                return;
-            }
-            printf("\tMaximum number of work-items in each dimension: ( ");
-            for(i =0; i < maxWIDimensions; ++i ) {
-                printf("%zu ", ret[i]);
-            }
-            printf(" )\n");
-            }break;
+      status = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      printf("\tMaximum number of work-items in each dimension: ( ");
+      for(i =0; i < maxWIDimensions; ++i ) {
+	printf("%zu ", ret[i]);
+      }
+      printf(" )\n");
+    } break;
     case CL_DEVICE_MAX_WORK_GROUP_SIZE : {
-            size_t* ret = (size_t*) alloca(sizeof(size_t) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, ret, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device info for param\n");
-                return;
-            }
-            printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
-            }break;
+      size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
+    } break;
     case CL_DEVICE_NAME :
     case CL_DEVICE_VENDOR : {
-            char data[48];
-            error = clGetDeviceInfo( id, param_name, paramSize, data, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device name/vendor info for param\n");
-                return;
-            }
-            switch (param_name) {
-                case CL_DEVICE_NAME : printf("\tDevice name is %s\n", data);break;
-                case CL_DEVICE_VENDOR : printf("\tDevice vendor is %s\n", data);break;
-            }
+      char data[48];
+      status = clGetDeviceInfo( id, param_name, param_size, data, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      switch (param_name) {
+        case CL_DEVICE_NAME :
+	  printf("\tDevice name is %s\n", data); break;
+        case CL_DEVICE_VENDOR :
+	  printf("\tDevice vendor is %s\n", data); break;
+      }
     } break;
     case CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE: {
-            cl_uint* size = (cl_uint*) alloca(sizeof(cl_uint) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, size, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device name/vendor info for param\n");
-                return;
-            }
-            printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
+      cl_uint* size = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
     } break;
     case CL_DEVICE_GLOBAL_MEM_SIZE:
     case CL_DEVICE_MAX_MEM_ALLOC_SIZE: {
-            cl_ulong* size = (cl_ulong*) alloca(sizeof(cl_ulong) * paramSize);
-            error = clGetDeviceInfo( id, param_name, paramSize, size, NULL );
-            if (error != CL_SUCCESS ) {
-                perror("Unable to obtain device name/vendor info for param\n");
-                return;
-            }
-            switch (param_name) {
-                case CL_DEVICE_GLOBAL_MEM_SIZE: printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
-                case CL_DEVICE_MAX_MEM_ALLOC_SIZE: printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break; 
-            }
+      cl_ulong* size = (cl_ulong*) alloca(sizeof(cl_ulong) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
+      if (status != CL_SUCCESS ) {
+	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	return;
+      }
+      switch (param_name) {
+        case CL_DEVICE_GLOBAL_MEM_SIZE:
+	  printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
+        case CL_DEVICE_MAX_MEM_ALLOC_SIZE:
+	  printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break; 
+      }
     } break;
   }
 }
@@ -157,6 +164,7 @@ void _cldevice_init (int verbose) {
   cl_uint nplatforms;
   cl_uint ndev;
   cl_uint i;
+  cl_uint idx;
 
   _verbose = verbose;
 
@@ -182,62 +190,94 @@ void _cldevice_init (int verbose) {
       _spir_support = 1;
     }
     else {
-      if (_verbose) fprintf(stdout, "Platform does not support cl_khr_spir extension.\n");
+      if (_verbose) printf("<libmptogpu> This platform does not support cl_khr_spir extension.\n");
       _spir_support = 0;
     }
 
     //Fetch the device list for this platform
-    _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_npairs);
+    _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_ndevices);
     if (_status != CL_SUCCESS) {
       fprintf(stderr, "<libmptogpu> Failed to find any OpenCL device.\n");
       exit(1);
     }
   
-    if (_verbose) fprintf(stdout,"<libmptogpu> Find %u devices on platform.\n", _npairs);
+    if (_verbose) printf("<libmptogpu> Find %u devices on platform.\n", _ndevices);
 
-    _device    = (cl_device_id *) malloc(sizeof(cl_device_id) * _npairs);
-    _context   = (cl_context *) malloc(sizeof(cl_context) * _npairs);
-    _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue) * _npairs);
+    _device    = (cl_device_id *) malloc(sizeof(cl_device_id) * _ndevices);
+    _context   = (cl_context *) malloc(sizeof(cl_context) * _ndevices);
+    _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue) * _ndevices);
     _gpu_present = 0;
     
+    idx = 0;
     //Fetch the CPU device list for this platform
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 0, NULL, &ndev);
     if (_status == CL_SUCCESS) {
-      if (_verbose) fprintf(stdout,"<libmptogpu> Find %u CPU device.\n", ndev);
-      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[0], NULL);
+      if (_verbose) {
+	printf("<libmptogpu> Find %u CPU device(s).", ndev);
+        if (ndev > 1)
+	  printf(" Only the main CPU was handled on device id %d.\n", idx);
+	else
+	  printf(" The CPU was handled on device id %d.\n", idx);
+      }
+      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[idx], NULL);
       if (_status != CL_SUCCESS) {
 	fprintf(stderr, "<libmptogpu> Failed to create CPU device id .\n");
       }
     }
     
-    if (_npairs > 1) {
+    idx += 1;
+    if (_ndevices > idx) {
       //Try to fetch the GPU device list for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
 	_gpu_present = 1;
-	if (_verbose) fprintf(stdout,"<libmptogpu> Find %u GPU device.\n", ndev);
-	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, 1, &_device[1], NULL);
+	if (_verbose) {
+	  printf("<libmptogpu> Find %u GPU device(s). ", ndev);
+	  printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
+	}
+	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
 	  fprintf(stderr, "<libmptogpu> Failed to create GPU device id .\n");
 	}
       }
     }
-    
-    if (_npairs > 2) {
-      //Fetch the ALL device list for this platform
+
+    idx += ndev;
+    if (_ndevices > idx) {
+      //Fetch all accelerator devices for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-	if (_verbose) fprintf(stdout,"<libmptogpu> Find %u ACC device.\n", ndev);
-	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, 1, &_device[2], NULL);
+	if (_verbose) {
+	  printf("<libmptogpu> Find %u ACC device(s). ", ndev);
+	  printf("Each accelerator device was handled on device id starting with %d.\n", idx);
+	}
+	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
 	  fprintf(stderr, "<libmptogpu> Failed to create any accelerator device id .\n");
 	}
       }
     }
+
+    idx += ndev;
+    if (_ndevices > idx) {
+      //Fetch all default devices for this platform
+      _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, 0, NULL, &ndev);
+      if (_status == CL_SUCCESS) {
+	if (_verbose) {
+	  printf("<libmptogpu> Find %u unknown device(s). ", ndev);
+	  printf("Each unknown device was handled on device id starting with %d.\n", idx);
+	}
+	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
+	if (_status != CL_SUCCESS) {
+	  fprintf(stderr, "<libmptogpu> Failed to create any unknown device id .\n");
+	}
+      }
+    }
+   
+    for(i = 0; i < _ndevices; ++ i ) {
       
-    for(i = 0; i < _npairs; ++ i ) {
       if (_verbose) {
-	fprintf(stdout,"<libmptogpu> Retrieve some information about device %u:\n", i);
+	printf("<libmptogpu> Retrieve some information about device %u:\n", i);
 	_cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
 	_cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
 	_cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
@@ -250,17 +290,20 @@ void _cldevice_init (int verbose) {
 	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
 	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
       }
+      
       //Create one OpenCL context for each device in the platform
       _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
       if (_status != CL_SUCCESS) {
 	fprintf(stderr, "<libmptogpu> Failed to create context for device %u.\n", i);
       }
-      //Create a command queue for each context to communicate with the device
+      
+      //Create a command queue for each context to communicate with the associated device
       _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
       if (_status != CL_SUCCESS) {
 	fprintf(stderr, "<libmptogpu> Failed to create commandQueue for device %u.\n", i);
 	exit(1);
       }
+      
     }
     
   }
@@ -278,7 +321,7 @@ void _cldevice_finish() {
   cl_uint i;
   
   // Clean up and wait for all the comands to complete
-  for (i = 0; i< _npairs; i++) {
+  for (i = 0; i< _ndevices; i++) {
     _status = clFlush(_cmd_queue[i]);
     _status = clFinish(_cmd_queue[i]);
   }
@@ -286,7 +329,7 @@ void _cldevice_finish() {
   // Release OpenCL allocated objects
   _status = clReleaseKernel(_kernel);
   _status = clReleaseProgram(_program);
-  for (i = 0; i < _npairs; i++) {
+  for (i = 0; i < _ndevices; i++) {
     _status = clReleaseCommandQueue(_cmd_queue[i]);
     _status = clReleaseContext(_context[i]);
   }
@@ -504,7 +547,7 @@ int _save_toBinary(cl_program program,
 // Return the number of devices of the Main Plataform
 //
 cl_uint _get_num_devices () {
-  return _npairs;
+  return _ndevices;
 }
 
 //
@@ -528,38 +571,41 @@ cl_uint _get_default_device () {
 //
 void _set_default_device (cl_uint id) {
 
-  cl_int  error = 0;
-  size_t  paramSize = 0;
+  cl_int  status = 0;
+  size_t  param_size = 0;
   cl_uint maxWIDimensions;
   
   if ((id == 1) && (!_gpu_present)) {
     _clid = 0; // force execution into CPU
-    if (_verbose) fprintf(stdout,"<libmptogpu> Warning: GPU is not present, run on CPU instead.\n");
+    if (_verbose) printf("<libmptogpu> Warning: GPU is not present, run on CPU instead.\n");
   }
   else
     _clid = id;
 
-  error = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, 0, NULL, &paramSize );
-  if (error != CL_SUCCESS ) {
+  status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, 0, NULL, &param_size );
+  if (status != CL_SUCCESS ) {
     fprintf(stderr, "<libmptogpu> Warning: Unable to obtain MAX_WORK_ITEM_SIZES for device %u.\n", _clid);
     return;
   }
 
-  size_t* ret = (size_t*) alloca(sizeof(size_t) * paramSize);
-  error = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, paramSize, ret, NULL );
-  error = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
-  if (error != CL_SUCCESS ) {
+  size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
+  status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, param_size, ret, NULL );
+  status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
+  if (status != CL_SUCCESS ) {
     fprintf(stderr, "<libmptogpu> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
     return;
   }
 
-  // default work_group map:
+  // checking the default work_group map.
   //     cpu     {0:128, 1:1, 2:1}
   //     gpu 1-d {3:512, 4:1, 5:1}
   //     gpu 2-d {6:32, 7:16, 8:1};
+
+  // FIX-ME: The third dimmension is not being checked
+
   int i = 0;
   int j = 0;
-  if ( _clid == 1 ) j = 3;
+  if ( _clid == 1 ) j = 3;  // >=1 ??
 
   // assert y-dimmension according selected device
   if ((int)ret[i+1] < _work_group[j+1]) {
@@ -595,7 +641,7 @@ int _cl_create_write_only (long size) {
     return 0;
   }
   
-  if (_verbose) fprintf(stdout,"<libmptogpu> Create Write-only buffer of size: %lu\n", size);
+  if (_verbose) printf("<libmptogpu> Create Write-only buffer of size: %lu\n", size);
   
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
@@ -640,7 +686,7 @@ int _cl_offloading_read_only (long size, void* loc) {
     return 0;
   }
 
-  if (_verbose) fprintf(stdout,"<libmptogpu> Create Read-only buffer of size: %lu\n", size);
+  if (_verbose) printf("<libmptogpu> Create Read-only buffer of size: %lu\n", size);
 
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
@@ -689,6 +735,9 @@ int _cl_offloading_read_write (long size, void* loc) {
 
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
+
+  if (_verbose) printf("<libmptogpu> Create a Read-Write buffer of size: %lu\n", size);
+
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
@@ -827,7 +876,7 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   //     gpu 1-d {3:512, 4:1, 5:1}
   //     gpu 2-d {6:32, 7:16, 8:1};
   int idx = 0;
-  if (_clid == 1 ) idx  = 3;
+  if (_clid == 1 ) idx  = 3; // >=1 ??
   if ( dim  == 2 ) idx *= 2;
 
   global_size = (size_t *)malloc(3*sizeof(size_t));
@@ -841,10 +890,13 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   local_size[2] = _work_group[idx+2];
  
   if (_verbose) {
-    fprintf(stdout,"<libmptogpu> Execute on device: %d\n", _clid);
-    fprintf(stdout,"N_I=%lu\t, LWS0=%lu\t, GWS0=%lu\n", size1, local_size[0], global_size[0]);
-    fprintf(stdout,"N_J=%lu\t, LWS1=%lu\t, GWS1=%lu\n", size2, local_size[1], global_size[1]);
-    fprintf(stdout,"N_K=%lu\t, LWS2=%lu\t, GWS2=%lu\n", size3, local_size[2], global_size[2]);
+    printf("<libmptogpu> Application will be executed on device: %d\n", _clid);
+    printf("<libmptogpu> Work Group Size for %d dimmensions was configured to:\n", dim);
+    printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
+    if (dim >= 2) 
+      printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
+    if (dim == 3)
+      printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
   }
   
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
@@ -864,11 +916,11 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
     if (_status == CL_INVALID_WORK_DIMENSION)
       fprintf(stderr, "<libmptogpu> Error executing kernel. Number of dimmensions is not a valid value.\n");
     else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
-      fprintf(stderr, "<libmptogpu> Error executing kernel. Global work size is NULL or exceeded valid range.\n");
+      fprintf(stderr, "<libmptogpu> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
     else if (_status == CL_INVALID_WORK_GROUP_SIZE)
-      fprintf(stderr, "<libmptogpu> Error executing kernel. Local work size does not match the work-group size.\n");
+      fprintf(stderr, "<libmptogpu> Error executing kernel. Local Work Size does not match the Work Group size.\n");
     else
-      fprintf(stderr, "<libmptogpu> Error executing kernel on device.\n");
+      fprintf(stderr, "<libmptogpu> Error executing kernel on device %d.\n", _clid);
   }
   return 0;
 }

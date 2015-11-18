@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.h
 // VERSION
-//    0.01
+//    0.02
 // SYNOPSIS
 //   header file for the library that manage OpenCL programs,
 //   creating contexts and command queues for each plataform
@@ -32,7 +32,7 @@ extern cl_mem           *_locs;
 extern cl_platform_id    _platform;
 extern cl_program        _program;
 extern cl_kernel         _kernel;
-extern cl_uint           _npairs;
+extern cl_uint           _ndevices;
 extern cl_uint           _clid;
 extern cl_int            _status;
     
@@ -40,11 +40,12 @@ extern int               _spir_support;
 extern int               _gpu_present;
 extern int               _upperid;
 extern int               _curid;
+extern int               _verbose;
 extern int               _work_group[9];
     
-void _cldevice_details(cl_device_id id,
+void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
-                       const char* paramNameAsStr);
+                       const char*    param_str);
 
 void _cldevice_init (int verbose);
 
@@ -54,13 +55,13 @@ cl_program _create_fromSource(cl_context context,
 			      cl_device_id device,
 			      const char* fileName);
 
-cl_program _create_fromBinary(cl_context context,
+cl_program _create_fromBinary(cl_context   context,
 			      cl_device_id device,
-			      const char* fileName);
+			      const char*  fileName);
 
-int _save_toBinary(cl_program program,
+int _save_toBinary(cl_program    program,
 		    cl_device_id device,
-		    const char* fileName);
+		    const char*  fileName);
 
 cl_uint _get_num_cores (int A, int B, int C, int T);
 
