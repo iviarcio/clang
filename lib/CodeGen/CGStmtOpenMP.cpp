@@ -1222,6 +1222,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				 MapClauseQualTypes,
 				 MapClauseTypeValues);
 
+
+    //use of type 'double' requires cl_khr_fp64 extension to be enabled
+    CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+
     // Dump necessary typedefs in kernel file
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T  = MapClauseQualTypes.begin(),

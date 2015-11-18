@@ -717,8 +717,15 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
   if (getLangOpts().MPtoGPU) {
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
       if (FD->isMain()) {
+
+	llvm::Value* verbose;
+	if (CGM.getCodeGenOpts().AsmVerbose)
+	  verbose = Builder.getInt32(1);
+	else
+	  verbose = Builder.getInt32(0);
+
 	llvm::Value* funcInit = CGM.getMPtoGPURuntime().cldevice_init(); 
-	EmitRuntimeCall(funcInit);
+	EmitRuntimeCall(funcInit, makeArrayRef(verbose));
       }
   }
 

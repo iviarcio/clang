@@ -28,17 +28,25 @@ extern cl_device_id     *_device;
 extern cl_context       *_context;
 extern cl_command_queue *_cmd_queue;
 extern cl_mem           *_locs;
-extern int               _upperid;
-extern int               _curid;
+
 extern cl_platform_id    _platform;
 extern cl_program        _program;
 extern cl_kernel         _kernel;
 extern cl_uint           _npairs;
 extern cl_uint           _clid;
 extern cl_int            _status;
-extern int               _spir_support;
     
-void _cldevice_init ();
+extern int               _spir_support;
+extern int               _gpu_present;
+extern int               _upperid;
+extern int               _curid;
+extern int               _work_group[9];
+    
+void _cldevice_details(cl_device_id id,
+                       cl_device_info param_name, 
+                       const char* paramNameAsStr);
+
+void _cldevice_init (int verbose);
 
 void _cldevice_finish ();
 

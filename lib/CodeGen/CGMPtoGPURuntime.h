@@ -42,7 +42,7 @@ namespace {
   typedef int32_t(_get_num_devices)();
   typedef int32_t(_get_num_cores)(int32_t A, int32_t B, int32_t C, int32_t T);
   typedef int32_t(_get_default_device)();
-  typedef void(_cldevice_init)();
+  typedef void(_cldevice_init)(int32_t verbose);
   typedef void(_cldevice_finish)();
   typedef int32_t(_cl_create_write_only)(int64_t size);
   typedef int32_t(_cl_create_read_only)(int64_t size);
