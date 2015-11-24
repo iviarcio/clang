@@ -29,11 +29,16 @@ cl_command_queue *_cmd_queue = NULL;
 cl_mem           *_locs      = NULL;
 
 cl_platform_id    _platform;
-cl_program        _program;
-cl_kernel         _kernel;
+cl_program       *_program;
+cl_kernel        *_kernel;
 cl_uint           _ndevices;
 cl_uint           _clid;
 cl_int            _status;
+
+cl_uint           _kerid;
+cl_uint           _nkernels;
+cl_uint           _sentinel;
+char            **_strprog;
 
 int               _spir_support;
 int               _gpu_present;
@@ -41,6 +46,7 @@ int               _upperid;
 int               _curid;
 int               _verbose;
 int               _work_group[9] = {128, 1, 1, 512, 1, 1, 32, 16, 1};
+
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
@@ -203,9 +209,9 @@ void _cldevice_init (int verbose) {
   
     if (_verbose) printf("<libmptogpu> Find %u devices on platform.\n", _ndevices);
 
-    _device    = (cl_device_id *) malloc(sizeof(cl_device_id) * _ndevices);
-    _context   = (cl_context *) malloc(sizeof(cl_context) * _ndevices);
-    _cmd_queue = (cl_command_queue *) malloc(sizeof(cl_command_queue) * _ndevices);
+    _device    = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
+    _context   = (cl_context *) calloc(_ndevices, sizeof(cl_context));
+    _cmd_queue = (cl_command_queue *) calloc(_ndevices, sizeof(cl_command_queue));
     _gpu_present = 0;
     
     idx = 0;
@@ -307,10 +313,30 @@ void _cldevice_init (int verbose) {
     }
     
   }
-  _clid = 0;      // initialize default device with 0 (CPU)
-  _upperid = 16;  // max num of buffer memory locations
+
+  // Allocate room to handle program and kernel objects
+  _nkernels  = 16;
+  _program   = (cl_program *) calloc(_nkernels, sizeof(cl_program));
+  _kernel    = (cl_kernel *) calloc(_nkernels, sizeof(cl_kernel));
+  _strprog   = (char **) calloc(_nkernels, sizeof(char*));
+  _sentinel  = 0;  // points to first free slot to handle kernel/program objects
+  _kerid     = -1; // points to invalid id of kernel/program
+
+  // todo: Check if it is really necessary. calloc initiate mem with 0
+  for (i = 0; i < _nkernels; i++) {
+    _program[i] = NULL;
+    _kernel[i]  = NULL;
+    _strprog[i] = NULL;
+  }
+  
+  // Allocate room to handle buffer memory locations
+  _upperid = 16;
+  _locs = (cl_mem *) calloc(_upperid, sizeof(cl_mem));
   _curid = -1;    // points to invalid location
-  _locs = (cl_mem *) malloc(sizeof(cl_mem)*_upperid);
+
+  // initialize default device to 0 (CPU)
+  _clid = 0;
+
 }
 
 //
@@ -327,8 +353,11 @@ void _cldevice_finish() {
   }
 
   // Release OpenCL allocated objects
-  _status = clReleaseKernel(_kernel);
-  _status = clReleaseProgram(_program);
+  for (i = 0; i < _sentinel; i++) {
+    _status = clReleaseKernel(_kernel[i]);
+    _status = clReleaseProgram(_program[i]);
+  }
+  
   for (i = 0; i < _ndevices; i++) {
     _status = clReleaseCommandQueue(_cmd_queue[i]);
     _status = clReleaseContext(_context[i]);
@@ -336,6 +365,9 @@ void _cldevice_finish() {
   free(_cmd_queue);
   free(_context);
   free(_device);
+  free(_program);
+  free(_kernel);
+  free(_strprog);
 }
 
 //
@@ -357,7 +389,7 @@ cl_program _create_fromSource(cl_context context,
     size_t fsize = ftell(file);
     rewind(file);
 
-    char* buffer = (char*)malloc(sizeof(char)*(fsize+1));
+    char* buffer = (char*) calloc(fsize+1, sizeof(char));
     buffer[fsize] = '\0';
     fread(buffer, sizeof(char), fsize, file);
     fclose(file);
@@ -370,7 +402,6 @@ cl_program _create_fromSource(cl_context context,
       return NULL;
     }
 
-    //errNum = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
     errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     if (errNum != CL_SUCCESS) {
       // Determine the reason for the error
@@ -404,7 +435,7 @@ cl_program _create_fromBinary(cl_context context,
   binarySize = ftell(fp);
   rewind(fp);
 
-  unsigned char *programBinary = malloc(sizeof(unsigned char) * binarySize);
+  unsigned char *programBinary = calloc( binarySize, sizeof(unsigned char));
   fread(programBinary, 1, binarySize, fp);
   fclose(fp);
 
@@ -477,7 +508,7 @@ int _save_toBinary(cl_program program,
     }
 
     // 2 - Get all of the Device IDs
-    cl_device_id *devices = malloc(sizeof(cl_device_id)*numDevices);
+    cl_device_id *devices = calloc(numDevices, sizeof(cl_device_id));
     errNum = clGetProgramInfo(program, CL_PROGRAM_DEVICES,
                               sizeof(cl_device_id) * numDevices,
                               devices, NULL);
@@ -488,7 +519,7 @@ int _save_toBinary(cl_program program,
     }
 
     // 3 - Determine the size of each program binary
-    size_t *programBinarySizes = malloc(sizeof(size_t)*numDevices);
+    size_t *programBinarySizes = calloc(numDevices, sizeof(size_t));
     errNum = clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES,
                               sizeof(size_t) * numDevices,
                               programBinarySizes, NULL);
@@ -499,11 +530,11 @@ int _save_toBinary(cl_program program,
       return 0;
     }
 
-    unsigned char **programBinaries = malloc(sizeof(unsigned char)*numDevices);
+    unsigned char **programBinaries = calloc(numDevices, sizeof(unsigned char));
 
     cl_uint i;
     for (i = 0; i < numDevices; i++) {
-      programBinaries[i] = malloc(sizeof(unsigned char)*programBinarySizes[i]);
+      programBinaries[i] = calloc(programBinarySizes[i], sizeof(unsigned char));
     }
 
     // 4 - Get all of the program binaries
@@ -620,29 +651,36 @@ void _set_default_device (cl_uint id) {
     _work_group[j] /= 2;
   }
   if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
+    if ((int)ret[i+1] >= 2*_work_group[j+1])
+      _work_group[j+1] *= 2;
+  }
+  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
     _work_group[j] *= 2;
   }
   if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
     if ((int)ret[i+1] >= 2*_work_group[j+1])
       _work_group[j+1] *= 2;
   }
+  
+}
 
+//
+// Auxiliary Function. Increments the current Id. Resize the room if necessary
+//
+void _inc_curid () {
+  _curid++;
+  if (_curid == _upperid) {
+    _upperid *= 2;
+    _locs = (cl_mem *) realloc(_locs, _upperid * sizeof(cl_mem));
+  }
 }
 
 //
 // Create a write-only memory buffer on the selected device of a given size
 //
 int _cl_create_write_only (long size) {
-  _curid++;
-  if (_curid == _upperid) {
-    // todo: we need to increment the number of buffer memory locations
-    // for now, return false
-    _curid--;
-    return 0;
-  }
-  
+  _inc_curid();
   if (_verbose) printf("<libmptogpu> Create Write-only buffer of size: %lu\n", size);
-  
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
@@ -657,13 +695,7 @@ int _cl_create_write_only (long size) {
 // Create a read-only memory buffer to offloading host locations
 //
 int _cl_create_read_only (long size) {
-  _curid++;
-  if (_curid == _upperid) {
-    // todo: we need to increment the number of buffer memory locations
-    // for now, return false
-    _curid--;
-    return 0;
-  }
+  _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
@@ -678,16 +710,8 @@ int _cl_create_read_only (long size) {
 // Create a read-only memory buffer and copy the host loc to the buffer
 //
 int _cl_offloading_read_only (long size, void* loc) {
-  _curid++;
-  if (_curid == _upperid) {
-    // todo: we need to increment the number of buffer memory locations
-    // for now, return false
-    _curid--;
-    return 0;
-  }
-
+  _inc_curid();
   if (_verbose) printf("<libmptogpu> Create Read-only buffer of size: %lu\n", size);
-
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
@@ -704,13 +728,7 @@ int _cl_offloading_read_only (long size, void* loc) {
 // Create a read-write memory buffer
 //
 int _cl_create_read_write (long size) {
-  _curid++;
-  if (_curid == _upperid) {
-    // todo: we need to increment the number of buffer memory locations
-    // for now, return false
-    _curid--;
-    return 0;
-  }
+  _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
@@ -725,19 +743,10 @@ int _cl_create_read_write (long size) {
 // Create a read-write memory buffer and copy the host loc to the buffer
 //
 int _cl_offloading_read_write (long size, void* loc) {
-  _curid++;
-  if (_curid == _upperid) {
-    // todo: we need to increment the number of buffer memory locations
-    // for now, return false
-    _curid--;
-    return 0;
-  }
-
+  _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
-
   if (_verbose) printf("<libmptogpu> Create a Read-Write buffer of size: %lu\n", size);
-
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
@@ -776,6 +785,29 @@ int _cl_write_buffer (long size, int id, void* loc) {
   return 1;
 }
 
+// Auxiliary Function. Return true if program object was created before.
+int _program_created(const char* str) {
+
+  cl_uint i;
+  
+  for ( i = 0; i < _sentinel; i++)
+    if (strcmp (str, _strprog[i]) == 0) {
+      _kerid = i;
+      return 1;
+    }
+
+  _kerid = _sentinel++;
+  if (_sentinel == _nkernels) {
+    _nkernels *= 2;
+    _program = (cl_program *) realloc(_program, _nkernels * sizeof(cl_program));
+    _kernel  = (cl_kernel *) realloc(_kernel, _nkernels * sizeof(cl_kernel));
+  }
+  _strprog[_kerid] = (char *) calloc(strlen(str), sizeof(char));
+  strcpy (_strprog[_kerid],str);
+  return 0;
+}
+
+
 //
 // Auxiliary Function. Return true if file exist.
 //
@@ -793,29 +825,36 @@ int _does_file_exist(const char *filename) {
 //
 int _cl_create_program (char* str) {
 
+  // Sets the handle (_kerid) if program was created before
+  if (_program_created(str)) return 1;
+
+  // otherwise, create it
   int fsize = strlen(str);
-  char* cl_file = malloc(fsize + 4);
-  char* bc_file = malloc(fsize + 4);
+  char* cl_file = calloc(fsize + 4, sizeof(char));
+  char* bc_file = calloc(fsize + 4, sizeof(char));
   strcpy(cl_file, str); strcat(cl_file, ".cl");
   strcpy(bc_file, str); strcat(bc_file, ".bc");
 
   if (_does_file_exist(bc_file)) {
     //Attempting to create program from binary
-    _program = _create_fromBinary(_context[_clid],
-				  _device[_clid],
-				  bc_file);
-    if (_program != NULL) return 1;
+    if (_verbose)
+      printf("<libmptogpu> Try to create a program object for %s.\n", str);
+    
+    _program[_kerid] = _create_fromBinary(_context[_clid],
+					  _device[_clid],
+					  bc_file);
+    if (_program[_kerid] != NULL) return 1;
   }
   
   //Binary not loaded, create from source
-  _program = _create_fromSource(_context[_clid],
-				_device[_clid],
-				cl_file);
-  if (_program == NULL) {
+  _program[_kerid] = _create_fromSource(_context[_clid],
+					_device[_clid],
+					cl_file);
+  if (_program[_kerid] == NULL) {
     fprintf(stderr, "<libmptogpu> Attempting to create program failed.\n");
     return 0;
   }
-  if (_save_toBinary(_program, _device[_clid], bc_file) == 0) {
+  if (_save_toBinary(_program[_kerid], _device[_clid], bc_file) == 0) {
     fprintf(stderr, "<libmptogpu> Failed to write program binary.\n");
     return 0;
   }
@@ -826,12 +865,20 @@ int _cl_create_program (char* str) {
 // Create OpenCL kernel. Return 1 (=true), if success
 //
 int _cl_create_kernel (char* str) {
-  _kernel = clCreateKernel(_program, str, NULL);
-  if (_kernel == NULL) {
-    fprintf(stderr, "<libmptogpu> Failed to create kernel on device.\n");
-    return 0;
+
+  if (_kernel[_kerid] == NULL) {
+
+    if (_verbose)
+      printf("<libmptogpu> Try to create a kernel object for %s.\n", str);
+    
+    _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
+    if (_kernel[_kerid] == NULL) {
+      fprintf(stderr, "<libmptogpu> Failed to create kernel on device.\n");
+      return 0;
+    }
   }
   return 1;
+
 }
 
 //
@@ -841,7 +888,7 @@ int _cl_set_kernel_args (int nargs) {
   _status = CL_SUCCESS;
   int i;
   for (i = 0; i<nargs; i++) {
-    _status |= clSetKernelArg (_kernel, i, sizeof(cl_mem), &_locs[i]);
+    _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
   }
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<libmptogpu> Error setting kernel buffers on device.\n");
@@ -854,7 +901,7 @@ int _cl_set_kernel_args (int nargs) {
 // Set the kernel arguments for host args
 //
 int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
-  _status = clSetKernelArg (_kernel, pos, size, loc);
+  _status = clSetKernelArg (_kernel[_kerid], pos, size, loc);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<libmptogpu> Error setting host args on device.\n");
     return 0;
@@ -879,19 +926,19 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   if (_clid == 1 ) idx  = 3; // >=1 ??
   if ( dim  == 2 ) idx *= 2;
 
-  global_size = (size_t *)malloc(3*sizeof(size_t));
+  global_size = (size_t *) calloc(3, sizeof(size_t));
   global_size[0] = (size_t)ceil(((float)size1) / ((float)_work_group[idx])) * _work_group[idx];
   global_size[1] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+1])) * _work_group[idx+1];
   global_size[2] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+2])) * _work_group[idx+2];
   
-  local_size = (size_t *)malloc(3*sizeof(size_t));
+  local_size = (size_t *) calloc(3, sizeof(size_t));
   local_size[0] = _work_group[idx];
   local_size[1] = _work_group[idx+1];
   local_size[2] = _work_group[idx+2];
  
   if (_verbose) {
-    printf("<libmptogpu> Application will be executed on device: %d\n", _clid);
-    printf("<libmptogpu> Work Group Size for %d dimmensions was configured to:\n", dim);
+    printf("<libmptogpu> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
+    printf("<libmptogpu> Work Group was configured to:\n");
     printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
     if (dim >= 2) 
       printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
@@ -900,7 +947,7 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   }
   
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
-				   _kernel,
+				   _kernel[_kerid],
 				   wd,          // number of dimmensions
 				   NULL,        // global_work_offset
 				   global_size, // global_work_size

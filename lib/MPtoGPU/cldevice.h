@@ -30,12 +30,17 @@ extern cl_command_queue *_cmd_queue;
 extern cl_mem           *_locs;
 
 extern cl_platform_id    _platform;
-extern cl_program        _program;
-extern cl_kernel         _kernel;
+extern cl_program       *_program;
+extern cl_kernel        *_kernel;
 extern cl_uint           _ndevices;
 extern cl_uint           _clid;
 extern cl_int            _status;
-    
+
+extern cl_uint           _kerid;
+extern cl_uint           _nkernels;
+extern cl_uint           _sentinel;
+extern char            **_strprog;
+
 extern int               _spir_support;
 extern int               _gpu_present;
 extern int               _upperid;
