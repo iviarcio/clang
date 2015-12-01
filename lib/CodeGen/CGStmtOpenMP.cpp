@@ -47,6 +47,7 @@ namespace {
 std::map<llvm::Value *, std::string> mapping;
 bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
+bool insideTarget = false;
 
 llvm::SmallVector<const QualType*, 16> deftypes;
 static bool dumpedDefType(const QualType* T) {
@@ -1197,7 +1198,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   // Are we generating code for GPU (via OpenCL/SPIR)?
   // **************************************************
 
-  if (CGM.getLangOpts().MPtoGPU) {
+  if (CGM.getLangOpts().MPtoGPU && insideTarget) {
     //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
 
     // When an if clause is present and the if clause expression
@@ -6117,6 +6118,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
   // Are we generating code for GPU via OpenCL/SPIR?
   if (CGM.getLangOpts().MPtoGPU) {
   
+	insideTarget = true;
     bool regionStarted = false;
     bool emptyTarget = false;
     bool hasIfClause = false;
@@ -6232,7 +6234,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
       isTargetDataIf = false;
       EmitBlock(ContBlock, true);
     }
-	
+	insideTarget = false;
     return;
   }
   
@@ -6551,6 +6553,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
   // Are we generating code for GPU (via OpenCL/SPIR)?
   // *************************************************
   if (CGM.getLangOpts().MPtoGPU) {
+	insideTarget = true;
     //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
     CGM.OpenMPSupport.startOpenMPRegion(true);
 
@@ -6615,6 +6618,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
     }
  
     CGM.OpenMPSupport.endOpenMPRegion();
+	insideTarget = false;
   }
 }
 
