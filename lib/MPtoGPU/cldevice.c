@@ -654,7 +654,8 @@ void _set_default_device (cl_uint id) {
     if ((int)ret[i+1] >= 2*_work_group[j+1])
       _work_group[j+1] *= 2;
   }
-  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
+  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1] &&
+      _clid != 0) {
     _work_group[j] *= 2;
   }
   if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {

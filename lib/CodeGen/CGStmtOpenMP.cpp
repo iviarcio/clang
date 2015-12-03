@@ -49,15 +49,17 @@ bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
 bool insideTarget = false;
 
-llvm::SmallVector<const QualType*, 16> deftypes;
+llvm::SmallVector<QualType, 16> deftypes;  
 static bool dumpedDefType(const QualType* T) {
-  for (ArrayRef<const QualType*>::iterator I  = deftypes.begin(),
-	                                   E  = deftypes.end();
-	                                   I != E; ++I) {
-    if ((*I)->getAsString() == T->getAsString())
+  for (ArrayRef<QualType>::iterator I  = deftypes.begin(),
+	                            E  = deftypes.end();
+	                            I != E; ++I) {
+    //llvm::errs() << "Verify Type: " << T->getAsString() << " against: " << (*I).getAsString() << "\n";      
+    if ((*I).getAsString() == T->getAsString())
       return true;
   }
-  deftypes.push_back(T);
+  //llvm::errs() << "Push Type: " << T->getAsString() << "\n";
+  deftypes.push_back(*T);
   return false;
 }
 
@@ -1384,12 +1386,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     assert(Body && "Failed to extract the loop body");
 
     if (loopNest > CollapseNum) {
-      CLOS << ",\n";
+      //CLOS << ",\n";
       Stmt *Aux = Body;
       while (loopNest > CollapseNum) {
 	For = dyn_cast<ForStmt>(Aux);
 	int loop = loopNest-1;
 	if (For) {
+	  CLOS << ",\n";
 	  llvm::Value *t = EmitHostParameters (For, CLOS, num_args, false, loop, CollapseNum-1);
 	  Aux = For->getBody();
 	  --loopNest;
