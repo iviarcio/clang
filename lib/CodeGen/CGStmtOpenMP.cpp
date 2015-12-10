@@ -1466,22 +1466,22 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     //if (verbose) llvm::errs() << linearize << "\n";
     std::system(linearize.c_str());
 
-    // generate spir-code
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
-    const std::string tgtStr = Tgt.getTriple();
-    const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
-      tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
-      TmpName.str() + ".tmp " + clName.str();
-    //if (verbose) llvm::errs() << ">>> " << bcArg << "\n";    
-    std::system(bcArg.c_str());
+    if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
+      // generate spir-code
+      const std::string tgtStr = Tgt.getTriple();
+      const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
+	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
+	TmpName.str() + ".tmp " + clName.str();
+      std::system(bcArg.c_str());
 
-    const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
-    //if (verbose) llvm::errs() << ">>> " << encodeStr << "\n";    
-    std::system(encodeStr.c_str());
+      const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
+      std::system(encodeStr.c_str());
 
-    const std::string rmStr = "rm " + TmpName.str() + ".tmp";
-    std::system(rmStr.c_str());
-
+      const std::string rmStr = "rm " + TmpName.str() + ".tmp";
+      std::system(rmStr.c_str());
+    }
+    
     // Finally, Emit call to execute the kernel
     if (CollapseNum == 1) {
       nCores.push_back(Builder.getInt32(0));

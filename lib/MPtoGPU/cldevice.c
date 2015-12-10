@@ -57,7 +57,7 @@ void _cldevice_details(cl_device_id   id,
 
   status = clGetDeviceInfo( id, param_name, 0, NULL, &param_size );
   if (status != CL_SUCCESS ) {
-    fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+    fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
     return;
   }
 
@@ -67,7 +67,7 @@ void _cldevice_details(cl_device_id   id,
       cl_device_type* devType = (cl_device_type*) alloca(sizeof(cl_device_type) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, devType, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       switch (*devType) {
@@ -83,7 +83,7 @@ void _cldevice_details(cl_device_id   id,
       cl_uint* ret = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       switch (param_name) {
@@ -102,7 +102,7 @@ void _cldevice_details(cl_device_id   id,
 
       status = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       printf("\tMaximum number of work-items in each dimension: ( ");
@@ -115,7 +115,7 @@ void _cldevice_details(cl_device_id   id,
       size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
@@ -125,7 +125,7 @@ void _cldevice_details(cl_device_id   id,
       char data[48];
       status = clGetDeviceInfo( id, param_name, param_size, data, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       switch (param_name) {
@@ -139,7 +139,7 @@ void _cldevice_details(cl_device_id   id,
       cl_uint* size = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
@@ -149,7 +149,7 @@ void _cldevice_details(cl_device_id   id,
       cl_ulong* size = (cl_ulong*) alloca(sizeof(cl_ulong) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<libmptogpu> Unable to obtain device info for %s.\n", param_str);
+	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
 	return;
       }
       switch (param_name) {
@@ -178,7 +178,7 @@ void _cldevice_init (int verbose) {
     //Fetch the main Platform (the first one)
     _status = clGetPlatformIDs(1, &_platform, &nplatforms);
     if (_status != CL_SUCCESS || nplatforms <= 0) {
-      fprintf(stderr, "<libmptogpu> Failed to find any OpenCL platform.\n");
+      fprintf(stderr, "<rtl> Failed to find any OpenCL platform.\n");
       exit(1);
     }
 
@@ -196,18 +196,18 @@ void _cldevice_init (int verbose) {
       _spir_support = 1;
     }
     else {
-      if (_verbose) printf("<libmptogpu> This platform does not support cl_khr_spir extension.\n");
+      if (_verbose) printf("<rtl> This platform does not support cl_khr_spir extension.\n");
       _spir_support = 0;
     }
 
     //Fetch the device list for this platform
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_ndevices);
     if (_status != CL_SUCCESS) {
-      fprintf(stderr, "<libmptogpu> Failed to find any OpenCL device.\n");
+      fprintf(stderr, "<rtl> Failed to find any OpenCL device.\n");
       exit(1);
     }
   
-    if (_verbose) printf("<libmptogpu> Find %u devices on platform.\n", _ndevices);
+    if (_verbose) printf("<rtl> Find %u devices on platform.\n", _ndevices);
 
     _device    = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
     _context   = (cl_context *) calloc(_ndevices, sizeof(cl_context));
@@ -219,7 +219,7 @@ void _cldevice_init (int verbose) {
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 0, NULL, &ndev);
     if (_status == CL_SUCCESS) {
       if (_verbose) {
-	printf("<libmptogpu> Find %u CPU device(s).", ndev);
+	printf("<rtl> Find %u CPU device(s).", ndev);
         if (ndev > 1)
 	  printf(" Only the main CPU was handled on device id %d.\n", idx);
 	else
@@ -227,7 +227,7 @@ void _cldevice_init (int verbose) {
       }
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[idx], NULL);
       if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<libmptogpu> Failed to create CPU device id .\n");
+	fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
       }
     }
     
@@ -238,12 +238,12 @@ void _cldevice_init (int verbose) {
       if (_status == CL_SUCCESS) {
 	_gpu_present = 1;
 	if (_verbose) {
-	  printf("<libmptogpu> Find %u GPU device(s). ", ndev);
+	  printf("<rtl> Find %u GPU device(s). ", ndev);
 	  printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
 	}
 	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<libmptogpu> Failed to create GPU device id .\n");
+	  fprintf(stderr, "<rtl> Failed to create GPU device id .\n");
 	}
       }
     }
@@ -254,12 +254,12 @@ void _cldevice_init (int verbose) {
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
 	if (_verbose) {
-	  printf("<libmptogpu> Find %u ACC device(s). ", ndev);
+	  printf("<rtl> Find %u ACC device(s). ", ndev);
 	  printf("Each accelerator device was handled on device id starting with %d.\n", idx);
 	}
 	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<libmptogpu> Failed to create any accelerator device id .\n");
+	  fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
 	}
       }
     }
@@ -270,12 +270,12 @@ void _cldevice_init (int verbose) {
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
 	if (_verbose) {
-	  printf("<libmptogpu> Find %u unknown device(s). ", ndev);
+	  printf("<rtl> Find %u unknown device(s). ", ndev);
 	  printf("Each unknown device was handled on device id starting with %d.\n", idx);
 	}
 	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<libmptogpu> Failed to create any unknown device id .\n");
+	  fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
 	}
       }
     }
@@ -283,7 +283,7 @@ void _cldevice_init (int verbose) {
     for(i = 0; i < _ndevices; ++ i ) {
       
       if (_verbose) {
-	printf("<libmptogpu> Retrieve some information about device %u:\n", i);
+	printf("<rtl> Retrieve some information about device %u:\n", i);
 	_cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
 	_cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
 	_cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
@@ -300,13 +300,13 @@ void _cldevice_init (int verbose) {
       //Create one OpenCL context for each device in the platform
       _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
       if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<libmptogpu> Failed to create context for device %u.\n", i);
+	fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
       }
       
       //Create a command queue for each context to communicate with the associated device
       _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
       if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<libmptogpu> Failed to create commandQueue for device %u.\n", i);
+	fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
 	exit(1);
       }
       
@@ -381,7 +381,7 @@ cl_program _create_fromSource(cl_context context,
 
     FILE* file = fopen(fileName, "r");
     if (file == NULL) {
-      fprintf(stderr, "<libmptogpu> Failed to open file for reading: %s\n", fileName);
+      fprintf(stderr, "<rtl> Failed to open file for reading: %s\n", fileName);
       return NULL;
     }
 
@@ -398,7 +398,7 @@ cl_program _create_fromSource(cl_context context,
                                         (const char**)&buffer,
                                         NULL, NULL);
     if (program == NULL) {
-      fprintf(stderr, "<libmptogpu> Failed to create CL program from source.\n");
+      fprintf(stderr, "<rtl> Failed to create CL program from source.\n");
       return NULL;
     }
 
@@ -409,7 +409,7 @@ cl_program _create_fromSource(cl_context context,
       clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			    sizeof(buildLog), buildLog, NULL);
 
-      fprintf(stderr, "<libmptogpu> Error in kernel: %s\n", buildLog);
+      fprintf(stderr, "<rtl> Error in kernel: %s\n", buildLog);
       clReleaseProgram(program);
       return NULL;
     }
@@ -454,12 +454,12 @@ cl_program _create_fromBinary(cl_context context,
   free(programBinary);
 
   if (errNum != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Error loading program binary.\n");
+    fprintf(stderr, "<rtl> Error loading program binary.\n");
     return NULL;
   }
 
   if (binaryStatus != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Invalid binary for device.\n");
+    fprintf(stderr, "<rtl> Invalid binary for device.\n");
     return NULL;
   }
 
@@ -476,10 +476,10 @@ cl_program _create_fromBinary(cl_context context,
 			  sizeof(buildLog), buildLog, NULL);
 
     if (!_spir_support) {
-      fprintf(stderr, "<libmptogpu> %s: This platform does not support cl_khr_spir extension!\n", buildLog);
+      fprintf(stderr, "<rtl> %s: This platform does not support cl_khr_spir extension!\n", buildLog);
     }
     else {
-      fprintf(stderr, "<libmptogpu> %s\n", buildLog);
+      fprintf(stderr, "<rtl> %s\n", buildLog);
     }
     clReleaseProgram(program);
     return NULL;
@@ -503,7 +503,7 @@ int _save_toBinary(cl_program program,
     errNum = clGetProgramInfo(program, CL_PROGRAM_NUM_DEVICES, sizeof(cl_uint),
                               &numDevices, NULL);
     if (errNum != CL_SUCCESS) {
-      fprintf(stderr, "<libmptogpu> Error querying for number of devices.\n");
+      fprintf(stderr, "<rtl> Error querying for number of devices.\n");
       return 0;
     }
 
@@ -513,7 +513,7 @@ int _save_toBinary(cl_program program,
                               sizeof(cl_device_id) * numDevices,
                               devices, NULL);
     if (errNum != CL_SUCCESS) {
-      fprintf(stderr, "<libmptogpu> Error querying for devices.\n");
+      fprintf(stderr, "<rtl> Error querying for devices.\n");
       free(devices);
       return 0;
     }
@@ -524,7 +524,7 @@ int _save_toBinary(cl_program program,
                               sizeof(size_t) * numDevices,
                               programBinarySizes, NULL);
     if (errNum != CL_SUCCESS) {
-      fprintf(stderr, "<libmptogpu> Error querying for program binary sizes.\n");
+      fprintf(stderr, "<rtl> Error querying for program binary sizes.\n");
       free(devices);
       free(programBinarySizes);
       return 0;
@@ -542,7 +542,7 @@ int _save_toBinary(cl_program program,
 			      sizeof(unsigned char*) * numDevices,
                               programBinaries, NULL);
     if (errNum != CL_SUCCESS) {
-      fprintf(stderr, "<libmptogpu> Error querying for program binaries.\n");
+      fprintf(stderr, "<rtl> Error querying for program binaries.\n");
       free(devices);
       free(programBinarySizes);
       for (i = 0; i < numDevices; i++) {
@@ -608,14 +608,14 @@ void _set_default_device (cl_uint id) {
   
   if ((id == 1) && (!_gpu_present)) {
     _clid = 0; // force execution into CPU
-    if (_verbose) printf("<libmptogpu> Warning: GPU is not present, run on CPU instead.\n");
+    if (_verbose) printf("<rtl> Warning: GPU is not present, run on CPU instead.\n");
   }
   else
     _clid = id;
 
   status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, 0, NULL, &param_size );
   if (status != CL_SUCCESS ) {
-    fprintf(stderr, "<libmptogpu> Warning: Unable to obtain MAX_WORK_ITEM_SIZES for device %u.\n", _clid);
+    fprintf(stderr, "<rtl> Warning: Unable to obtain MAX_WORK_ITEM_SIZES for device %u.\n", _clid);
     return;
   }
 
@@ -623,7 +623,7 @@ void _set_default_device (cl_uint id) {
   status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_SIZES, param_size, ret, NULL );
   status = clGetDeviceInfo( _device[_clid], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
   if (status != CL_SUCCESS ) {
-    fprintf(stderr, "<libmptogpu> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
+    fprintf(stderr, "<rtl> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
     return;
   }
 
@@ -681,11 +681,11 @@ void _inc_curid () {
 //
 int _cl_create_write_only (long size) {
   _inc_curid();
-  if (_verbose) printf("<libmptogpu> Create Write-only buffer of size: %lu\n", size);
+  if (_verbose) printf("<rtl> Create Write-only buffer of size: %lu\n", size);
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to create a write-only buffer for the device.\n");
+    fprintf(stderr, "<rtl> Failed to create a write-only buffer for the device.\n");
     _curid--;
     return 0;
   }
@@ -700,7 +700,7 @@ int _cl_create_read_only (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to create a read-only device buffer.\n");
+    fprintf(stderr, "<rtl> Failed to create a read-only device buffer.\n");
     _curid--;
     return 0;
   }
@@ -712,13 +712,13 @@ int _cl_create_read_only (long size) {
 //
 int _cl_offloading_read_only (long size, void* loc) {
   _inc_curid();
-  if (_verbose) printf("<libmptogpu> Create Read-only buffer of size: %lu\n", size);
+  if (_verbose) printf("<rtl> Create Read-only buffer of size: %lu\n", size);
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to write the host location to device buffer.\n");
+    fprintf(stderr, "<rtl> Failed to write the host location to device buffer.\n");
     _curid--;
     return 0;
   }
@@ -733,7 +733,7 @@ int _cl_create_read_write (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to create a read & write device buffer.\n");
+    fprintf(stderr, "<rtl> Failed to create a read & write device buffer.\n");
     _curid--;
     return 0;
   }
@@ -747,11 +747,11 @@ int _cl_offloading_read_write (long size, void* loc) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
-  if (_verbose) printf("<libmptogpu> Create a Read-Write buffer of size: %lu\n", size);
+  if (_verbose) printf("<rtl> Create a Read-Write buffer of size: %lu\n", size);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to write the host location to device buffer.\n");
+    fprintf(stderr, "<rtl> Failed to write the host location to device buffer.\n");
     _curid--;
     return 0;
   }
@@ -766,7 +766,7 @@ int _cl_read_buffer (long size, int id, void* loc) {
   _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
              CL_TRUE, 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to read to host location from the device buffer.\n");
+    fprintf(stderr, "<rtl> Failed to read to host location from the device buffer.\n");
     return 0;
   }
   return 1;
@@ -780,7 +780,7 @@ int _cl_write_buffer (long size, int id, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Failed to write the host location to the selected buffer.\n");
+    fprintf(stderr, "<rtl> Failed to write the host location to the selected buffer.\n");
     return 0;
   }
   return 1;
@@ -839,7 +839,7 @@ int _cl_create_program (char* str) {
   if (_does_file_exist(bc_file)) {
     //Attempting to create program from binary
     if (_verbose)
-      printf("<libmptogpu> Try to create a program object for %s.\n", str);
+      printf("<rtl> Try to create a program object for %s.\n", str);
     
     _program[_kerid] = _create_fromBinary(_context[_clid],
 					  _device[_clid],
@@ -852,11 +852,11 @@ int _cl_create_program (char* str) {
 					_device[_clid],
 					cl_file);
   if (_program[_kerid] == NULL) {
-    fprintf(stderr, "<libmptogpu> Attempting to create program failed.\n");
+    fprintf(stderr, "<rtl> Attempting to create program failed.\n");
     return 0;
   }
   if (_save_toBinary(_program[_kerid], _device[_clid], bc_file) == 0) {
-    fprintf(stderr, "<libmptogpu> Failed to write program binary.\n");
+    fprintf(stderr, "<rtl> Failed to write program binary.\n");
     return 0;
   }
   return 1;
@@ -870,11 +870,11 @@ int _cl_create_kernel (char* str) {
   if (_kernel[_kerid] == NULL) {
 
     if (_verbose)
-      printf("<libmptogpu> Try to create a kernel object for %s.\n", str);
+      printf("<rtl> Try to create a kernel object for %s.\n", str);
     
     _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
     if (_kernel[_kerid] == NULL) {
-      fprintf(stderr, "<libmptogpu> Failed to create kernel on device.\n");
+      fprintf(stderr, "<rtl> Failed to create kernel on device.\n");
       return 0;
     }
   }
@@ -892,7 +892,7 @@ int _cl_set_kernel_args (int nargs) {
     _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
   }
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Error setting kernel buffers on device.\n");
+    fprintf(stderr, "<rtl> Error setting kernel buffers on device.\n");
     return 0;
   }
   return 1;
@@ -904,7 +904,7 @@ int _cl_set_kernel_args (int nargs) {
 int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
   _status = clSetKernelArg (_kernel[_kerid], pos, size, loc);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<libmptogpu> Error setting host args on device.\n");
+    fprintf(stderr, "<rtl> Error setting host args on device.\n");
     return 0;
   }
   return 1;
@@ -938,8 +938,8 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   local_size[2] = _work_group[idx+2];
  
   if (_verbose) {
-    printf("<libmptogpu> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
-    printf("<libmptogpu> Work Group was configured to:\n");
+    printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
+    printf("<rtl> Work Group was configured to:\n");
     printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
     if (dim >= 2) 
       printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
@@ -962,13 +962,13 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   }
   else {
     if (_status == CL_INVALID_WORK_DIMENSION)
-      fprintf(stderr, "<libmptogpu> Error executing kernel. Number of dimmensions is not a valid value.\n");
+      fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
     else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
-      fprintf(stderr, "<libmptogpu> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
+      fprintf(stderr, "<rtl> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
     else if (_status == CL_INVALID_WORK_GROUP_SIZE)
-      fprintf(stderr, "<libmptogpu> Error executing kernel. Local Work Size does not match the Work Group size.\n");
+      fprintf(stderr, "<rtl> Error executing kernel. Local Work Size does not match the Work Group size.\n");
     else
-      fprintf(stderr, "<libmptogpu> Error executing kernel on device %d.\n", _clid);
+      fprintf(stderr, "<rtl> Error executing kernel on device %d.\n", _clid);
   }
   return 0;
 }

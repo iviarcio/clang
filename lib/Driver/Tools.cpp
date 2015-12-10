@@ -2579,7 +2579,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
 	llvm::Triple TT(Tgts->getValue(0));
 	// This code can be removed later ...
-	if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64) {
+	if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64 ||
+	    TT.getArch()==llvm::Triple::opencl32 || TT.getArch()==llvm::Triple::opencl) {
 	  mptogpu = true;
 	  CmdArgs.push_back("-mptogpu");
 	}
@@ -2605,7 +2606,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // pass the gputarget we are generating code to
     if ( Arg *Tgpu = Args.getLastArg(options::OPT_gputargets_EQ) ){
       llvm::Triple TT(Tgpu->getValue(0));
-      if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64) {
+      if (TT.getArch()==llvm::Triple::spir || TT.getArch()==llvm::Triple::spir64 ||
+	  TT.getArch()==llvm::Triple::opencl32 || TT.getArch()==llvm::Triple::opencl) {
 	CmdArgs.push_back("-mptogpu");
 	std::string Sp("-gputargets=");
 	Sp += Tgpu->getValue(0);
@@ -5565,7 +5567,8 @@ llvm::Triple::ArchType darwin::getArchTypeForMachOArchName(StringRef Str) {
     .Case("nvptx", llvm::Triple::nvptx)
     .Case("nvptx64", llvm::Triple::nvptx64)
     .Case("amdil", llvm::Triple::amdil)
-    .Case("spir", llvm::Triple::spir)
+    .Cases("spir", "spir64", llvm::Triple::spir)
+    .Cases("opencl32", "opencl", llvm::Triple::opencl)
     .Default(llvm::Triple::UnknownArch);
 }
 
@@ -5944,13 +5947,15 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
     if ( Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ) ) {
       llvm::Triple TT(A1->getValue(0));
       // This code can be removed ...
-      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64)
+      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64 ||
+	  TT.getArch() == llvm::Triple::opencl32 || TT.getArch() == llvm::Triple::opencl)
 	mptogpu = true;
     }
     // ... Only this code is necessary
     else if ( Arg *A2 = Args.getLastArg(options::OPT_gputargets_EQ) ) {
       llvm::Triple TT(A2->getValue(0));
-      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64)
+      if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64 ||
+	  TT.getArch() == llvm::Triple::opencl32 || TT.getArch() == llvm::Triple::opencl)
 	mptogpu = true;
     }
     
@@ -7717,15 +7722,15 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
         if (Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ)) {
 	  llvm::Triple TT(A1->getValue(0));
 	  // This code can be removed ...
-	  if (TT.getArch() == llvm::Triple::spir ||
-	      TT.getArch() == llvm::Triple::spir64)
+	  if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64 ||
+	      TT.getArch() == llvm::Triple::opencl32 || TT.getArch() == llvm::Triple::opencl)
 	    mptogpu = true;
 	}
 	else if (Arg *A2 = Args.getLastArg(options::OPT_gputargets_EQ)) {
 	  // ... Only this code is necessary
 	  llvm::Triple TT(A2->getValue(0));
-	  if (TT.getArch() == llvm::Triple::spir ||
-	      TT.getArch() == llvm::Triple::spir64)
+	  if (TT.getArch() == llvm::Triple::spir || TT.getArch() == llvm::Triple::spir64 ||
+	      TT.getArch() == llvm::Triple::opencl32 || TT.getArch() == llvm::Triple::opencl)
 	    mptogpu = true;
 	}
 	if (Args.hasArg(options::OPT_omptargets_EQ) && !mptogpu)

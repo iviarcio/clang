@@ -1237,8 +1237,8 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
     // Check if we are generating code for GPU through OpenCL/SPIR?
     if ( Tgts && Tgts->getNumValues()) {
       for (unsigned v=0; v<Tgts->getNumValues(); ++v) {
-	StringRef spirVal = Tgts->getValue(v);      
-	if (spirVal.startswith("spir")) {
+	StringRef targetVal = Tgts->getValue(v);      
+	if (targetVal.startswith("spir")) {
 	  if (v==0) {
 	    mptogpu = true;
 	  }
@@ -1247,9 +1247,18 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
 	    Diag(clang::diag::err_drv_invalid_omp_target) << sv;
 	  }
 	}
+	else if (targetVal.startswith("opencl")) {
+	  if (v==0) {
+	    mptogpu = true;
+	  }
+	  else {
+	    const char *sv = "opencl target must appear alone";
+	    Diag(clang::diag::err_drv_invalid_omp_target) << sv;
+	  }
+	}
       }
     }
-
+    
     if (mptogpu) {
       Args.eraseArg(options::OPT_omptargets_EQ);
       Args.AddFlagArg(Tgts, Opts->getOption(options::OPT_mptogpu));
