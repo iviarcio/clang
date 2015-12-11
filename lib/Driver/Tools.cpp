@@ -2568,6 +2568,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
+  // pass the verbose mode for runtime library
+  if (Args.hasArg(options::OPT_verbose_rtl)) {
+    CmdArgs.push_back("-verbose-rtl");
+  }
+  
   if (Args.hasArg(options::OPT_fopenmp)){
     CmdArgs.push_back("-fopenmp");
     
@@ -5967,14 +5972,16 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (mptogpu) {
-    CmdArgs.push_back("-lmptogpu");
+    CmdArgs.push_back("-lmptogpu");    
+
 #ifdef __APPLE__
     CmdArgs.push_back("-framework");
     CmdArgs.push_back("OpenCL");
 #else
     CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
 #endif
-	CmdArgs.push_back("-lm");
+
+    CmdArgs.push_back("-lm");	
   }
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs,

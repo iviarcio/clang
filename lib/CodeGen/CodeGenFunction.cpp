@@ -719,7 +719,7 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
       if (FD->isMain()) {
 
 	llvm::Value* verbose;
-	if (CGM.getCodeGenOpts().AsmVerbose)
+	if (getLangOpts().RtlVerbose)
 	  verbose = Builder.getInt32(1);
 	else
 	  verbose = Builder.getInt32(0);

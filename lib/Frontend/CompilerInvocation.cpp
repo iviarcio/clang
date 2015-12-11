@@ -1538,6 +1538,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
+  Opts.RtlVerbose = Args.hasArg(OPT_verbose_rtl);
 
   // Get the OpenMP target triples if any
   if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ){
@@ -1552,7 +1553,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   // Are we generating code for GPU through OpenCL/SPIR?
   // In this case, turn off OMPTargetMode and cleanup OMPTargetTriples
-  //Opts.MPtoGPU = false;
   const std::vector<llvm::Triple> &Targets = Opts.OMPTargetTriples;
   if (Targets.size()==1) {
     // MPtoGPU only support one target at this time
