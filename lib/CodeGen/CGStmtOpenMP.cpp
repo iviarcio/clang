@@ -1434,13 +1434,22 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       CLOS << " * _ID_" << i << " + _MIN_" << i << ";\n   ";
     }
     
-    if (isa<CompoundStmt>(Body)) {
+    if (CollapseNum == 1) {
       CLOS << "  if ( _ID_0 < _UB_0 )\n";
+    }
+    else if (CollapseNum == 2) {
+      CLOS << "  if ( _ID_0 < _UB_0 && _ID_1 < _UB_1 )\n";
+    }
+    else {
+      CLOS << "  if ( _ID_0 < _UB_0 && _ID_1 < _UB_1 && _ID_2 < _UB_2 )\n";
+    }
+    
+    if (isa<CompoundStmt>(Body)) {
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
       CLOS << "\n}\n";
     }
     else {
-      CLOS << "  if (_ID_0 < _UB_0 )\n {\n";
+      CLOS << " {\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
       CLOS << ";\n }\n}\n";
     }
