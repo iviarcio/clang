@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.c
 // VERSION
-//    0.02
+//    1.2
 // SYNOPSIS
 //   Source file for the library that manage OpenCL programs,
 //   creating contexts and command queues for main plataform
@@ -9,7 +9,7 @@
 // AUTHOR
 //    Marcio Machado Pereira <mpereira@ic.unicamp.br>
 // COPYLEFT
-//   Copyleft (C) 2015 -- UNICAMP & Samsumg R&D
+//   Copyleft (C) 2015--2016, UNICAMP & Samsumg R&D
 
 #include <stdio.h>
 #include <string.h>
@@ -42,6 +42,7 @@ char            **_strprog;
 
 int               _spir_support;
 int               _gpu_present;
+int               _cpu_present;
 int               _upperid;
 int               _curid;
 int               _verbose;
@@ -208,15 +209,21 @@ void _cldevice_init (int verbose) {
     }
   
     if (_verbose) printf("<rtl> Find %u devices on platform.\n", _ndevices);
-
-    _device    = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
-    _context   = (cl_context *) calloc(_ndevices, sizeof(cl_context));
-    _cmd_queue = (cl_command_queue *) calloc(_ndevices, sizeof(cl_command_queue));
-    _gpu_present = 0;
     
     idx = 0;
-    //Fetch the CPU device list for this platform
+    //Fetch the CPU device list for this platform. Note that the allocation
+    //of handlers is done after test because device 0 is reserved to CPU
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 0, NULL, &ndev);
+    if (_status != CL_SUCCESS) {
+      _ndevices +=1;
+      _cpu_present = 0;
+    }
+
+    _device      = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
+    _context     = (cl_context *) calloc(_ndevices, sizeof(cl_context));
+    _cmd_queue   = (cl_command_queue *) calloc(_ndevices, sizeof(cl_command_queue));
+    _gpu_present = 0;
+
     if (_status == CL_SUCCESS) {
       if (_verbose) {
 	printf("<rtl> Find %u CPU device(s).", ndev);
@@ -229,6 +236,9 @@ void _cldevice_init (int verbose) {
       if (_status != CL_SUCCESS) {
 	fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
       }
+      else {
+	_cpu_present = 1;
+      }
     }
     
     idx += 1;
@@ -236,14 +246,16 @@ void _cldevice_init (int verbose) {
       //Try to fetch the GPU device list for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-	_gpu_present = 1;
 	if (_verbose) {
 	  printf("<rtl> Find %u GPU device(s). ", ndev);
 	  printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
 	}
 	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
 	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create GPU device id .\n");
+	  fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
+	}
+	else {
+	  _gpu_present = 1;
 	}
       }
     }
@@ -282,7 +294,7 @@ void _cldevice_init (int verbose) {
    
     for(i = 0; i < _ndevices; ++ i ) {
       
-      if (_verbose) {
+      if (_verbose && _device[i] != NULL) {
 	printf("<rtl> Retrieve some information about device %u:\n", i);
 	_cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
 	_cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
@@ -297,19 +309,20 @@ void _cldevice_init (int verbose) {
 	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
       }
       
-      //Create one OpenCL context for each device in the platform
-      _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
-      if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
-      }
+      if (_device[i] != NULL) {
+
+	//Create one OpenCL context for each device in the platform
+	_context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
+	if (_status != CL_SUCCESS) {
+	  fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
+	}
       
-      //Create a command queue for each context to communicate with the associated device
-      _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
-      if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
-	exit(1);
+	//Create a command queue for each context to communicate with the associated device
+	_cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
+	if (_status != CL_SUCCESS) {
+	  fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
+	}
       }
-      
     }
     
   }
@@ -322,21 +335,18 @@ void _cldevice_init (int verbose) {
   _sentinel  = 0;  // points to first free slot to handle kernel/program objects
   _kerid     = -1; // points to invalid id of kernel/program
 
-  // todo: Check if it is really necessary. calloc initiate mem with 0
-  for (i = 0; i < _nkernels; i++) {
-    _program[i] = NULL;
-    _kernel[i]  = NULL;
-    _strprog[i] = NULL;
-  }
-  
   // Allocate room to handle buffer memory locations
   _upperid = 16;
   _locs = (cl_mem *) calloc(_upperid, sizeof(cl_mem));
   _curid = -1;    // points to invalid location
 
-  // initialize default device to 0 (CPU)
-  _clid = 0;
-
+  // initialize default device to 0 (CPU) unless CPU is not present
+  if ( _cpu_present ) {
+    _clid = 0; 
+  }
+  else {
+    _clid = 1; // At least, one accelerator is present & was mapped to device 1
+  }
 }
 
 //
@@ -489,7 +499,7 @@ cl_program _create_fromBinary(cl_context context,
 }
 
 //
-//  Retreive program binary for all of the devices attached to
+//  Retrieve program binary for all of the devices attached to
 //  the program and store the one for the device passed in
 //
 int _save_toBinary(cl_program program,
@@ -605,10 +615,29 @@ void _set_default_device (cl_uint id) {
   cl_int  status = 0;
   size_t  param_size = 0;
   cl_uint maxWIDimensions;
+
+  if ((id == 0) && (!_cpu_present)) {
+      _clid = 1;
+      fprintf(stderr, "<rtl> Warning: CPU is not set, run on device 1 instead.\n");
+  }
   
-  if ((id == 1) && (!_gpu_present)) {
-    _clid = 0; // force execution into CPU
-    if (_verbose) printf("<rtl> Warning: GPU is not present, run on CPU instead.\n");
+  if (id == 1) {
+    if (!_gpu_present && _cpu_present && _ndevices == 1 ) {
+      _clid = 0;
+      fprintf(stderr, "<rtl> Warning: Accelerator (GPU?) is not present, run on CPU instead.\n");
+    }
+    else {
+      _clid = id;
+    }
+  }
+  else if (id > _ndevices-1) {
+    if ( _cpu_present ) {
+      _clid = 0;
+    }
+    else {
+      _clid = 1;
+    }
+    fprintf(stderr, "<rtl> Warning: Device id is invalid, run on device %u instead.\n", _clid);
   }
   else
     _clid = id;

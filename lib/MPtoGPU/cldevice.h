@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.h
 // VERSION
-//    0.02
+//    1.2
 // SYNOPSIS
 //   header file for the library that manage OpenCL programs,
 //   creating contexts and command queues for each plataform
@@ -9,7 +9,7 @@
 // AUTHOR
 //    Marcio Machado Pereira
 // COPYLEFT
-//   Copyleft (C) 2015 -- UNICAMP & Samsumg R&D
+//   Copyleft (C) 2015--2016, UNICAMP & Samsumg R&D
 
 #ifndef __CLDEVICE_H
 #define __CLDEVICE_H
@@ -43,6 +43,7 @@ extern char            **_strprog;
 
 extern int               _spir_support;
 extern int               _gpu_present;
+extern int               _cpu_present;
 extern int               _upperid;
 extern int               _curid;
 extern int               _verbose;
