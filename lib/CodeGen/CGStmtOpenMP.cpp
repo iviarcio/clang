@@ -1266,7 +1266,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	    RD->print(CLOS); CLOS << ";\n";
 	  }
 
-	  if (B.isCanonical()) {
+	  if (B.isCanonical() && B.getAsString().compare(defty) != 0 ) {
 	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
 	  }
 
@@ -1435,12 +1435,22 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     }
     
     if (isa<CompoundStmt>(Body)) {
-      CLOS << "  if ( _ID_0 < _UB_0 )\n";
+      CLOS << "  if ( _ID_0 < _UB_0 ";
+	  if (CollapseNum > 1) {
+		for(int i=1; i<CollapseNum; i++)
+	      CLOS << "&& _ID_" << i << " < _UB_" << i << " ";
+	  }
+      CLOS << ")\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
       CLOS << "\n}\n";
     }
     else {
-      CLOS << "  if (_ID_0 < _UB_0 )\n {\n";
+      CLOS << "  if (_ID_0 < _UB_0 ";
+	  if (CollapseNum > 1) {
+		for(int i=1; i<CollapseNum; i++)
+	      CLOS << "&& _ID_" << i << " < _UB_" << i << " ";
+	  }
+      CLOS << ")\n {\n";
       Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
       CLOS << ";\n }\n}\n";
     }
