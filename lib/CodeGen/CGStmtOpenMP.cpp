@@ -1266,7 +1266,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	    RD->print(CLOS); CLOS << ";\n";
 	  }
 
-	  if (B.isCanonical()) {
+	  if ( B.isCanonical() && B.getAsString().compare(defty) != 0 ) {
 	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
 	  }
 
