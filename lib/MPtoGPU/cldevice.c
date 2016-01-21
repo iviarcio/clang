@@ -12,6 +12,7 @@
 //   Copyleft (C) 2015--2016, UNICAMP & Samsumg R&D
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "cldevice.h"
@@ -46,8 +47,7 @@ int               _cpu_present;
 int               _upperid;
 int               _curid;
 int               _verbose;
-int               _work_group[9] = {128, 1, 1, 512, 1, 1, 32, 16, 1};
-
+int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
@@ -155,9 +155,9 @@ void _cldevice_details(cl_device_id   id,
       }
       switch (param_name) {
         case CL_DEVICE_GLOBAL_MEM_SIZE:
-	  printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
+	  printf("\tDevice global mem: %lu mega-bytes\n", (*size)>>20); break;
         case CL_DEVICE_MAX_MEM_ALLOC_SIZE:
-	  printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break; 
+	  printf("\tDevice max memory allocation: %lu mega-bytes\n", (*size)>>20); break; 
       }
     } break;
   }
@@ -950,7 +950,7 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
 
   // work_group map:
   //     cpu     {0:128, 1:1, 2:1}
-  //     gpu 1-d {3:512, 4:1, 5:1}
+  //     gpu 1-d {3:256, 4:1, 5:1}
   //     gpu 2-d {6:32, 7:16, 8:1};
   int idx = 0;
   if (_clid == 1 ) idx  = 3; // >=1 ??
@@ -996,8 +996,10 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
       fprintf(stderr, "<rtl> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
     else if (_status == CL_INVALID_WORK_GROUP_SIZE)
       fprintf(stderr, "<rtl> Error executing kernel. Local Work Size does not match the Work Group size.\n");
+    else if (_status == CL_INVALID_WORK_ITEM_SIZE)
+      fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
     else
-      fprintf(stderr, "<rtl> Error executing kernel on device %d.\n", _clid);
+      fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
   }
   return 0;
 }

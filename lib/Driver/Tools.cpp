@@ -44,6 +44,7 @@ using namespace clang;
 using namespace llvm::opt;
 
 static bool mptogpu;
+static bool b_arch;
 
 static void addAssemblerKPIC(const ArgList &Args, ArgStringList &CmdArgs) {
   Arg *LastPICArg = Args.getLastArg(options::OPT_fPIC, options::OPT_fno_PIC,
@@ -5947,6 +5948,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_L);
 
   mptogpu = false;
+  b_arch  = false;
   if (Args.hasArg(options::OPT_fopenmp)) {
     // Get the first OpenMP target triple if any
     if ( Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ) ) {
@@ -5965,22 +5967,30 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
     }
     
     // This is more complicated in gcc...
-    CmdArgs.push_back("-liomp5");
-
+    if (getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) {
+      CmdArgs.push_back("-lgomp");
+      b_arch = true;
+    }
+    else {
+      CmdArgs.push_back("-liomp5");
+    }
     if (Args.hasArg(options::OPT_omptargets_EQ) && !mptogpu)
       CmdArgs.push_back("-lomptarget");
   }
 
   if (mptogpu) {
-    CmdArgs.push_back("-lmptogpu");    
-
+    CmdArgs.push_back("-lmptogpu");
+    if (b_arch) {
+      CmdArgs.push_back("-lOpenCL");
+    }
+    else {      
 #ifdef __APPLE__
-    CmdArgs.push_back("-framework");
-    CmdArgs.push_back("OpenCL");
+      CmdArgs.push_back("-framework");
+      CmdArgs.push_back("OpenCL");
 #else
-    CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+      CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
 #endif
-
+    }
     CmdArgs.push_back("-lm");	
   }
 
@@ -7723,9 +7733,16 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("--start-group");
 
       mptogpu = false;
+      b_arch = false;
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
-        CmdArgs.push_back("-liomp5");
+	if (getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) {
+	  CmdArgs.push_back("-lgomp");
+	  b_arch = true;
+	}
+	else {
+	  CmdArgs.push_back("-liomp5");
+	}
         if (Arg *A1 = Args.getLastArg(options::OPT_omptargets_EQ)) {
 	  llvm::Triple TT(A1->getValue(0));
 	  // This code can be removed ...
@@ -7747,12 +7764,17 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
       if (mptogpu){
 	CmdArgs.push_back("-lmptogpu");
+	if (b_arch) {
+	  CmdArgs.push_back("-lOpenCL");
+	}
+	else {      
 #ifdef __APPLE__
-	CmdArgs.push_back("-framework");
-	CmdArgs.push_back("OpenCL");
+	  CmdArgs.push_back("-framework");
+	  CmdArgs.push_back("OpenCL");
 #else
-	CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
+	  CmdArgs.push_back("-lOpenCL"); //does not work on MacOs
 #endif
+	}
 	CmdArgs.push_back("-lm");
       }
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
