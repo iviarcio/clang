@@ -1479,7 +1479,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
       // generate spir-code
       const std::string tgtStr = Tgt.getTriple();
-      const std::string bcArg = "clang -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
+      const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
 	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
 	TmpName.str() + ".tmp " + clName.str();
       std::system(bcArg.c_str());
