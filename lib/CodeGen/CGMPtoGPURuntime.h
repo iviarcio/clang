@@ -55,7 +55,7 @@ namespace {
   typedef int32_t(_cl_create_kernel)(char* str);
   typedef int32_t(_cl_set_kernel_args)(int32_t nargs);
   typedef int32_t(_cl_set_kernel_hostArg)(int32_t pos, int32_t size, void* loc);
-  typedef int32_t(_cl_execute_kernel)(int64_t size1, int64_t size2, int64_t size3, int32_t dim);
+  typedef int32_t(_cl_execute_kernel)(int64_t size1, int64_t size2, int64_t size3, int32_t tile, int32_t dim);
   typedef void(_cl_release_buffers)(int32_t upper);
   typedef void(_cl_release_buffer)(int32_t index);
 }

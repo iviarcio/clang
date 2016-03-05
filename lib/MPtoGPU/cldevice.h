@@ -47,7 +47,6 @@ extern int               _cpu_present;
 extern int               _upperid;
 extern int               _curid;
 extern int               _verbose;
-extern int               _work_group[9];
     
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
@@ -99,7 +98,7 @@ int _cl_set_kernel_args (int nargs);
 
 int _cl_set_kernel_hostArg (int pos, int size, void* loc);
     
-int _cl_execute_kernel (long size1, long size2, long size3, int dim);
+int _cl_execute_kernel (long size1, long size2, long size3, int tile, int dim);
 
 void _cl_release_buffers (int upper);    
     

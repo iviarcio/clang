@@ -47,7 +47,6 @@ int               _cpu_present;
 int               _upperid;
 int               _curid;
 int               _verbose;
-int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
@@ -155,9 +154,9 @@ void _cldevice_details(cl_device_id   id,
       }
       switch (param_name) {
         case CL_DEVICE_GLOBAL_MEM_SIZE:
-	  printf("\tDevice global mem: %lu mega-bytes\n", (*size)>>20); break;
+	  printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
         case CL_DEVICE_MAX_MEM_ALLOC_SIZE:
-	  printf("\tDevice max memory allocation: %lu mega-bytes\n", (*size)>>20); break; 
+	  printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break; 
       }
     } break;
   }
@@ -654,44 +653,7 @@ void _set_default_device (cl_uint id) {
   if (status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
     return;
-  }
-
-  // checking the default work_group map.
-  //     cpu     {0:128, 1:1, 2:1}
-  //     gpu 1-d {3:512, 4:1, 5:1}
-  //     gpu 2-d {6:32, 7:16, 8:1};
-
-  // FIX-ME: The third dimmension is not being checked
-
-  int i = 0;
-  int j = 0;
-  if ( _clid == 1 ) j = 3;  // >=1 ??
-
-  // assert y-dimmension according selected device
-  if ((int)ret[i+1] < _work_group[j+1]) {
-    _work_group[j+1] = (int)ret[i+1];
-  }
-  
-  // assert x-dimmension * y-dimmension for selected device
-  if ((int)ret[i] < _work_group[j]*_work_group[j+1]) {
-    _work_group[j+1] /= 2;
-  }
-  if ((int)ret[i] < _work_group[j]*_work_group[j+1]) {
-    _work_group[j] /= 2;
-  }
-  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
-    if ((int)ret[i+1] >= 2*_work_group[j+1])
-      _work_group[j+1] *= 2;
-  }
-  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1] &&
-      _clid != 0) {
-    _work_group[j] *= 2;
-  }
-  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
-    if ((int)ret[i+1] >= 2*_work_group[j+1])
-      _work_group[j+1] *= 2;
-  }
-  
+  }  
 }
 
 //
@@ -942,30 +904,34 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
 //
 // Enqueues a command to execute a kernel on a device.
 //
-int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
+int _cl_execute_kernel(long size1, long size2, long size3, int tile, int dim) {
 
   size_t  *global_size;
   size_t  *local_size;
   cl_uint  wd = dim;
 
-  // work_group map:
-  //     cpu     {0:128, 1:1, 2:1}
-  //     gpu 1-d {3:256, 4:1, 5:1}
-  //     gpu 2-d {6:32, 7:16, 8:1};
-  int idx = 0;
-  if (_clid == 1 ) idx  = 3; // >=1 ??
-  if ( dim  == 2 ) idx *= 2;
-
   global_size = (size_t *) calloc(3, sizeof(size_t));
-  global_size[0] = (size_t)ceil(((float)size1) / ((float)_work_group[idx])) * _work_group[idx];
-  global_size[1] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+1])) * _work_group[idx+1];
-  global_size[2] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+2])) * _work_group[idx+2];
-  
   local_size = (size_t *) calloc(3, sizeof(size_t));
-  local_size[0] = _work_group[idx];
-  local_size[1] = _work_group[idx+1];
-  local_size[2] = _work_group[idx+2];
- 
+  
+  global_size[0] = (size_t)ceil(((float)size1) / ((float)tile)) * tile;
+  local_size[0]  = tile;
+
+  if (dim >= 2) {
+    global_size[1] = (size_t)ceil(((float)size2) / ((float)tile)) * tile;
+    local_size[1]  = tile;
+  }				   
+  else {
+    global_size[1] = 0;
+    local_size[1]  = 0;
+  } 
+  if (dim == 3) {
+    global_size[2] = (size_t)ceil(((float)size2) / ((float)tile)) * tile;
+    local_size[2]  = tile;
+  }
+  else {
+    global_size[2] = 0;   
+    local_size[2]  = 0;
+  }
   if (_verbose) {
     printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
     printf("<rtl> Work Group was configured to:\n");
