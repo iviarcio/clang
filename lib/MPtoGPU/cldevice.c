@@ -672,7 +672,6 @@ void _inc_curid () {
 //
 int _cl_create_write_only (long size) {
   _inc_curid();
-  if (_verbose) printf("<rtl> Create Write-only buffer of size: %lu\n", size);
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
@@ -680,6 +679,7 @@ int _cl_create_write_only (long size) {
     _curid--;
     return 0;
   }
+  if (_verbose) printf("<rtl> Create Write-only buffer no. %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -695,6 +695,7 @@ int _cl_create_read_only (long size) {
     _curid--;
     return 0;
   }
+  if (_verbose) printf("<rtl> Create Read-only buffer no. %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -703,7 +704,6 @@ int _cl_create_read_only (long size) {
 //
 int _cl_offloading_read_only (long size, void* loc) {
   _inc_curid();
-  if (_verbose) printf("<rtl> Create Read-only buffer of size: %lu\n", size);
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
@@ -713,6 +713,7 @@ int _cl_offloading_read_only (long size, void* loc) {
     _curid--;
     return 0;
   }
+  if (_verbose) printf("<rtl> Offload to Read-only buffer no. %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -728,6 +729,7 @@ int _cl_create_read_write (long size) {
     _curid--;
     return 0;
   }
+  if (_verbose) printf("<rtl> Create Read-write buffer no. %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -738,7 +740,6 @@ int _cl_offloading_read_write (long size, void* loc) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
-  if (_verbose) printf("<rtl> Create a Read-Write buffer of size: %lu\n", size);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
@@ -746,6 +747,7 @@ int _cl_offloading_read_write (long size, void* loc) {
     _curid--;
     return 0;
   }
+  if (_verbose) printf("<rtl> Create Read-write buffer no. %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -760,6 +762,7 @@ int _cl_read_buffer (long size, int id, void* loc) {
     fprintf(stderr, "<rtl> Failed to read to host location from the device buffer.\n");
     return 0;
   }
+  if (_verbose) printf("<rtl> Read %lu bytes from buffer no. %d\n", size, id);
   return 1;
 }
 
@@ -774,6 +777,7 @@ int _cl_write_buffer (long size, int id, void* loc) {
     fprintf(stderr, "<rtl> Failed to write the host location to the selected buffer.\n");
     return 0;
   }
+  if (_verbose) printf("<rtl> Write %lu bytes to buffer no. %d\n", size, id);
   return 1;
 }
 
@@ -877,15 +881,28 @@ int _cl_create_kernel (char* str) {
 // Set the kernel arguments for cl_mem buffers
 //
 int _cl_set_kernel_args (int nargs) {
-  _status = CL_SUCCESS;
   int i;
   for (i = 0; i<nargs; i++) {
     _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
+    if (_status != CL_SUCCESS) {
+      fprintf(stderr, "<rtl> Error setting kernel buffer %d on device.\n", i);
+      return 0;
+    }
+    if (_verbose) printf("<rtl> Pass reference of buffer %d to kernel\n", i);
   }
+  return 1;
+}
+
+//
+// Set the kernel argument for cl_mem buffer given by index 
+//
+int _cl_set_kernel_arg (int pos, int index) {
+  _status |= clSetKernelArg (_kernel[_kerid], pos, sizeof(cl_mem), &_locs[index]);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Error setting kernel buffers on device.\n");
+    fprintf(stderr, "<rtl> Error setting kernel buffer %d on device.\n", index);
     return 0;
   }
+  if (_verbose) printf("<rtl> Pass reference of buffer %d to kernel\n", index);
   return 1;
 }
 
@@ -977,6 +994,7 @@ void _cl_release_buffers(int upper) {
   int i;
   for (i=0; i<upper; i++) {
     _status = clReleaseMemObject(_locs[i]);
+    if (_verbose) printf("<rtl> Release buffer no. %d\n", i);
     _locs[i] = NULL;
   }
   _curid = -1;
@@ -987,6 +1005,7 @@ void _cl_release_buffers(int upper) {
 //
 void _cl_release_buffer(int index) {
     _status = clReleaseMemObject(_locs[index]);
+    if (_verbose) printf("<rtl> Release buffer no. %d\n", index);
     _locs[index] = NULL;
   _curid--;
 }

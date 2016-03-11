@@ -61,6 +61,11 @@ static bool dumpedDefType(const QualType* T) {
   return false;
 }
 
+static bool pairCompare(const std::pair<int, std::string>& p1,
+			  const std::pair<int, std::string>& p2) {
+  return p1.second < p2.second;
+}  
+
 // Getters for fields of the loop-like directives. We may want to add a
 // common parent to all the loop-like directives to get rid of these.
 
@@ -942,7 +947,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
 	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 	  CGM.OpenMPSupport.addKernelVar(BodyVar);
-	  CLOS << D->getType().getAsString() << " " << ND->getDeclName() << ";\n  ";
+	  CLOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
 	}
       }	      
     }
@@ -1110,17 +1115,23 @@ void CodeGenFunction::EmitOMPParallelForDirective(
   if (CGM.getLangOpts().MPtoGPU && insideTarget) {
 
     // When an if clause is present and the if clause expression
-    // evaluates to false, the device is the host.
+    // evaluates to false, the loop will be executed on host.
     if(isTargetDataIf && TargetDataIfRegion == 2) {
       EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
       return;
     }
 
+    // ========================================================
+    // Preparing data to Polyedral extraction & parallelization
+    // ========================================================
+    
     // Start creating a unique name that refers to cl_kernel function
-    llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), /*shouldClose=*/true);
+    llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
 
+    // Add the necessary include files, including those 
+    // specified by the user (derived from input).
     CLOS << "#include <stdlib.h>\n";
     CLOS << "#include <math.h>\n";
 
@@ -1128,14 +1139,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     ArrayRef<llvm::Value*> MapClauseSizeValues;
     ArrayRef<QualType> MapClauseQualTypes;
     ArrayRef<unsigned> MapClauseTypeValues;
+    ArrayRef<unsigned> MapClausePositionValues;
 
-    CGM.OpenMPSupport.getMapData(MapClausePointerValues,
-				 MapClauseSizeValues,
-				 MapClauseQualTypes,
-				 MapClauseTypeValues);
+    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+				MapClauseSizeValues,
+				MapClauseQualTypes,
+				MapClauseTypeValues,
+				MapClausePositionValues);
 
 
-    // Dump necessary typedefs in file
+    // Dump necessary typedefs in scop file
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T  = MapClauseQualTypes.begin(),
 	                              E  = MapClauseQualTypes.end();
@@ -1207,38 +1220,29 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       j++;
 
       if (needComma) CLOS << ",\n"; 
-      CLOS << QT.getAsString();
+      CLOS << "\t\t" << QT.getAsString();
       needComma = true;
       if (isPointer)
 	CLOS << " *" << KName; 
       else
 	CLOS << "  " << KName;
     }
+    CLOS << ") {\n";
 
-    if(CGM.OpenMPSupport.getKernelVarSize() == 0) {
+    int num_args =  CGM.OpenMPSupport.getKernelVarSize();
+    if(num_args == 0) {
+      // loop is not suitable to execute on GPUs
       EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
       return;
     }
 
-    llvm::Value *Status = nullptr;   
-    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FileStr);
-    
-    // Get the number of cl_mem args that will be passed first to kernel_function
-    int num_args =  CGM.OpenMPSupport.getKernelVarSize();
-    llvm::Value *Args[] = {Builder.getInt32(num_args)};
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
+    // Traverse the Body looking for all scalar variables declared out of
+    // "for" scope and generate value reference to pass to "foo" function
 
     Stmt *Body = S.getAssociatedStmt();
     if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
       Body = CS->getCapturedStmt();
     }
-    CLOS << ") {\n   ";
-
-    CLOS << "\n#pragma scop\n";
-    // Traverse the Body looking for all scalar variables declared out of
-    // "for" scope and generate value reference to pass to kernel function
     if (Body->getStmtClass() == Stmt::CompoundStmtClass) {
       CompoundStmt *BS = cast<CompoundStmt>(Body);
       for (CompoundStmt::body_iterator I = BS->body_begin(),
@@ -1251,21 +1255,20 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       HandleStmts(Body, CLOS, num_args);
     }
     
+    CLOS << "\n#pragma scop\n";    
     Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
     CLOS << "\n#pragma endscop\n}\n";
-    
-    // Close the kernel file
     CLOS.close();
     
     // Change the temporary name to c name
     const llvm::StringRef cName  = TmpName.str() + ".c";
     rename(TmpName.str().c_str(), cName.str().c_str());
     
-    // Generate a optimized kernel using pet & isl
+    // Generate a optimized kernel using Polyhedral model
     const llvm::StringRef kgen = "ppcg --target=opencl " + cName.str();
     std::system(kgen.str().c_str());
     const std::string rmCfile = "rm " + TmpName.str() + ".c";
-    std::system(rmCfile.c_str());
+    //std::system(rmCfile.c_str());
     const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
     std::system(rmHfile.c_str());
     
@@ -1287,9 +1290,40 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       const std::string rmStr = "rm " + TmpName.str() + ".tmp";
       std::system(rmStr.c_str());
     }
-    
-    // Finally, Emit call to execute the kernel
 
+    //========================================================    
+    // Finally, emit necessary host code to execute the kernel
+    //========================================================
+    
+    llvm::Value *Status = nullptr;   
+    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FileStr);
+    
+    // Construct the pairs of <index, arg> that will be passed to kernel function 
+    int k = 0;
+    std::vector<std::pair<int,std::string>> pName;
+    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
+	                                  E  = MapClausePointerValues.end();
+	                                  I != E; ++I) {
+
+      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
+      pName.push_back(std::pair<int,std::string>(k,mapping[PV]));
+      k++;
+    }
+    // Now sort the pairs in alphabetic order
+    std::sort(pName.begin(), pName.end(), pairCompare);
+
+    // Set kernel args according pos & index of buffer
+    k = 0;
+    for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
+	                                                   E = pName.end();
+	                                                   I != E; ++I) {
+      llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+      k++;
+    }
+    
     bool hasCollapseClause = false;
     unsigned CollapseNum, loopNest;
     // If Collapse clause is not empty, get the collapsedNum,
@@ -1333,6 +1367,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
 
+    unsigned TileSize = 16;
+
     if (CollapseNum == 1) {
       nCores.push_back(Builder.getInt32(0));
       nCores.push_back(Builder.getInt32(0));
@@ -1340,7 +1376,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     else if (CollapseNum == 2) {
       nCores.push_back(Builder.getInt32(0));
     }
-    unsigned TileSize = 16;
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
@@ -1349,8 +1384,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
     
   }
-  else
-    EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+  
+  // ********************************
+  // Not OpenCL/SPIR Code Generation
+  // ********************************  
+  else EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+  
 }
 
 /// Generate an instructions for '#pragma omp parallel for simd' directive.

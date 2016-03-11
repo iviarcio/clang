@@ -160,6 +160,14 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_kernel_args");
     break;
   }
+  case MPtoGPURTL_cl_set_kernel_arg: {
+    // Build int _set_kernel_arg(int pos, int index);
+    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty};
+    llvm::FunctionType *FnTy =
+      llvm::FunctionType::get(CGM.Int32Ty, TParams,  false);
+    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_kernel_arg");
+    break;
+  }
   case MPtoGPURTL_cl_set_kernel_hostArg: {
     // Build int _set_kernel_hostArg(int pos, int size, void* loc);
     llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty, CGM.VoidPtrTy};
@@ -304,6 +312,13 @@ CGMPtoGPURuntime::cl_set_kernel_args() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cl_set_kernel_args, false>::get(CGM.getLLVMContext())
 	 , "_cl_set_kernel_args");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cl_set_kernel_arg() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_set_kernel_arg, false>::get(CGM.getLLVMContext())
+	 , "_cl_set_kernel_arg");
 }
 
 llvm::Value*
