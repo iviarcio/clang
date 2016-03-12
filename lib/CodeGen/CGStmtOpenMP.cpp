@@ -47,7 +47,8 @@ namespace {
 std::vector<std::pair<int,std::string>> vectorNames;
 std::vector<std::pair<int,std::string>> scalarNames;
  
-std::map<llvm::Value *, std::string> mapping;
+std::map<llvm::Value *, std::string> vectorMap;
+std::map<std::string, llvm::Value *> scalarMap;
   
 bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
@@ -961,6 +962,7 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
 	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 	  CGM.OpenMPSupport.addKernelVar(BodyVar);
+	  scalarMap[ND->getName().str()] = BodyVar;
 	  CLOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
 	}
       }	      
@@ -1204,7 +1206,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     CGM.OpenMPSupport.clearKernelVars();
     CGM.OpenMPSupport.clearLocalVars();
-
+    scalarMap.clear();
+    
     CLOS << "void foo (\n";
     
     int j = 0;
@@ -1215,7 +1218,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       llvm::Value *KV = dyn_cast<llvm::User>(*I)->getOperand(0);
       QualType QT = MapClauseQualTypes[j];
-      std::string KName = mapping[KV];
+      std::string KName = vectorMap[KV];
       
       CGM.OpenMPSupport.addKernelVar(KV);
       CGM.OpenMPSupport.addKernelType(QT);
@@ -1336,7 +1339,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	                                  I != E; ++I) {
 
       llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
-      pName.push_back(std::pair<int,std::string>(k,mapping[PV]));
+      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
       k++;
     }
     // Now sort the pairs in alphabetic order
@@ -1357,6 +1360,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
 	k++;
       }
+    }
+
+    for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames.begin(),
+	                                                   E = scalarNames.end();
+	                                                   I != E; ++I) {
+      llvm::Value *BV = scalarMap[(I)->second];
+      llvm::Value *BVRef = Builder.CreateBitCast(BV, CGM.VoidPtrTy);	
+      llvm::Value *CArg[] = { Builder.getInt32((I)->first),
+			      Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
     }
     
     bool hasCollapseClause = false;
@@ -5910,7 +5923,8 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
 
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
-    mapping[dyn_cast<llvm::User>(val)->getOperand(0)] = (D->getDecl())->getNameAsString();    
+    vectorMap[dyn_cast<llvm::User>(val)->getOperand(0)] =
+      (D->getDecl())->getNameAsString();    
   }
 
   // Get the children of the current node in the AST and call the function recursively
