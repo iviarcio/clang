@@ -44,7 +44,11 @@ namespace {
 //
 // Some assets used by MPtoGPU
 //
+std::vector<std::pair<int,std::string>> vectorNames;
+std::vector<std::pair<int,std::string>> scalarNames;
+ 
 std::map<llvm::Value *, std::string> mapping;
+  
 bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
 bool insideTarget = false;
@@ -64,7 +68,17 @@ static bool dumpedDefType(const QualType* T) {
 static bool pairCompare(const std::pair<int, std::string>& p1,
 			  const std::pair<int, std::string>& p2) {
   return p1.second < p2.second;
-}  
+}
+
+struct Required
+{
+  Required(std::string val) : val_(val) {}
+  bool operator()(const std::pair<int,std::string>& elem) const {
+    return val_ == elem.second;
+  }
+  private:
+  std::string val_;
+};  
 
 // Getters for fields of the loop-like directives. We may want to add a
 // common parent to all the loop-like directives to get rid of these.
@@ -1265,16 +1279,30 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     rename(TmpName.str().c_str(), cName.str().c_str());
     
     // Generate a optimized kernel using Polyhedral model
-    const llvm::StringRef kgen = "ppcg --target=opencl " + cName.str();
+    const llvm::StringRef kgen = "ppcg --target=opencl " + cName.str() + " > " + TmpName.str();
     std::system(kgen.str().c_str());
     const std::string rmCfile = "rm " + TmpName.str() + ".c";
-    //std::system(rmCfile.c_str());
+    std::system(rmCfile.c_str());
     const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
     std::system(rmHfile.c_str());
+    std::ifstream argFile(TmpName.str());
+    int kind, index;
+    std::string arg_name;
+    vectorNames.clear();
+    scalarNames.clear();
+    while (argFile >> kind >> index >> arg_name) {
+      if (kind == 1) {
+	vectorNames.push_back(std::pair<int,std::string>(index,arg_name));
+	//llvm::errs() << " push " << arg_name << " to vectorNames\n";
+      } else if (kind == 2) {
+	scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
+	//llvm::errs() << " push " << arg_name << " to scalarNames\n";
+      }
+    }
+    const std::string rmAfile = "rm " + TmpName.str();
+    std::system(rmAfile.c_str());    
     
-    //
     // Generate the spir-code ?
-    //
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
       const llvm::StringRef clName = TmpName.str() + ".cl";
@@ -1314,14 +1342,21 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Now sort the pairs in alphabetic order
     std::sort(pName.begin(), pName.end(), pairCompare);
 
-    // Set kernel args according pos & index of buffer
+    // Set kernel args according pos & index of buffer, only if required
     k = 0;
     for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
 	                                                   E = pName.end();
 	                                                   I != E; ++I) {
-      llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
-      k++;
+      std::vector<std::pair<int,std::string>>::iterator it =
+	std::find_if(vectorNames.begin(),vectorNames.end(),Required((I)->second));
+      if (it == vectorNames.end()) {
+        // the array is not required
+      }
+      else {
+	llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+	k++;
+      }
     }
     
     bool hasCollapseClause = false;

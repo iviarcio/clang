@@ -885,10 +885,10 @@ int _cl_set_kernel_args (int nargs) {
   for (i = 0; i<nargs; i++) {
     _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
     if (_status != CL_SUCCESS) {
-      fprintf(stderr, "<rtl> Error setting kernel buffer %d on device.\n", i);
+      fprintf(stderr, "<rtl> Error setting kernel buffer %d to kernel in pos %d.\n", i, i);
       return 0;
     }
-    if (_verbose) printf("<rtl> Pass reference of buffer %d to kernel\n", i);
+    if (_verbose) printf("<rtl> Pass buffer %d to kernel in pos %d\n", i, i);
   }
   return 1;
 }
@@ -899,10 +899,10 @@ int _cl_set_kernel_args (int nargs) {
 int _cl_set_kernel_arg (int pos, int index) {
   _status |= clSetKernelArg (_kernel[_kerid], pos, sizeof(cl_mem), &_locs[index]);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Error setting kernel buffer %d on device.\n", index);
+    fprintf(stderr, "<rtl> Error setting buffer %d to kernel in pos %d.\n", index, pos);
     return 0;
   }
-  if (_verbose) printf("<rtl> Pass reference of buffer %d to kernel\n", index);
+  if (_verbose) printf("<rtl> Pass buffer %d to kernel in pos %d\n", index, pos);
   return 1;
 }
 
