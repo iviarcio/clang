@@ -47,6 +47,7 @@ int               _cpu_present;
 int               _upperid;
 int               _curid;
 int               _verbose;
+int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name, 
@@ -653,7 +654,44 @@ void _set_default_device (cl_uint id) {
   if (status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
     return;
-  }  
+  }
+  
+  // checking the default work_group map.
+  //     cpu     {0:128, 1:1, 2:1}
+  //     gpu 1-d {3:512, 4:1, 5:1}
+  //     gpu 2-d {6:32, 7:16, 8:1};
+
+  // FIX-ME: The third dimmension is not being checked
+
+  int i = 0;
+  int j = 0;
+  if ( _clid == 1 ) j = 3;  // >=1 ??
+
+  // assert y-dimmension according selected device
+  if ((int)ret[i+1] < _work_group[j+1]) {
+    _work_group[j+1] = (int)ret[i+1];
+  }
+  
+  // assert x-dimmension * y-dimmension for selected device
+  if ((int)ret[i] < _work_group[j]*_work_group[j+1]) {
+    _work_group[j+1] /= 2;
+  }
+  if ((int)ret[i] < _work_group[j]*_work_group[j+1]) {
+    _work_group[j] /= 2;
+  }
+  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
+    if ((int)ret[i+1] >= 2*_work_group[j+1])
+      _work_group[j+1] *= 2;
+  }
+  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1] &&
+      _clid != 0) {
+    _work_group[j] *= 2;
+  }
+  if ((int)ret[i] >= 2*_work_group[j]*_work_group[j+1]) {
+    if ((int)ret[i+1] >= 2*_work_group[j+1])
+      _work_group[j+1] *= 2;
+  }
+  
 }
 
 //
@@ -919,9 +957,74 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
 }
 
 //
-// Enqueues a command to execute a kernel on a device.
+// Enqueues a command to execute a kernel on a device (without tiling).
 //
-int _cl_execute_kernel(long size1, long size2, long size3, int tile, int dim) {
+int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
+
+  size_t  *global_size;
+  size_t  *local_size;
+  cl_uint  wd = dim;
+
+  // work_group map:
+  //     cpu     {0:128, 1:1, 2:1}
+  //     gpu 1-d {3:256, 4:1, 5:1}
+  //     gpu 2-d {6:32, 7:16, 8:1};
+  int idx = 0;
+  if (_clid == 1 ) idx  = 3; // >=1 ??
+  if ( dim  == 2 ) idx *= 2;
+
+  global_size = (size_t *) calloc(3, sizeof(size_t));
+  global_size[0] = (size_t)ceil(((float)size1) / ((float)_work_group[idx])) * _work_group[idx];
+  global_size[1] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+1])) * _work_group[idx+1];
+  global_size[2] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+2])) * _work_group[idx+2];
+  
+  local_size = (size_t *) calloc(3, sizeof(size_t));
+  local_size[0] = _work_group[idx];
+  local_size[1] = _work_group[idx+1];
+  local_size[2] = _work_group[idx+2];
+ 
+  if (_verbose) {
+    printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
+    printf("<rtl> Work Group was configured to:\n");
+    printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
+    if (dim >= 2) 
+      printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
+    if (dim == 3)
+      printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
+  }
+  
+  _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
+				   _kernel[_kerid],
+				   wd,          // number of dimmensions
+				   NULL,        // global_work_offset
+				   global_size, // global_work_size
+				   local_size,  // local_work_size
+				   0,           // num_events_in_wait_list
+				   NULL,        // event_wait_list
+				   NULL         // event
+				   );
+  if (_status == CL_SUCCESS) {
+    return 1;
+  }
+  else {
+    if (_status == CL_INVALID_WORK_DIMENSION)
+      fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
+    else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
+      fprintf(stderr, "<rtl> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
+    else if (_status == CL_INVALID_WORK_GROUP_SIZE)
+      fprintf(stderr, "<rtl> Error executing kernel. Local Work Size does not match the Work Group size.\n");
+    else if (_status == CL_INVALID_WORK_ITEM_SIZE)
+      fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
+    else
+      fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
+  }
+  return 0;
+}
+
+//
+// Enqueues a command to execute a (possible optimized w/ tilling) kernel.
+//
+int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int dim) {
 
   size_t  *global_size;
   size_t  *local_size;

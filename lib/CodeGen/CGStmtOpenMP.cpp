@@ -1280,15 +1280,26 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Change the temporary name to c name
     const llvm::StringRef cName  = TmpName.str() + ".c";
     rename(TmpName.str().c_str(), cName.str().c_str());
-    
-    // Generate a optimized kernel using Polyhedral model
+
+    // Generate a (possible optimized) kernel version using Polyhedral model
     const llvm::StringRef kgen = "ppcg --target=opencl " + cName.str() + " > " + TmpName.str();
     std::system(kgen.str().c_str());
-    const std::string rmCfile = "rm " + TmpName.str() + ".c";
-    std::system(rmCfile.c_str());
-    const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
-    std::system(rmHfile.c_str());
+
+    // Use verbose-rtl arg to preserv temp files (for debug)
+    bool verbose = CGM.getLangOpts().RtlVerbose;
+    if (!verbose) {
+      const std::string rmCfile = "rm " + TmpName.str() + ".c";
+      std::system(rmCfile.c_str());
+      const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
+      std::system(rmHfile.c_str());
+    }
+    
     std::ifstream argFile(TmpName.str());
+    
+    unsigned TileSize;
+    argFile >> TileSize;
+    if (verbose) llvm::errs() << "TileSize = " << TileSize << "\n";
+    
     int kind, index;
     std::string arg_name;
     vectorNames.clear();
@@ -1296,14 +1307,15 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     while (argFile >> kind >> index >> arg_name) {
       if (kind == 1) {
 	vectorNames.push_back(std::pair<int,std::string>(index,arg_name));
-	//llvm::errs() << " push " << arg_name << " to vectorNames\n";
       } else if (kind == 2) {
 	scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
-	//llvm::errs() << " push " << arg_name << " to scalarNames\n";
       }
     }
-    const std::string rmAfile = "rm " + TmpName.str();
-    std::system(rmAfile.c_str());    
+    
+    if (!verbose) {
+      const std::string rmAfile = "rm " + TmpName.str();
+      std::system(rmAfile.c_str());    
+    }
     
     // Generate the spir-code ?
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
@@ -1415,8 +1427,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
 
-    unsigned TileSize = 16;
-
     if (CollapseNum == 1) {
       nCores.push_back(Builder.getInt32(0));
       nCores.push_back(Builder.getInt32(0));
@@ -1429,7 +1439,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
 			       Builder.getInt32(TileSize),
 			       Builder.getInt32(CollapseNum)};
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WorkSize);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
     
   }
   
@@ -5888,7 +5898,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
-  //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   llvm::Value *Status = nullptr;
   for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
     if (VType == OMP_TGT_MAPTYPE_TO &&
@@ -5901,7 +5910,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(),Args);
-      //if (verbose) llvm::errs() << ">>> (target [[data] map]) Emit cl_write_buffer\n";
     }
     else if (VType == OMP_TGT_MAPTYPE_FROM &&
 	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
@@ -5914,7 +5922,6 @@ void CodeGenFunction::EmitSyncMapClauses(const int VType) {
 			     VMapPos,
 			     MapClausePointerValues[i]};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
-      //if (verbose) llvm::errs() << ">>> (target [[data] map]) Emit cl_read_buffer\n";
     }
   }
 }
@@ -5949,7 +5956,6 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
 			      MapClauseTypeValues,
 			      MapClausePositionValues);
 
-  //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
   llvm::Value *Status = nullptr;
 
   for(int i=init; i<(count+init); ++i) {
@@ -5962,19 +5968,15 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
       break;
     case OMP_TGT_MAPTYPE_TOFROM:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
-      //if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_write\n";
       break;
     case OMP_TGT_MAPTYPE_TO:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
-      //if (verbose) llvm::errs() << ">>> (target map) Emit cl_offloading_read_only\n";
       break;
     case OMP_TGT_MAPTYPE_FROM:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
-      //if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_write_only\n";
       break;
     case OMP_TGT_MAPTYPE_ALLOC:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
-      //if (verbose) llvm::errs() << ">>> (target [data] map) Emit cl_create_read_write\n";
       break;
     }
   }
@@ -6060,12 +6062,11 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
   // Are we generating code for GPU via OpenCL/SPIR?
   if (CGM.getLangOpts().MPtoGPU) {
   
-	insideTarget = true;
+    insideTarget = true;
     bool regionStarted = false;
     bool emptyTarget = false;
     bool hasIfClause = false;
     int init = 0, end = 0, first = -1, count = 0;
-    //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
     OMPClause *IC;
 
     llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
@@ -6121,7 +6122,6 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 		CGM.OpenMPSupport.startOpenMPRegion(true);
 	      }
 	      CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
-	      //if (verbose) llvm::errs() << ">>> (target map) Emit set_default_device\n";
 	    }
 	  }
 
@@ -6495,8 +6495,7 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
   // Are we generating code for GPU (via OpenCL/SPIR)?
   // *************************************************
   if (CGM.getLangOpts().MPtoGPU) {
-	insideTarget = true;
-    //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
+    insideTarget = true;
     CGM.OpenMPSupport.startOpenMPRegion(true);
 
     //First, look for the if clause in the target directive
@@ -6531,7 +6530,6 @@ void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S
 	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
 	EmitRuntimeCall(func, makeArrayRef(clid));
 	CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
-	//if (verbose) llvm::errs() << ">>> (target data map) Emit set_default_device\n";
       }
     }
 
@@ -6633,13 +6631,10 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
   
   if (CGM.getLangOpts().MPtoGPU) {
     
-    //bool verbose = CGM.getCodeGenOpts().AsmVerbose;
-
     bool hasIfClause = false;
     llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
     llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
 
-    //if (verbose) llvm::errs() << ">>> Emit omp target update directive\n";    
     //First, look for the if clause in the target update directive
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
@@ -6691,11 +6686,9 @@ void CodeGenFunction::EmitOMPTargetUpdateDirective(
 	  llvm::Value *Status = nullptr;
 	  if (Ckind == OMPC_from) {
 	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
-	    //if (verbose) llvm::errs() << ">>> (target update) Emit cl_read_buffer\n";
 	  }
 	  else {
 	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
-	    //if (verbose) llvm::errs() << ">>> (target update) Emit cl_write_buffer\n";
 	  }	    
 	}
       }

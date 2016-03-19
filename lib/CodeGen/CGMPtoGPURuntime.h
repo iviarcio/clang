@@ -56,7 +56,8 @@ namespace {
   typedef int32_t(_cl_set_kernel_args)(int32_t nargs);
   typedef int32_t(_cl_set_kernel_arg)(int32_t pos, int32_t index);
   typedef int32_t(_cl_set_kernel_hostArg)(int32_t pos, int32_t size, void* loc);
-  typedef int32_t(_cl_execute_kernel)(int64_t size1, int64_t size2, int64_t size3, int32_t tile, int32_t dim);
+  typedef int32_t(_cl_execute_kernel)(int64_t size1, int64_t size2, int64_t size3, int32_t dim);
+  typedef int32_t(_cl_execute_tiled_kernel)(int64_t size1, int64_t size2, int64_t size3, int32_t tile, int32_t dim);
   typedef void(_cl_release_buffers)(int32_t upper);
   typedef void(_cl_release_buffer)(int32_t index);
 }
@@ -94,6 +95,7 @@ public:
     MPtoGPURTL_cl_set_kernel_arg,
     MPtoGPURTL_cl_set_kernel_hostArg,
     MPtoGPURTL_cl_execute_kernel,
+    MPtoGPURTL_cl_execute_tiled_kernel,
     MPtoGPURTL_cl_release_buffers,
     MPtoGPURTL_cl_release_buffer
   };
@@ -125,6 +127,7 @@ public:
   virtual llvm::Value* cl_set_kernel_arg();
   virtual llvm::Value* cl_set_kernel_hostArg();
   virtual llvm::Value* cl_execute_kernel();
+  virtual llvm::Value* cl_execute_tiled_kernel();
   virtual llvm::Value* cl_release_buffers();  
   virtual llvm::Value* cl_release_buffer();
 };
