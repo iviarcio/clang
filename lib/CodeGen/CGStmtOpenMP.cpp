@@ -949,16 +949,12 @@ llvm::Type* getVarType (llvm::Value *FV) {
 // Recursively transverse the body of the for loop looking for uses or assigns.
 //
 void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args) {
-
-  llvm::Value *Status = nullptr;
   if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
     llvm::Value *BodyVar = EmitSpirDeclRefLValue(D);
    
     if (BodyVar) {	     
       const NamedDecl *ND = D->getDecl();
-      const VarDecl *VD = dyn_cast<VarDecl>(ND);
-    
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
 	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
 	  CGM.OpenMPSupport.addKernelVar(BodyVar);
@@ -988,7 +984,6 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS) {
   llvm::Value *A      = nullptr;
   llvm::Value *B      = nullptr;
   llvm::Value *C      = nullptr;
-  llvm::Value *Status = nullptr;
 
   BinaryOperator *INIT = dyn_cast<BinaryOperator>(FS->getInit());
   llvm::Value *IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
@@ -1140,6 +1135,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // ========================================================
     // Preparing data to Polyedral extraction & parallelization
     // ========================================================
+    bool verbose = CGM.getLangOpts().RtlVerbose;
     
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);
@@ -1281,40 +1277,53 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const llvm::StringRef cName  = TmpName.str() + ".c";
     rename(TmpName.str().c_str(), cName.str().c_str());
 
-    // Generate a (possible optimized) kernel version using Polyhedral model
-    const llvm::StringRef kgen = "ppcg --target=opencl " + cName.str() + " > " + TmpName.str();
-    std::system(kgen.str().c_str());
-
-    // Use verbose-rtl arg to preserv temp files (for debug)
-    bool verbose = CGM.getLangOpts().RtlVerbose;
-    if (!verbose) {
-      const std::string rmCfile = "rm " + TmpName.str() + ".c";
-      std::system(rmCfile.c_str());
-      const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
-      std::system(rmHfile.c_str());
-    }
-    
-    std::ifstream argFile(TmpName.str());
-    
-    unsigned TileSize;
-    argFile >> TileSize;
-    if (verbose) llvm::errs() << "TileSize = " << TileSize << "\n";
-    
-    int kind, index;
-    std::string arg_name;
-    vectorNames.clear();
-    scalarNames.clear();
-    while (argFile >> kind >> index >> arg_name) {
-      if (kind == 1) {
-	vectorNames.push_back(std::pair<int,std::string>(index,arg_name));
-      } else if (kind == 2) {
-	scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
+    // ==========================================================
+    // Try to generate a (possible optimized) kernel version
+    // using until 3 different configurations of Polyhedral model
+    // The success is indicated by TileSize != 0
+    // ==========================================================
+    unsigned TileSize = 0;
+    const std::string pol_opt[3] = { "ppcg ",
+				     "ppcg --tile-size=1 ",
+				     "ppcg --no-reschedule "};
+    for (int p=0; p<3; p++) {
+      const llvm::StringRef kgen = pol_opt[p] + cName.str() + " > " + TmpName.str();
+      if (verbose) llvm::errs() << kgen.str() << "\n";
+      std::system(kgen.str().c_str());
+      // Use verbose-rtl arg to preserv temp files (for debug)
+      if (!verbose) {
+	const std::string rmCfile = "rm " + TmpName.str() + ".c";
+	std::system(rmCfile.c_str());
+	const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
+	std::system(rmHfile.c_str());
+      }  
+      std::ifstream argFile(TmpName.str());
+      int kind, index;
+      std::string arg_name;
+      vectorNames.clear();
+      scalarNames.clear();
+      while (argFile >> kind >> index >> arg_name) {
+	if (kind == 1) {
+	  vectorNames.push_back(std::pair<int,std::string>(index,arg_name));
+	} else if (kind == 2) {
+	  scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
+	} else if (kind == 3) {
+	  TileSize = (unsigned)index;
+	  if (verbose) llvm::errs() << "TileSize = " << TileSize << "\n";
+	}
       }
+      if (TileSize != 0) break;
     }
     
     if (!verbose) {
       const std::string rmAfile = "rm " + TmpName.str();
       std::system(rmAfile.c_str());    
+    }
+    
+    if (TileSize == 0) {
+      // We have no success to generate code for this loop to GPU
+      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+      return;
     }
     
     // Generate the spir-code ?
@@ -1326,7 +1335,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
 	TmpName.str() + ".tmp " + clName.str();
       std::system(bcArg.c_str());
-
+      
       const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
       std::system(encodeStr.c_str());
 
@@ -1336,8 +1345,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     //========================================================    
     // Finally, emit necessary host code to execute the kernel
-    //========================================================
-    
+    //========================================================    
     llvm::Value *Status = nullptr;   
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
