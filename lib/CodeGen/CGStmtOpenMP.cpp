@@ -1279,25 +1279,30 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     // ==========================================================
     // Try to generate a (possible optimized) kernel version
-    // using until 3 different configurations of Polyhedral model
-    // The success is indicated by TileSize != 0
+    // using clang-ppcg, a script that invoke Polyhedral Parallel
+    // Code Generation. The success is indicated by TileSize != 0
     // ==========================================================
     unsigned TileSize = 0;
-    const std::string pol_opt[3] = { "ppcg ",
-				     "ppcg --tile-size=1 ",
-				     "ppcg --no-reschedule "};
-    for (int p=0; p<3; p++) {
-      const llvm::StringRef kgen = pol_opt[p] + cName.str() + " > " + TmpName.str();
-      if (verbose) llvm::errs() << kgen.str() << "\n";
-      std::system(kgen.str().c_str());
-      // Use verbose-rtl arg to preserv temp files (for debug)
-      if (!verbose) {
-	const std::string rmCfile = "rm " + TmpName.str() + ".c";
-	std::system(rmCfile.c_str());
-	const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
-	std::system(rmHfile.c_str());
-      }  
-      std::ifstream argFile(TmpName.str());
+    if (verbose) {
+      const std::string kvgen = "clang-ppcg --verbose " + cName.str();
+      std::system(kvgen.c_str());
+      llvm::errs() << kvgen << "\n";
+    }
+    else {
+      const std::string kgen = "clang-ppcg " + cName.str();
+      std::system(kgen.c_str());
+    }
+      
+    // verbose (verbose-rtl arg) preserv temp files for debug
+    if (!verbose) {
+      const std::string rmCfile = "rm " + TmpName.str() + ".c";
+      std::system(rmCfile.c_str());
+      const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
+      std::system(rmHfile.c_str());
+    }
+    
+    std::ifstream argFile(TmpName.str());
+    if (argFile.is_open()) {
       int kind, index;
       std::string arg_name;
       vectorNames.clear();
@@ -1309,10 +1314,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 3) {
 	  TileSize = (unsigned)index;
-	  if (verbose) llvm::errs() << "TileSize = " << TileSize << "\n";
+	  if (verbose) llvm::errs() << "Computed TileSize = " << TileSize << "\n";
 	}
       }
-      if (TileSize != 0) break;
+      argFile.close();
     }
     
     if (!verbose) {
@@ -1321,6 +1326,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     }
     
     if (TileSize == 0) {
+      if (verbose) {
+	llvm::errs() << "We are embarassing. We have no success to generate\n";
+	llvm::errs() << "kernel files to be executed on accelerator devices.\n";
+	llvm::errs() << "We are generating code for run on CPU instead.\n";
+      }
       // We have no success to generate code for this loop to GPU
       EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
       return;
