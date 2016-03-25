@@ -1282,19 +1282,33 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // using clang-ppcg, a script that invoke Polyhedral Parallel
     // Code Generation. The success is indicated by TileSize != 0
     // ==========================================================
+
     unsigned TileSize = 0;
+    bool hasScheduleStatic = false;
+    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                 E  = S.clauses().end();
+                                 	 I != E; ++I) {
+      OpenMPClauseKind ckind = ((*I)->getClauseKind());
+      if (ckind == OMPC_schedule) hasScheduleStatic = true;
+    }
+
+    std::string pcg;    
     if (verbose) {
-      const std::string kvgen = "clang-ppcg --verbose " + cName.str();
-      std::system(kvgen.c_str());
-      llvm::errs() << kvgen << "\n";
+      if (hasScheduleStatic)
+	pcg = "clang-pcg --verbose --no-reschedule ";
+      else
+	pcg = "clang-pcg --verbose ";
     }
-    else {
-      const std::string kgen = "clang-ppcg " + cName.str();
-      std::system(kgen.c_str());
+    else if (hasScheduleStatic) {
+      pcg = "clang-pcg --no-reschedule ";
     }
-      
-    // verbose (verbose-rtl arg) preserv temp files for debug
+    else pcg = "clang-pcg ";
+
+    const std::string polycg = pcg + cName.str();
+    std::system(polycg.c_str());
+    // verbose preserv temp files (for debug)
     if (!verbose) {
+      llvm::errs() << polycg << "\n";
       const std::string rmCfile = "rm " + TmpName.str() + ".c";
       std::system(rmCfile.c_str());
       const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
@@ -1314,7 +1328,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 3) {
 	  TileSize = (unsigned)index;
-	  if (verbose) llvm::errs() << "Computed TileSize = " << TileSize << "\n";
+	  if (verbose) llvm::errs() << "Computed TileSize = " << TileSize << "\n\n";
 	}
       }
       argFile.close();
