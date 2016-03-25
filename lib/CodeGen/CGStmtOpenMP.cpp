@@ -1283,38 +1283,52 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Code Generation. The success is indicated by TileSize != 0
     // ==========================================================
 
-    unsigned TileSize = 0;
+    unsigned ComputedTileSize = 0;
+    std::string ChunkSize = "--tile-size=16 ";  // default value
     bool hasScheduleStatic = false;
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_schedule) hasScheduleStatic = true;
+      if (ckind == OMPC_schedule) {
+	// detect the loop schedule kind and chunk
+	// supported only schedule(static[,chunk])
+	// otherwise, assume schedule(auto)
+	OMPScheduleClause *C = cast<OMPScheduleClause>(*I);
+	OpenMPScheduleClauseKind ScheduleKind = C->getScheduleKind();
+	if (ScheduleKind == OMPC_SCHEDULE_static) {
+	  hasScheduleStatic = true;
+	  Expr *CSExpr =  C->getChunkSize();
+	  if (CSExpr) {
+	    llvm::APSInt Ch;	    
+	    if (CSExpr->EvaluateAsInt(Ch, CGM.getContext())) {
+	      ChunkSize = "--tile-size=" + Ch.toString(10) + " ";
+	    }
+	  }
+	}
+      }
     }
 
     std::string pcg;    
     if (verbose) {
-      if (hasScheduleStatic)
-	pcg = "clang-pcg --verbose --no-reschedule ";
-      else
-	pcg = "clang-pcg --verbose ";
+      pcg = "clang-pcg --verbose " + ChunkSize;
+      if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
     }
-    else if (hasScheduleStatic) {
-      pcg = "clang-pcg --no-reschedule ";
+    else {
+      pcg = "clang-pcg " + ChunkSize;
+      if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
     }
-    else pcg = "clang-pcg ";
 
     const std::string polycg = pcg + cName.str();
     std::system(polycg.c_str());
-    // verbose preserv temp files (for debug)
+    // verbose preserve temp files (for debuging)
     if (!verbose) {
-      llvm::errs() << polycg << "\n";
       const std::string rmCfile = "rm " + TmpName.str() + ".c";
       std::system(rmCfile.c_str());
       const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
       std::system(rmHfile.c_str());
     }
-    
+
     std::ifstream argFile(TmpName.str());
     if (argFile.is_open()) {
       int kind, index;
@@ -1327,8 +1341,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	} else if (kind == 2) {
 	  scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 3) {
-	  TileSize = (unsigned)index;
-	  if (verbose) llvm::errs() << "Computed TileSize = " << TileSize << "\n\n";
+	  ComputedTileSize = (unsigned)index;
+	  if (verbose) {
+	    llvm::errs() << polycg << "\n";
+	    llvm::errs() << "Computed TileSize = " << ComputedTileSize << "\n\n";
+	  }
 	}
       }
       argFile.close();
@@ -1339,7 +1356,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmAfile.c_str());    
     }
     
-    if (TileSize == 0) {
+    if (ComputedTileSize == 0) {
       if (verbose) {
 	llvm::errs() << "We are embarassing. We have no success to generate\n";
 	llvm::errs() << "kernel files to be executed on accelerator devices.\n";
@@ -1469,7 +1486,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
-			       Builder.getInt32(TileSize),
+			       Builder.getInt32(ComputedTileSize),
 			       Builder.getInt32(CollapseNum)};
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
     

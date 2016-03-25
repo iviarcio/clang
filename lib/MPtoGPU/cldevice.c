@@ -419,7 +419,7 @@ cl_program _create_fromSource(cl_context context,
       clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			    sizeof(buildLog), buildLog, NULL);
 
-      fprintf(stderr, "<rtl> Error in kernel: %s\n", buildLog);
+      fprintf(stderr, "<rtl> Error to build %s : %s\n", fileName, buildLog);
       clReleaseProgram(program);
       return NULL;
     }
@@ -464,12 +464,12 @@ cl_program _create_fromBinary(cl_context context,
   free(programBinary);
 
   if (errNum != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Error loading program binary.\n");
+    fprintf(stderr, "<rtl> Error loading binary %s.\n", fileName);
     return NULL;
   }
 
   if (binaryStatus != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Invalid binary for device.\n");
+    fprintf(stderr, "<rtl> Invalid binary %s for device.\n", fileName);
     return NULL;
   }
 
@@ -489,7 +489,7 @@ cl_program _create_fromBinary(cl_context context,
       fprintf(stderr, "<rtl> %s: This platform does not support cl_khr_spir extension!\n", buildLog);
     }
     else {
-      fprintf(stderr, "<rtl> %s\n", buildLog);
+      fprintf(stderr, "<rtl> Error building %s : %s\n", fileName, buildLog);
     }
     clReleaseProgram(program);
     return NULL;
@@ -1073,6 +1073,8 @@ int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int d
 				   NULL         // event
 				   );
   if (_status == CL_SUCCESS) {
+    if (_verbose)
+      printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     return 1;
   }
   else {
@@ -1096,9 +1098,11 @@ int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int d
 void _cl_release_buffers(int upper) {
   int i;
   for (i=0; i<upper; i++) {
-    _status = clReleaseMemObject(_locs[i]);
-    if (_verbose) printf("<rtl> Release buffer no. %d\n", i);
-    _locs[i] = NULL;
+    if (_locs[i]) {
+      _status = clReleaseMemObject(_locs[i]);
+      if (_verbose) printf("<rtl> Release buffer no. %d\n", i);
+      _locs[i] = NULL;
+    }
   }
   _curid = -1;
 }
@@ -1107,8 +1111,10 @@ void _cl_release_buffers(int upper) {
 // Release an OpenCL allocated buffer inside the map region, given an index.
 //
 void _cl_release_buffer(int index) {
+  if (_locs[index]) {
     _status = clReleaseMemObject(_locs[index]);
     if (_verbose) printf("<rtl> Release buffer no. %d\n", index);
     _locs[index] = NULL;
-  _curid--;
+    _curid--;
+  }
 }
