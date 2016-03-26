@@ -1277,27 +1277,29 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const llvm::StringRef cName  = TmpName.str() + ".c";
     rename(TmpName.str().c_str(), cName.str().c_str());
 
-    // ==========================================================
+    // =======================================================
     // Try to generate a (possible optimized) kernel version
-    // using clang-ppcg, a script that invoke Polyhedral Parallel
-    // Code Generation. The success is indicated by TileSize != 0
-    // ==========================================================
+    // using clang-pcg, a script that invoke Polyhedral Code
+    // Generation. The success is indicated by TileSize != 0
+    // Get the loop schedule kind and chunk on pragmas:
+    //       schedule(dynamic[,chunk]) set --tile-size=chunk
+    //       schedule(static[,chunk]) also use no-reschedule
+    //       schedule(auto) or none use --tile-size=16
+    // ========================================================
 
     unsigned ComputedTileSize = 0;
-    std::string ChunkSize = "--tile-size=16 ";  // default value
+    std::string ChunkSize = "--tile-size=16 ";  // default
     bool hasScheduleStatic = false;
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
 	                                 E  = S.clauses().end();
                                  	 I != E; ++I) {
       OpenMPClauseKind ckind = ((*I)->getClauseKind());
       if (ckind == OMPC_schedule) {
-	// detect the loop schedule kind and chunk
-	// supported only schedule(static[,chunk])
-	// otherwise, assume schedule(auto)
 	OMPScheduleClause *C = cast<OMPScheduleClause>(*I);
 	OpenMPScheduleClauseKind ScheduleKind = C->getScheduleKind();
-	if (ScheduleKind == OMPC_SCHEDULE_static) {
-	  hasScheduleStatic = true;
+	if (ScheduleKind == OMPC_SCHEDULE_static ||
+	    ScheduleKind == OMPC_SCHEDULE_dynamic) {
+	  hasScheduleStatic = ScheduleKind == OMPC_SCHEDULE_static;
 	  Expr *CSExpr =  C->getChunkSize();
 	  if (CSExpr) {
 	    llvm::APSInt Ch;	    
