@@ -1277,15 +1277,26 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     const llvm::StringRef cName  = TmpName.str() + ".c";
     rename(TmpName.str().c_str(), cName.str().c_str());
 
-    // =======================================================
-    // Try to generate a (possible optimized) kernel version
-    // using clang-pcg, a script that invoke Polyhedral Code
-    // Generation. The success is indicated by TileSize != 0
+    // Construct the pairs of <index, arg> that will be passed to
+    // the kernels and sort it in alphabetic order
+    int k = 0;
+    std::vector<std::pair<int,std::string>> pName;
+    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
+	                                  E  = MapClausePointerValues.end();
+	                                  I != E; ++I) {
+
+      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
+      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
+      k++;
+    }
+    std::sort(pName.begin(), pName.end(), pairCompare);
+
+    // Try to generate a (possible optimized) kernel version using clang-pcg,
+    // a script that invoke Polyhedral Codegen. Success == ComputedTileSize != 0
     // Get the loop schedule kind and chunk on pragmas:
     //       schedule(dynamic[,chunk]) set --tile-size=chunk
     //       schedule(static[,chunk]) also use no-reschedule
     //       schedule(auto) or none use --tile-size=16
-    // ========================================================
 
     int kernelId, upperKernel = 0;
     unsigned ComputedTileSize = 0;
@@ -1362,14 +1373,25 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       const std::string rmAfile = "rm " + TmpName.str();
       std::system(rmAfile.c_str());    
     }
-    
-    if (ComputedTileSize == 0) {
-      if (verbose) {
-	llvm::errs() << "We are embarassing. We have no success to generate\n";
-	llvm::errs() << "kernel files to be executed on accelerator devices.\n";
-	llvm::errs() << "We are generating code for run on CPU instead.\n";
+
+    // Verify if all scalar vars used to construct kernel was declared on host
+    if (ComputedTileSize != 0) {
+      for (kernelId=0; kernelId<upperKernel; kernelId++) {
+	for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
+	                                                       E = scalarNames[kernelId].end();
+	                                                       I != E; ++I) {
+	  if (scalarMap[(I)->second] == NULL) {
+	    ComputedTileSize = 0;
+	    break;
+	  }
+	}
       }
-      // We have no success to generate code for this loop to GPU
+    }
+
+    if (ComputedTileSize == 0) {
+      llvm::errs() << "We are embarrassing. We did not succeed in generating\n";
+      llvm::errs() << "kernel files to be executed in accelerator devices.\n";
+      llvm::errs() << "We are generating code for run on the CPU instead.\n";
       EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
       return;
     }
@@ -1447,20 +1469,6 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
 			       Builder.getInt32(ComputedTileSize),
 			       Builder.getInt32(CollapseNum)};
-
-    // Construct the pairs of <index, arg> that will be passed to
-    // the kernels and sort it in alphabetic order
-    int k = 0;
-    std::vector<std::pair<int,std::string>> pName;
-    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
-	                                  E  = MapClausePointerValues.end();
-	                                  I != E; ++I) {
-
-      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
-      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
-      k++;
-    }
-    std::sort(pName.begin(), pName.end(), pairCompare);
 
     // Finally, emit necessary host code to execute the kernels
     llvm::Value *Status = nullptr;   
