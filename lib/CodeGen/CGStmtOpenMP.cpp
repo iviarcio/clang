@@ -44,8 +44,8 @@ namespace {
 //
 // Some assets used by MPtoGPU
 //
-std::vector<std::pair<int,std::string>> vectorNames;
-std::vector<std::pair<int,std::string>> scalarNames;
+std::vector<std::pair<int,std::string>> vectorNames[8];
+std::vector<std::pair<int,std::string>> scalarNames[8];
  
 std::map<llvm::Value *, std::string> vectorMap;
 std::map<std::string, llvm::Value *> scalarMap;
@@ -1287,6 +1287,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     //       schedule(auto) or none use --tile-size=16
     // ========================================================
 
+    int kernelId, upperKernel = 0;
     unsigned ComputedTileSize = 0;
     std::string ChunkSize = "--tile-size=16 ";  // default
     bool hasScheduleStatic = false;
@@ -1335,13 +1336,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (argFile.is_open()) {
       int kind, index;
       std::string arg_name;
-      vectorNames.clear();
-      scalarNames.clear();
-      while (argFile >> kind >> index >> arg_name) {
+      for (kernelId=0; kernelId<8; ++kernelId) {
+	vectorNames[kernelId].clear();
+	scalarNames[kernelId].clear();
+      }
+      while (argFile >> kernelId >> kind >> index >> arg_name) {
+	assert(kernelId<8 && "Invalid number of kernels");
 	if (kind == 1) {
-	  vectorNames.push_back(std::pair<int,std::string>(index,arg_name));
+	  vectorNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 2) {
-	  scalarNames.push_back(std::pair<int,std::string>(index,arg_name));
+	  scalarNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 3) {
 	  ComputedTileSize = (unsigned)index;
 	  if (verbose) {
@@ -1350,6 +1354,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  }
 	}
       }
+      upperKernel = kernelId;
       argFile.close();
     }
     
@@ -1386,55 +1391,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmStr.c_str());
     }
 
-    //========================================================    
-    // Finally, emit necessary host code to execute the kernel
-    //========================================================    
-    llvm::Value *Status = nullptr;   
-    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FileStr);
-    
-    // Construct the pairs of <index, arg> that will be passed to kernel function 
-    int k = 0;
-    std::vector<std::pair<int,std::string>> pName;
-    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
-	                                  E  = MapClausePointerValues.end();
-	                                  I != E; ++I) {
-
-      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
-      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
-      k++;
-    }
-    // Now sort the pairs in alphabetic order
-    std::sort(pName.begin(), pName.end(), pairCompare);
-
-    // Set kernel args according pos & index of buffer, only if required
-    k = 0;
-    for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
-	                                                   E = pName.end();
-	                                                   I != E; ++I) {
-      std::vector<std::pair<int,std::string>>::iterator it =
-	std::find_if(vectorNames.begin(),vectorNames.end(),Required((I)->second));
-      if (it == vectorNames.end()) {
-        // the array is not required
-      }
-      else {
-	llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
-	k++;
-      }
-    }
-
-    for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames.begin(),
-	                                                   E = scalarNames.end();
-	                                                   I != E; ++I) {
-      llvm::Value *BV = scalarMap[(I)->second];
-      llvm::Value *BVRef = Builder.CreateBitCast(BV, CGM.VoidPtrTy);	
-      llvm::Value *CArg[] = { Builder.getInt32((I)->first),
-			      Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
-    }
-    
+    // Construct the workSize to execute the kernels. First, look for CollapseNum
     bool hasCollapseClause = false;
     unsigned CollapseNum, loopNest;
     // If Collapse clause is not empty, get the collapsedNum,
@@ -1448,7 +1405,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
 
-    // Look for number of loop nest.
+    // Next, Look for number of loop nest.
     loopNest =  GetNumNestedLoops(S);
     if (!hasCollapseClause) CollapseNum = loopNest;
     assert(loopNest<=3 && "Invalid number of Loop nest.");
@@ -1490,8 +1447,60 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
 			       Builder.getInt32(ComputedTileSize),
 			       Builder.getInt32(CollapseNum)};
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
+
+    // Construct the pairs of <index, arg> that will be passed to
+    // the kernels and sort it in alphabetic order
+    int k = 0;
+    std::vector<std::pair<int,std::string>> pName;
+    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
+	                                  E  = MapClausePointerValues.end();
+	                                  I != E; ++I) {
+
+      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
+      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
+      k++;
+    }
+    std::sort(pName.begin(), pName.end(), pairCompare);
+
+    // Finally, emit necessary host code to execute the kernels
+    llvm::Value *Status = nullptr;   
+    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
+
+    for (kernelId=0; kernelId<upperKernel; kernelId++) {
+      llvm::Value *KernelStr = Builder.CreateGlobalStringPtr(FileName + std::to_string(kernelId));      
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), KernelStr);
     
+      // Set kernel args according pos & index of buffer, only if required
+      k = 0;
+      for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
+	                                                     E = pName.end();
+	                                                     I != E; ++I) {
+	std::vector<std::pair<int,std::string>>::iterator it =
+	  std::find_if(vectorNames[kernelId].begin(),
+		       vectorNames[kernelId].end(),Required((I)->second));
+	if (it == vectorNames[kernelId].end()) {
+	  // the array is not required
+	}
+	else {
+	  llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
+	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+	  k++;
+	}
+      }
+
+      for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
+	                                                     E = scalarNames[kernelId].end();
+	                                                     I != E; ++I) {
+	llvm::Value *BV = scalarMap[(I)->second];
+	llvm::Value *BVRef = Builder.CreateBitCast(BV, CGM.VoidPtrTy);	
+	llvm::Value *CArg[] = { Builder.getInt32((I)->first),
+				Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
+      }
+    
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
+    }
   }
   
   // ********************************
