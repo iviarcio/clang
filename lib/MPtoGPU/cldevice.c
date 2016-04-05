@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.c
 // VERSION
-//    1.2
+//    2.0
 // SYNOPSIS
 //   Source file for the library that manage OpenCL programs,
 //   creating contexts and command queues for main plataform
@@ -419,7 +419,7 @@ cl_program _create_fromSource(cl_context context,
       clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
 			    sizeof(buildLog), buildLog, NULL);
 
-      fprintf(stderr, "<rtl> Error to build %s : %s\n", fileName, buildLog);
+      fprintf(stderr, "<rtl> Error building %s : %s\n", fileName, buildLog);
       clReleaseProgram(program);
       return NULL;
     }
@@ -713,11 +713,11 @@ int _cl_create_write_only (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create a write-only buffer for the device.\n");
+    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer on device.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Create Write-only buffer no. %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a write-only buffer %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -729,11 +729,11 @@ int _cl_create_read_only (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create a read-only device buffer.\n");
+    fprintf(stderr, "<rtl> Failed creating a %lu read-only buffer on device.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Create Read-only buffer no. %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a read-only buffer %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -747,11 +747,11 @@ int _cl_offloading_read_only (long size, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to write the host location to device buffer.\n");
+    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Offload to Read-only buffer no. %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Offloading %lu bytes to buffer %d\n", size, _curid);
   return 1;
 }
 
@@ -763,11 +763,11 @@ int _cl_create_read_write (long size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
 				 size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create a read & write device buffer.\n");
+    fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %lu.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Create Read-write buffer no. %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a read-write buffer %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -781,11 +781,11 @@ int _cl_offloading_read_write (long size, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to write the host location to device buffer.\n");
+    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Create Read-write buffer no. %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating read-write buffer %d of size: %lu\n", _curid, size);
   return 1;
 }
 
@@ -797,10 +797,10 @@ int _cl_read_buffer (long size, int id, void* loc) {
   _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
              CL_TRUE, 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to read to host location from the device buffer.\n");
+    fprintf(stderr, "<rtl> Failed reading %lu bytes from buffer %d.\n", size, id);
     return 0;
   }
-  if (_verbose) printf("<rtl> Read %lu bytes from buffer no. %d\n", size, id);
+  if (_verbose) printf("<rtl> Reading %lu bytes from buffer %d\n", size, id);
   return 1;
 }
 
@@ -812,10 +812,10 @@ int _cl_write_buffer (long size, int id, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
   				 0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to write the host location to the selected buffer.\n");
+    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, id);
     return 0;
   }
-  if (_verbose) printf("<rtl> Write %lu bytes to buffer no. %d\n", size, id);
+  if (_verbose) printf("<rtl> Writing %lu bytes into buffer %d\n", size, id);
   return 1;
 }
 
@@ -872,7 +872,7 @@ int _cl_create_program (char* str) {
   if (_does_file_exist(bc_file)) {
     //Attempting to create program from binary
     if (_verbose)
-      printf("<rtl> Try to create a program object for %s.\n", str);
+      printf("<rtl> Creating the program object for %s.\n", str);
     
     _program[_kerid] = _create_fromBinary(_context[_clid],
 					  _device[_clid],
@@ -885,11 +885,11 @@ int _cl_create_program (char* str) {
 					_device[_clid],
 					cl_file);
   if (_program[_kerid] == NULL) {
-    fprintf(stderr, "<rtl> Attempting to create program failed.\n");
+    fprintf(stderr, "<rtl> Attempting to create program object failed.\n");
     return 0;
   }
   if (_save_toBinary(_program[_kerid], _device[_clid], bc_file) == 0) {
-    fprintf(stderr, "<rtl> Failed to write program binary.\n");
+    fprintf(stderr, "<rtl> Failed to save program object in binary form.\n");
     return 0;
   }
   return 1;
@@ -903,11 +903,11 @@ int _cl_create_kernel (char* str) {
   if (_kernel[_kerid] == NULL) {
 
     if (_verbose)
-      printf("<rtl> Try to create a kernel object for %s.\n", str);
+      printf("<rtl> Creating the kernel object for %s.\n", str);
     
     _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
     if (_kernel[_kerid] == NULL) {
-      fprintf(stderr, "<rtl> Failed to create kernel on device.\n");
+      fprintf(stderr, "<rtl> Failed to create kernel object.\n");
       return 0;
     }
   }
@@ -923,7 +923,7 @@ int _cl_set_kernel_args (int nargs) {
   for (i = 0; i<nargs; i++) {
     _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
     if (_status != CL_SUCCESS) {
-      fprintf(stderr, "<rtl> Error setting kernel buffer %d to kernel in pos %d.\n", i, i);
+      fprintf(stderr, "<rtl> Error setting buffer %d to kernel in pos %d.\n", i, i);
       return 0;
     }
     if (_verbose) printf("<rtl> Pass buffer %d to kernel in pos %d\n", i, i);
@@ -1004,6 +1004,8 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
 				   NULL         // event
 				   );
   if (_status == CL_SUCCESS) {
+    if (_verbose)
+      printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     return 1;
   }
   else {
@@ -1100,7 +1102,7 @@ void _cl_release_buffers(int upper) {
   for (i=0; i<upper; i++) {
     if (_locs[i]) {
       _status = clReleaseMemObject(_locs[i]);
-      if (_verbose) printf("<rtl> Release buffer no. %d\n", i);
+      if (_verbose) printf("<rtl> Releasing buffer %d\n", i);
       _locs[i] = NULL;
     }
   }
@@ -1113,7 +1115,7 @@ void _cl_release_buffers(int upper) {
 void _cl_release_buffer(int index) {
   if (_locs[index]) {
     _status = clReleaseMemObject(_locs[index]);
-    if (_verbose) printf("<rtl> Release buffer no. %d\n", index);
+    if (_verbose) printf("<rtl> Releasing buffer %d\n", index);
     _locs[index] = NULL;
     _curid--;
   }

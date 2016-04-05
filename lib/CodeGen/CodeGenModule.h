@@ -1417,7 +1417,13 @@ public:
     }
 
     std::string getTempName() { return OpenMPStack.back().KernelName; }
-    
+
+    int createAuxFile(const std::string AuxName) {
+      char *tmpName = strdup(AuxName.c_str());
+      int fd = mkstemp (tmpName);
+      return fd;
+    }
+
   };
 
   OpenMPSupportStackTy OpenMPSupport;

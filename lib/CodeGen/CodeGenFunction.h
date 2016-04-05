@@ -2202,11 +2202,17 @@ public:
 
   unsigned GetNumNestedLoops(const OMPParallelForDirective &S);
 
-  llvm::Value *EmitHostParameters(ForStmt *FS);
+  llvm::Value *EmitHostParameters(ForStmt *FS,
+				  bool CLgen,
+				  llvm::raw_fd_ostream &FOS,
+				  int &num_args,
+				  bool Collapse,
+				  unsigned loopNest,
+				  unsigned lastLoop);
   
   llvm::Value *EmitSpirDeclRefLValue(const DeclRefExpr *D);
 
-  void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args);
+  void HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args, bool CLgen);
   void MapStmts(const Stmt *ST, llvm::Value * val);
   void EmitInheritedMap(int init, int count);
   

@@ -81,6 +81,7 @@ struct Required
   std::string val_;
 };  
 
+  
 // Getters for fields of the loop-like directives. We may want to add a
 // common parent to all the loop-like directives to get rid of these.
 
@@ -948,7 +949,9 @@ llvm::Type* getVarType (llvm::Value *FV) {
 //    
 // Recursively transverse the body of the for loop looking for uses or assigns.
 //
-void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num_args) {
+void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &FOS, int &num_args, bool CLgen) {
+  llvm::Value *Status = nullptr;  
+
   if(isa<DeclRefExpr>(ST)) {
     DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
     llvm::Value *BodyVar = EmitSpirDeclRefLValue(D);
@@ -957,11 +960,26 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
       const NamedDecl *ND = D->getDecl();
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
 	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
-	  CGM.OpenMPSupport.addKernelVar(BodyVar);
-	  scalarMap[ND->getName().str()] = BodyVar;
-	  CLOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
+
+	  if (CLgen) {
+	    llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);	
+	    llvm::Value *CArg[] = { Builder.getInt32(num_args++),
+				    Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
+	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);	    
+	  }
+	  else {
+	    CGM.OpenMPSupport.addKernelVar(BodyVar);
+	    scalarMap[ND->getName().str()] = BodyVar;
+	  }
+	  if (CLgen) {
+	    FOS << ",\n";
+	    FOS << D->getType().getAsString() << " " << ND->getDeclName();
+	  }
+	  else {
+	    FOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
+	  }
 	}
-      }	      
+      }   
     }
   }
   
@@ -969,14 +987,20 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &CLOS, int &num
   for(Stmt::child_iterator I = ST->child_begin(),
 	                   E = ST->child_end();
                            I != E; ++I) {
-    if(*I != NULL) HandleStmts(*I, CLOS, num_args);
+    if(*I != NULL) HandleStmts(*I, FOS, num_args, CLgen);
   }	
 }
 
 ///
 /// Emit host arg values that will be passed to kernel function
 ///
-llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS) {
+llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
+						  bool CLgen,
+						  llvm::raw_fd_ostream &FOS,
+						  int &num_args,
+						  bool Collapse,
+						  unsigned loopNest,
+						  unsigned lastLoop) {
 
   bool compareEqual   = false;
   bool isLesser       = false;
@@ -984,6 +1008,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS) {
   llvm::Value *A      = nullptr;
   llvm::Value *B      = nullptr;
   llvm::Value *C      = nullptr;
+  llvm::Value *Status = nullptr;
 
   BinaryOperator *INIT = dyn_cast<BinaryOperator>(FS->getInit());
   llvm::Value *IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
@@ -1079,7 +1104,49 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS) {
   llvm::Value *KArg[] = {A, B, C, T};
   llvm::Value *nCores = EmitRuntimeCall(CGM.getMPtoGPURuntime().Get_num_cores(), KArg);
   Builder.CreateStore(nCores, AL);
-  return nCores;
+
+  if (!CLgen) return nCores;
+
+  FOS << INIT->getType().getAsString();
+  FOS << " _UB_" << loopNest;
+  if (Collapse) FOS << ", ";
+
+  // Create hostArg to represent _UB_n (i.e., nCores)
+  llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);	
+  llvm::Value *CArg[] = {Builder.getInt32(num_args++),
+			 Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef};	
+  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+
+  if (Collapse) {    
+    FOS << INIT->getType().getAsString();
+    FOS << " _MIN_" << loopNest << ", ";
+
+    llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
+    AL2->setUsedWithInAlloca(true);
+    Builder.CreateStore(MIN, AL2);
+    llvm::Value *CVRef2 = Builder.CreateBitCast(AL2, CGM.VoidPtrTy);
+
+    // Create hostArg to represent _MIN_n
+    llvm::Value *CArg2[] = {Builder.getInt32(num_args++),
+	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
+
+    FOS << INIT->getType().getAsString();
+    FOS << " _INC_" << loopNest;
+    if (loopNest != lastLoop) FOS << ",\n";
+
+    llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
+    AL2->setUsedWithInAlloca(true);
+    Builder.CreateStore(C, AL3);
+    llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
+
+    // Create hostArg to represent _INC_n
+    llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
+			    Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
+  }
+  return nCores;  
+  
 }
 
 ///
@@ -1119,10 +1186,7 @@ unsigned CodeGenFunction::GetNumNestedLoops(const OMPParallelForDirective &S) {
 void CodeGenFunction::EmitOMPParallelForDirective(
     const OMPParallelForDirective &S) {
 
-  // **************************************************
   // Are we generating code for GPU (via OpenCL/SPIR)?
-  // **************************************************
-
   if (CGM.getLangOpts().MPtoGPU && insideTarget) {
 
     // When an if clause is present and the if clause expression
@@ -1141,12 +1205,18 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
     const std::string FileName = TmpName.str();
-
+    const std::string clName = FileName + ".cl";
+    const std::string AuxName = FileName + ".tmp";
+    llvm::raw_fd_ostream AXOS(CGM.OpenMPSupport.createAuxFile(AuxName), true);
+    
     // Add the necessary include files, including those 
     // specified by the user (derived from input).
     CLOS << "#include <stdlib.h>\n";
     CLOS << "#include <math.h>\n";
 
+    //use of type 'double' requires cl_khr_fp64 extension to be enabled
+    AXOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
     ArrayRef<QualType> MapClauseQualTypes;
@@ -1160,7 +1230,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				MapClausePositionValues);
 
 
-    // Dump necessary typedefs in scop file
+    // Dump necessary typedefs in scop file (and aux file)
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T  = MapClauseQualTypes.begin(),
 	                              E  = MapClauseQualTypes.end();
@@ -1190,10 +1260,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	    RecordDecl *RD = RT->getDecl()->getDefinition();
 	    // Need to check if RecordDecl was already dumped?
 	    RD->print(CLOS); CLOS << ";\n";
+	    RD->print(AXOS); AXOS << ";\n";
 	  }
 
 	  if ( B.isCanonical() && B.getAsString().compare(defty) != 0 ) {
 	    CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
+	    AXOS << "typedef " << B.getAsString() << " " << defty << ";\n";
 	  }
 
 	}
@@ -1205,6 +1277,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     scalarMap.clear();
     
     CLOS << "void foo (\n";
+    AXOS << "\n__kernel void " << TmpName << " (\n";
     
     int j = 0;
     bool needComma = false;
@@ -1230,15 +1303,25 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	QT = dyn_cast<ArrayType>(QT.getTypePtr())->getElementType();
       }
 
+      if (MapClauseTypeValues[j] == OMP_TGT_MAPTYPE_TO)
+	AXOS << "__global "; //Unfortunately, spir 1.2 don't support const attr
+      else
+	AXOS << "__global ";
+      
       j++;
 
+      AXOS << QT.getAsString();
       if (needComma) CLOS << ",\n"; 
       CLOS << "\t\t" << QT.getAsString();
       needComma = true;
-      if (isPointer)
-	CLOS << " *" << KName; 
-      else
+      if (isPointer) {
+	AXOS << " *" << KName << ",\n";
+	CLOS << " *" << KName;
+      }
+      else {
+	AXOS << "  " << KName << ",\n";
 	CLOS << "  " << KName;
+      }
     }
     CLOS << ") {\n";
 
@@ -1261,11 +1344,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       for (CompoundStmt::body_iterator I = BS->body_begin(),
 	                               E = BS->body_end();
 	                               I != E; ++I) {
-	HandleStmts(*I, CLOS, num_args);
+	HandleStmts(*I, CLOS, num_args, false);
       }
     }
     else {
-      HandleStmts(Body, CLOS, num_args);
+      HandleStmts(Body, CLOS, num_args, false);
     }
     
     CLOS << "\n#pragma scop\n";    
@@ -1374,46 +1457,36 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmAfile.c_str());    
     }
 
+    // Emit necessary host code to load the file that contain the kernels
+    llvm::Value *Status = nullptr;   
+    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
+    
+    bool CLgen = ComputedTileSize == 0;  // Polyhedral wasn't work. Gen original code
+
     // Verify if all scalar vars used to construct kernel was declared on host
-    if (ComputedTileSize != 0) {
+    if (!CLgen) {
       for (kernelId=0; kernelId<upperKernel; kernelId++) {
 	for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
 	                                                       E = scalarNames[kernelId].end();
 	                                                       I != E; ++I) {
 	  if (scalarMap[(I)->second] == NULL) {
-	    ComputedTileSize = 0;
+	    CLgen = true;
 	    break;
 	  }
 	}
       }
     }
 
-    if (ComputedTileSize == 0) {
-      llvm::errs() << "We are embarrassing. We did not succeed in generating\n";
-      llvm::errs() << "kernel files to be executed in accelerator devices.\n";
-      llvm::errs() << "We are generating code for run on the CPU instead.\n";
-      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
-      return;
-    }
-    
-    // Generate the spir-code ?
-    llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
-    if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
-      const llvm::StringRef clName = TmpName.str() + ".cl";
-      const std::string tgtStr = Tgt.getTriple();
-      const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
-	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
-	TmpName.str() + ".tmp " + clName.str();
-      std::system(bcArg.c_str());
-      
-      const std::string encodeStr = "spir-encoder " + TmpName.str() + ".tmp " + TmpName.str() + ".bc";
-      std::system(encodeStr.c_str());
-
-      const std::string rmStr = "rm " + TmpName.str() + ".tmp";
-      std::system(rmStr.c_str());
+    if (CLgen) {
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FileStr);
+      int num_args =  CGM.OpenMPSupport.getKernelVarSize();
+      llvm::Value *Args[] = {Builder.getInt32(num_args)};
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     }
 
-    // Construct the workSize to execute the kernels. First, look for CollapseNum
+    // To construct the workSize to execute the kernel(s),
+    // we first need to look for CollapseNum
     bool hasCollapseClause = false;
     unsigned CollapseNum, loopNest;
     // If Collapse clause is not empty, get the collapsedNum,
@@ -1440,7 +1513,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     while (nLoops > 0) {
       For = dyn_cast<ForStmt>(Body);
       if (For) {
-	nCores.push_back(EmitHostParameters (For));
+	if (CLgen)
+	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true,loop, CollapseNum-1));
+	else
+	  nCores.push_back(EmitHostParameters (For, false, CLOS, num_args, false, 0, 0));
 	Body = For->getBody();
 	--nLoops;
 	loop++;
@@ -1456,7 +1532,106 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	assert(0 && "Unexpected stmt in the loop nest");
       }
     }
+    
+    assert(Body && "Failed to extract the loop body");
 
+    if (CLgen) {
+      if (loopNest > CollapseNum) {
+	Stmt *Aux = Body;
+	while (loopNest > CollapseNum) {
+	  For = dyn_cast<ForStmt>(Aux);
+	  int loop = loopNest-1;
+	  if (For) {
+	    AXOS << ",\n";
+	    EmitHostParameters (For, true, AXOS, num_args, false, loop, CollapseNum-1);
+	    Aux = For->getBody();
+	    --loopNest;
+	    loop--;
+	  } else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Aux)) {
+	    if (CS->size() == 1) {
+	      Aux = CS->body_back();
+	    } else {	
+	      assert(0 && "Unexpected compound stmt in the loop nest");
+	    }
+	  }
+	}
+      }
+    
+      // Traverse again the Body looking for scalar variables declared out of
+      // "for" scope and generate value reference to pass to kernel function
+      if (Body->getStmtClass() == Stmt::CompoundStmtClass) {
+	CompoundStmt *BS = cast<CompoundStmt>(Body);
+	for (CompoundStmt::body_iterator I = BS->body_begin(),
+	                                 E = BS->body_end();
+	                                 I != E; ++I) {
+	  HandleStmts(*I, AXOS, num_args, true);
+	}
+      }
+      else {
+	HandleStmts(Body, AXOS, num_args, true);
+      }
+
+      AXOS << ") {\n   ";
+
+      for (unsigned i=0; i<CollapseNum; ++i)
+	AXOS << "int _ID_" << i << " = get_global_id(" << i << ");\n   ";
+
+      SmallVector<llvm::Value*,16> LocalVars;
+      CGM.OpenMPSupport.getLocalVars(LocalVars);    
+      for (unsigned i=0; i<CollapseNum; ++i) {
+	std::string IName = getVarNameAsString(LocalVars[i]);
+	AXOS << "int " << IName << " = _INC_" << i;
+	AXOS << " * _ID_" << i << " + _MIN_" << i << ";\n   ";
+      }
+    
+      if (CollapseNum == 1) {
+	AXOS << "  if ( _ID_0 < _UB_0 )\n";
+      }
+      else if (CollapseNum == 2) {
+	AXOS << "  if ( _ID_0 < _UB_0 && _ID_1 < _UB_1 )\n";
+      }
+      else {
+	AXOS << "  if ( _ID_0 < _UB_0 && _ID_1 < _UB_1 && _ID_2 < _UB_2 )\n";
+      }
+    
+      if (isa<CompoundStmt>(Body)) {
+	Body->printPretty(AXOS, nullptr, PrintingPolicy(getContext().getLangOpts()));
+	AXOS << "\n}\n";
+      }
+      else {
+	AXOS << " {\n";
+	Body->printPretty(AXOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
+	AXOS << ";\n }\n}\n";
+      }
+      
+      // Close the kernel file
+      AXOS.close();
+
+      // Change the auxiliary name to OpenCL kernel name
+      rename(AuxName.c_str(), clName.c_str());
+    
+    }
+    else if (!verbose) {
+      const std::string rmAuxfile = "rm " + AuxName;
+      std::system(rmAuxfile.c_str());    
+    }
+    
+    // Generate the spir-code ?
+    llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
+    if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
+      const std::string tgtStr = Tgt.getTriple();
+      const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
+	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
+	AuxName + " " + clName;
+      std::system(bcArg.c_str());
+      
+      const std::string encodeStr = "spir-encoder " + AuxName + " " + FileName + ".bc";
+      std::system(encodeStr.c_str());
+
+      const std::string rmStr = "rm " + AuxName;
+      std::system(rmStr.c_str());
+    }
+    
     if (CollapseNum == 1) {
       nCores.push_back(Builder.getInt32(0));
       nCores.push_back(Builder.getInt32(0));
@@ -1464,53 +1639,56 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     else if (CollapseNum == 2) {
       nCores.push_back(Builder.getInt32(0));
     }
-    llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
-			       Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
-			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
-			       Builder.getInt32(ComputedTileSize),
-			       Builder.getInt32(CollapseNum)};
 
-    // Finally, emit necessary host code to execute the kernels
-    llvm::Value *Status = nullptr;   
-    llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
-
-    for (kernelId=0; kernelId<upperKernel; kernelId++) {
-      llvm::Value *KernelStr = Builder.CreateGlobalStringPtr(FileName + std::to_string(kernelId));      
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), KernelStr);
-    
-      // Set kernel args according pos & index of buffer, only if required
-      k = 0;
-      for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
-	                                                     E = pName.end();
-	                                                     I != E; ++I) {
-	std::vector<std::pair<int,std::string>>::iterator it =
-	  std::find_if(vectorNames[kernelId].begin(),
-		       vectorNames[kernelId].end(),Required((I)->second));
-	if (it == vectorNames[kernelId].end()) {
-	  // the array is not required
+    if (!CLgen) {
+      llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
+				 Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
+				 Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
+				 Builder.getInt32(ComputedTileSize),
+				 Builder.getInt32(CollapseNum)};
+      for (kernelId=0; kernelId<upperKernel; kernelId++) {
+	llvm::Value *KernelStr = Builder.CreateGlobalStringPtr(FileName + std::to_string(kernelId));      
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), KernelStr);
+	
+	// Set kernel args according pos & index of buffer, only if required
+	k = 0;
+	for (std::vector<std::pair<int,std::string>>::iterator I = pName.begin(),
+	                                                       E = pName.end();
+	                                                       I != E; ++I) {
+	  std::vector<std::pair<int,std::string>>::iterator it =
+	    std::find_if(vectorNames[kernelId].begin(),
+			 vectorNames[kernelId].end(),Required((I)->second));
+	  if (it == vectorNames[kernelId].end()) {
+	    // the array is not required
+	  }
+	  else {
+	    llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
+	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+	    k++;
+	  }
 	}
-	else {
-	  llvm::Value *Args[] = {Builder.getInt32(k), Builder.getInt32((I)->first)};
-	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
-	  k++;
-	}
-      }
 
-      for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
-	                                                     E = scalarNames[kernelId].end();
-	                                                     I != E; ++I) {
-	llvm::Value *BV = scalarMap[(I)->second];
-	llvm::Value *BVRef = Builder.CreateBitCast(BV, CGM.VoidPtrTy);	
-	llvm::Value *CArg[] = { Builder.getInt32((I)->first),
-				Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
+	for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
+	                                                       E = scalarNames[kernelId].end();
+	                                                       I != E; ++I) {
+	  llvm::Value *BV = scalarMap[(I)->second];
+	  llvm::Value *BVRef = Builder.CreateBitCast(BV, CGM.VoidPtrTy);	
+	  llvm::Value *CArg[] = { Builder.getInt32((I)->first),
+				  Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
+	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
+	}
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
       }
-    
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
+    }
+    else {
+      llvm::Value *WSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
+		              Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
+			      Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
+			      Builder.getInt32(CollapseNum)};
+      
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WSize);
     }
   }
-  
   // ********************************
   // Not OpenCL/SPIR Code Generation
   // ********************************  
