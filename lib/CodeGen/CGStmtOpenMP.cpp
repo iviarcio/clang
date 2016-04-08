@@ -46,7 +46,7 @@ namespace {
 //
 std::vector<std::pair<int,std::string>> vectorNames[8];
 std::vector<std::pair<int,std::string>> scalarNames[8];
- 
+  
 std::map<llvm::Value *, std::string> vectorMap;
 std::map<std::string, llvm::Value *> scalarMap;
   
@@ -1374,15 +1374,26 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     }
     std::sort(pName.begin(), pName.end(), pairCompare);
 
-    // Try to generate a (possible optimized) kernel version using clang-pcg,
-    // a script that invoke Polyhedral Codegen. Success == ComputedTileSize != 0
+    // Try to generate a (possible optimized) kernel version using
+    // clang=pcg, a script that invoke Polyhedral Codegen.
     // Get the loop schedule kind and chunk on pragmas:
     //       schedule(dynamic[,chunk]) set --tile-size=chunk
     //       schedule(static[,chunk]) also use no-reschedule
     //       schedule(auto) or none use --tile-size=16
 
+    int workSizes[8][3];
+    int blockSizes[8][3];
     int kernelId, upperKernel = 0;
-    unsigned ComputedTileSize = 0;
+
+    for (kernelId=0; kernelId<8; ++kernelId) {
+      for (j=0; j<3; j++) {
+	workSizes[kernelId][j] = 0;
+	blockSizes[kernelId][j] = 0;
+      }
+      vectorNames[kernelId].clear();
+      scalarNames[kernelId].clear();
+    }
+
     std::string ChunkSize = "--tile-size=16 ";  // default
     bool hasScheduleStatic = false;
     for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
@@ -1430,23 +1441,25 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (argFile.is_open()) {
       int kind, index;
       std::string arg_name;
-      for (kernelId=0; kernelId<8; ++kernelId) {
-	vectorNames[kernelId].clear();
-	scalarNames[kernelId].clear();
-      }
-      while (argFile >> kernelId >> kind >> index >> arg_name) {
-	assert(kernelId<8 && "Invalid number of kernels");
+      int last_KernelId = -1;
+      while (argFile >> kernelId) {
+	assert(kernelId<8 && "Invalid kernel identifier");
+	if (kernelId != last_KernelId) {
+	  last_KernelId = kernelId;
+	  argFile >> workSizes[kernelId][0] >> workSizes[kernelId][1] >> workSizes[kernelId][2];
+	  argFile >> kernelId;
+	  assert(kernelId == last_KernelId && "Invalid kernel structure");
+	  argFile >> blockSizes[kernelId][0] >> blockSizes[kernelId][1] >> blockSizes[kernelId][2];
+	  argFile >> kernelId;	  
+	  assert(kernelId == last_KernelId && "Invalid kernel structure");
+	}
+	argFile >> kind >> index >> arg_name;
 	if (kind == 1) {
 	  vectorNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
 	} else if (kind == 2) {
 	  scalarNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
-	} else if (kind == 3) {
-	  ComputedTileSize = (unsigned)index;
-	  if (verbose) {
-	    llvm::errs() << polycg << "\n";
-	    llvm::errs() << "Computed TileSize = " << ComputedTileSize << "\n\n";
-	  }
-	}
+	} else
+	  assert (false && "Invalid kernel structure");
       }
       upperKernel = kernelId;
       argFile.close();
@@ -1457,15 +1470,15 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmAfile.c_str());    
     }
 
-    // Emit necessary host code to load the file that contain the kernels
+    // Emit code to load the file that contain the kernels
     llvm::Value *Status = nullptr;   
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     
-    bool CLgen = ComputedTileSize == 0;  // Polyhedral wasn't work. Gen original code
-
-    // Verify if all scalar vars used to construct kernel was declared on host
+    bool CLgen = workSizes[0][0] == 0;  // Polyhedral wasn't work. Gen original code
+    
     if (!CLgen) {
+      // Verify if all scalar vars used to construct kernel was declared on host
       for (kernelId=0; kernelId<upperKernel; kernelId++) {
 	for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
 	                                                       E = scalarNames[kernelId].end();
@@ -1485,8 +1498,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     }
 
-    // To construct the workSize to execute the kernel(s),
-    // we first need to look for CollapseNum
+    // Look for CollapseNum
     bool hasCollapseClause = false;
     unsigned CollapseNum, loopNest;
     // If Collapse clause is not empty, get the collapsedNum,
@@ -1500,7 +1512,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
 
-    // Next, Look for number of loop nest.
+    // Look for number of loop nest.
     loopNest =  GetNumNestedLoops(S);
     if (!hasCollapseClause) CollapseNum = loopNest;
     assert(loopNest<=3 && "Invalid number of Loop nest.");
@@ -1514,7 +1526,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       For = dyn_cast<ForStmt>(Body);
       if (For) {
 	if (CLgen)
-	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true,loop, CollapseNum-1));
+	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true, loop, CollapseNum-1));
 	else
 	  nCores.push_back(EmitHostParameters (For, false, CLOS, num_args, false, 0, 0));
 	Body = For->getBody();
@@ -1632,21 +1644,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmStr.c_str());
     }
     
-    if (CollapseNum == 1) {
-      nCores.push_back(Builder.getInt32(0));
-      nCores.push_back(Builder.getInt32(0));
-    }
-    else if (CollapseNum == 2) {
-      nCores.push_back(Builder.getInt32(0));
-    }
-
     if (!CLgen) {
-      llvm::Value *WorkSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
-				 Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
-				 Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
-				 Builder.getInt32(ComputedTileSize),
-				 Builder.getInt32(CollapseNum)};
-      for (kernelId=0; kernelId<upperKernel; kernelId++) {
+      for (kernelId=0; kernelId<=upperKernel; kernelId++) {
 	llvm::Value *KernelStr = Builder.CreateGlobalStringPtr(FileName + std::to_string(kernelId));      
 	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), KernelStr);
 	
@@ -1677,16 +1676,36 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 				  Builder.getInt32((dyn_cast<llvm::AllocaInst>(BV)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
 	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg); 
 	}
-	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), WorkSize);
+	
+	int workDim;
+	if (workSizes[kernelId][2] !=0) workDim = 3;
+	else if (workSizes[kernelId][1] != 0) workDim = 2;
+	else workDim = 1;
+	
+	llvm::Value *GroupSize[] = {Builder.getInt32(workSizes[kernelId][0]),
+				    Builder.getInt32(workSizes[kernelId][1]),
+				    Builder.getInt32(workSizes[kernelId][2]),
+				    Builder.getInt32(blockSizes[kernelId][0]),
+				    Builder.getInt32(blockSizes[kernelId][1]),
+				    Builder.getInt32(blockSizes[kernelId][2]),
+				    Builder.getInt32(workDim)};
+	
+	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize);
       }
     }
     else {
-      llvm::Value *WSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
-		              Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
-			      Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
-			      Builder.getInt32(CollapseNum)};
-      
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WSize);
+      if (CollapseNum == 1) {
+	nCores.push_back(Builder.getInt32(0));
+	nCores.push_back(Builder.getInt32(0));
+      }
+      else if (CollapseNum == 2) {
+	nCores.push_back(Builder.getInt32(0));
+      }
+      llvm::Value *WGSize[] = {Builder.CreateIntCast(nCores[0],CGM.Int64Ty, false),
+		               Builder.CreateIntCast(nCores[1],CGM.Int64Ty, false),
+			       Builder.CreateIntCast(nCores[2],CGM.Int64Ty, false),
+			       Builder.getInt32(CollapseNum)};      
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WGSize);
     }
   }
   // ********************************

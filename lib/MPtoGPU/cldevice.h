@@ -102,7 +102,7 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc);
     
 int _cl_execute_kernel (long size1, long size2, long size3, int dim);
 
-int _cl_execute_tiled_kernel (long size1, long size2, long size3, int tile, int dim);
+int _cl_execute_tiled_kernel (int wsize0, int wsize1, int wsize2, int block0, int block1, int block2, int dim);
 
 void _cl_release_buffers (int upper);    
     

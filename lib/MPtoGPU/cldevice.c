@@ -1026,7 +1026,9 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
 //
 // Enqueues a command to execute a (possible optimized w/ tilling) kernel.
 //
-int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int dim) {
+int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
+			     int block0, int block1, int block2,
+			     int dim) {
 
   size_t  *global_size;
   size_t  *local_size;
@@ -1035,33 +1037,37 @@ int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int d
   global_size = (size_t *) calloc(3, sizeof(size_t));
   local_size = (size_t *) calloc(3, sizeof(size_t));
   
-  global_size[0] = (size_t)ceil(((float)size1) / ((float)tile)) * tile;
-  local_size[0]  = tile;
+  global_size[0] = (size_t)(wsize0 * block0);
+  local_size[0]  = (size_t)block0;
 
-  if (dim >= 2) {
-    global_size[1] = (size_t)ceil(((float)size2) / ((float)tile)) * tile;
-    local_size[1]  = tile;
-  }				   
-  else {
-    global_size[1] = 0;
-    local_size[1]  = 0;
+  if (dim == 2) {
+    global_size[1] = (size_t)(wsize1 * block1);
+    local_size[1]  = block1;    
+    if (block2 == 0) {
+      global_size[2] = 0;   
+      local_size[2]  = 0;
+    }				   
+    else {
+      global_size[2] = block2;
+      local_size[2] = block2;
+      wd = 3;
+    }  
   } 
-  if (dim == 3) {
-    global_size[2] = (size_t)ceil(((float)size2) / ((float)tile)) * tile;
-    local_size[2]  = tile;
+  else if (dim == 3) {
+    global_size[1] = (size_t)(wsize1 * block1);
+    local_size[1]  = block1;    
+    global_size[2] = (size_t)(wsize2 * block2);
+    local_size[2]  = block2;
   }
-  else {
-    global_size[2] = 0;   
-    local_size[2]  = 0;
-  }
+
   if (_verbose) {
     printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
     printf("<rtl> Work Group was configured to:\n");
-    printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
-    if (dim >= 2) 
-      printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
-    if (dim == 3)
-      printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
+    printf("\tX-size=%d\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", wsize0, local_size[0], global_size[0]);
+    if (wd >= 2) 
+      printf("\tY-size=%d\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", wsize1, local_size[1], global_size[1]);
+    if (wd == 3)
+      printf("\tZ-size=%d\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", wsize2, local_size[2], global_size[2]);
   }
   
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],

@@ -33,6 +33,27 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
 
+namespace llvm {
+  template<typename R, typename A1, typename A2, typename A3, typename A4,
+           typename A5, typename A6, typename A7, bool cross>
+  class TypeBuilder<R(A1, A2, A3, A4, A5, A6, A7), cross> {
+  public:
+    static FunctionType *get(LLVMContext &Context) {
+      Type *params[] = {
+	TypeBuilder<A1, cross>::get(Context),
+	TypeBuilder<A2, cross>::get(Context),
+	TypeBuilder<A3, cross>::get(Context),
+	TypeBuilder<A4, cross>::get(Context),
+	TypeBuilder<A5, cross>::get(Context),
+	TypeBuilder<A6, cross>::get(Context),
+	TypeBuilder<A7, cross>::get(Context),
+      };
+      return FunctionType::get(TypeBuilder<R, cross>::get(Context),
+                               params, false);
+    }
+  };
+}  // namespace llvm
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -185,8 +206,8 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     break;
   }
   case MPtoGPURTL_cl_execute_tiled_kernel: {
-    // Build int _cl_execute_tiled_kernel(long size1, long size2, long size3, int tile, int dim);
-    llvm::Type *TParams[] = {CGM.Int64Ty, CGM.Int64Ty, CGM.Int64Ty, CGM.Int32Ty, CGM.Int32Ty};
+    // Build int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2, int block0, int block1, int block2, int dim);
+    llvm::Type *TParams[] = {CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty, CGM.Int32Ty};
     llvm::FunctionType *FnTy =
       llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_execute_tiled_kernel");
