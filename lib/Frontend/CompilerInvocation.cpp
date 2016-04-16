@@ -1539,7 +1539,14 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
   Opts.RtlVerbose = Args.hasArg(OPT_verbose_rtl);
+  Opts.ScheduleParametric = Args.hasArg(OPT_schedule_parametric);
 
+  unsigned tileSize = 16; // default value
+  if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {
+    StringRef(A->getValue()).getAsInteger(0, tileSize);
+  }    
+  Opts.TileSize = tileSize;
+  
   // Get the OpenMP target triples if any
   if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ){
     for (unsigned i=0; i < A->getNumValues(); ++i){

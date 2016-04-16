@@ -2573,7 +2573,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_verbose_rtl)) {
     CmdArgs.push_back("-verbose-rtl");
   }
-  
+  // pass the schedule-parametric option for codegen
+  if (Args.hasArg(options::OPT_schedule_parametric)) {
+    CmdArgs.push_back("-schedule-parametric");
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {
+    StringRef tile = A->getValue();
+    CmdArgs.push_back(Args.MakeArgString("-tile-size=" + tile));
+  }
+
   if (Args.hasArg(options::OPT_fopenmp)){
     CmdArgs.push_back("-fopenmp");
     

@@ -1200,7 +1200,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Preparing data to Polyedral extraction & parallelization
     // ========================================================
     bool verbose = CGM.getLangOpts().RtlVerbose;
-    
+    bool scheduleParametric = CGM.getLangOpts().ScheduleParametric;
+
     // Start creating a unique name that refers to cl_kernel function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);
     const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
@@ -1213,9 +1214,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // specified by the user (derived from input).
     CLOS << "#include <stdlib.h>\n";
     CLOS << "#include <math.h>\n";
-
+    
     //use of type 'double' requires cl_khr_fp64 extension to be enabled
+    AXOS << "#if defined(cl_khr_fp64)  // Khronos extension available?\n";
     AXOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    AXOS << "#elif defined(cl_amd_fp64)  // AMD extension available?\n";
+    AXOS << "#pragma OPENCL EXTENSION cl_amd_fp64 : enable\n";
+    AXOS << "#endif\n\n";
     
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
@@ -1355,128 +1360,137 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Body->printPretty(CLOS, nullptr, PrintingPolicy(getContext().getLangOpts()), 8);
     CLOS << "\n#pragma endscop\n}\n";
     CLOS.close();
-    
-    // Change the temporary name to c name
-    const llvm::StringRef cName  = TmpName.str() + ".c";
-    rename(TmpName.str().c_str(), cName.str().c_str());
-
-    // Construct the pairs of <index, arg> that will be passed to
-    // the kernels and sort it in alphabetic order
-    int k = 0;
-    std::vector<std::pair<int,std::string>> pName;
-    for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
-	                                  E  = MapClausePointerValues.end();
-	                                  I != E; ++I) {
-
-      llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
-      pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
-      k++;
-    }
-    std::sort(pName.begin(), pName.end(), pairCompare);
-
-    // Try to generate a (possible optimized) kernel version using
-    // clang=pcg, a script that invoke Polyhedral Codegen.
-    // Get the loop schedule kind and chunk on pragmas:
-    //       schedule(dynamic[,chunk]) set --tile-size=chunk
-    //       schedule(static[,chunk]) also use no-reschedule
-    //       schedule(auto) or none use --tile-size=16
 
     int workSizes[8][3];
     int blockSizes[8][3];
     int kernelId, upperKernel = 0;
+    int k = 0;
+    std::vector<std::pair<int,std::string>> pName;
+    
+    if (!scheduleParametric) {
+      const std::string rmFile = "rm " + TmpName.str();
+      std::system(rmFile.c_str());      
+    } else {
+      // Change the temporary name to c name
+      const llvm::StringRef cName  = TmpName.str() + ".c";
+      rename(TmpName.str().c_str(), cName.str().c_str());
 
-    for (kernelId=0; kernelId<8; ++kernelId) {
-      for (j=0; j<3; j++) {
-	workSizes[kernelId][j] = 0;
-	blockSizes[kernelId][j] = 0;
+      // Construct the pairs of <index, arg> that will be passed to
+      // the kernels and sort it in alphabetic order
+      for (ArrayRef<llvm::Value*>::iterator I  = MapClausePointerValues.begin(),
+	                                    E  = MapClausePointerValues.end();
+	                                    I != E; ++I) {
+
+	llvm::Value *PV = dyn_cast<llvm::User>(*I)->getOperand(0);
+	pName.push_back(std::pair<int,std::string>(k,vectorMap[PV]));
+	k++;
       }
-      vectorNames[kernelId].clear();
-      scalarNames[kernelId].clear();
-    }
+      std::sort(pName.begin(), pName.end(), pairCompare);
 
-    std::string ChunkSize = "--tile-size=16 ";  // default
-    bool hasScheduleStatic = false;
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_schedule) {
-	OMPScheduleClause *C = cast<OMPScheduleClause>(*I);
-	OpenMPScheduleClauseKind ScheduleKind = C->getScheduleKind();
-	if (ScheduleKind == OMPC_SCHEDULE_static ||
-	    ScheduleKind == OMPC_SCHEDULE_dynamic) {
-	  hasScheduleStatic = ScheduleKind == OMPC_SCHEDULE_static;
-	  Expr *CSExpr =  C->getChunkSize();
-	  if (CSExpr) {
-	    llvm::APSInt Ch;	    
-	    if (CSExpr->EvaluateAsInt(Ch, CGM.getContext())) {
-	      ChunkSize = "--tile-size=" + Ch.toString(10) + " ";
+      // Try to generate a (possible optimized) kernel version using
+      // clang=pcg, a script that invoke Polyhedral Codegen.
+      // Get the loop schedule kind and chunk on pragmas:
+      //       schedule(dynamic[,chunk]) set --tile-size=chunk
+      //       schedule(static[,chunk]) also use no-reschedule
+      //       schedule(auto) or none use --tile-size=16
+
+      for (kernelId=0; kernelId<8; ++kernelId) {
+	for (j=0; j<3; j++) {
+	  workSizes[kernelId][j] = 0;
+	  blockSizes[kernelId][j] = 0;
+	}
+	vectorNames[kernelId].clear();
+	scalarNames[kernelId].clear();
+      }
+
+      std::string tileSize = std::to_string(CGM.getLangOpts().TileSize);
+      std::string ChunkSize = "--tile-size=" + tileSize + " ";
+      bool hasScheduleStatic = false;
+      for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
+	                                   E  = S.clauses().end();
+                                 	   I != E; ++I) {
+	OpenMPClauseKind ckind = ((*I)->getClauseKind());
+	if (ckind == OMPC_schedule) {
+	  OMPScheduleClause *C = cast<OMPScheduleClause>(*I);
+	  OpenMPScheduleClauseKind ScheduleKind = C->getScheduleKind();
+	  if (ScheduleKind == OMPC_SCHEDULE_static ||
+	      ScheduleKind == OMPC_SCHEDULE_dynamic) {
+	    hasScheduleStatic = ScheduleKind == OMPC_SCHEDULE_static;
+	    Expr *CSExpr =  C->getChunkSize();
+	    if (CSExpr) {
+	      llvm::APSInt Ch;	    
+	      if (CSExpr->EvaluateAsInt(Ch, CGM.getContext())) {
+		ChunkSize = "--tile-size=" + Ch.toString(10) + " ";
+	      }
 	    }
 	  }
 	}
       }
-    }
 
-    std::string pcg;    
-    if (verbose) {
-      pcg = "clang-pcg --verbose " + ChunkSize;
-      if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
-    }
-    else {
-      pcg = "clang-pcg " + ChunkSize;
-      if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
-    }
+      std::string pcg;    
+      if (verbose) {
+	pcg = "clang-pcg --verbose " + ChunkSize;
+	if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
+      }
+      else {
+	pcg = "clang-pcg " + ChunkSize;
+	if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
+      }
 
-    const std::string polycg = pcg + cName.str();
-    std::system(polycg.c_str());
-    // verbose preserve temp files (for debuging)
-    if (!verbose) {
+      const std::string polycg = pcg + cName.str();
+      std::system(polycg.c_str());
+      // verbose preserve temp files (for debuging)
+      //if (!verbose) {
       const std::string rmCfile = "rm " + TmpName.str() + ".c";
       std::system(rmCfile.c_str());
       const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
       std::system(rmHfile.c_str());
-    }
+      //}
 
-    std::ifstream argFile(TmpName.str());
-    if (argFile.is_open()) {
-      int kind, index;
-      std::string arg_name;
-      int last_KernelId = -1;
-      while (argFile >> kernelId) {
-	assert(kernelId<8 && "Invalid kernel identifier");
-	if (kernelId != last_KernelId) {
-	  last_KernelId = kernelId;
-	  argFile >> workSizes[kernelId][0] >> workSizes[kernelId][1] >> workSizes[kernelId][2];
-	  argFile >> kernelId;
-	  assert(kernelId == last_KernelId && "Invalid kernel structure");
-	  argFile >> blockSizes[kernelId][0] >> blockSizes[kernelId][1] >> blockSizes[kernelId][2];
-	  argFile >> kernelId;	  
-	  assert(kernelId == last_KernelId && "Invalid kernel structure");
+      std::ifstream argFile(TmpName.str());
+      if (argFile.is_open()) {
+	int kind, index;
+	std::string arg_name;
+	int last_KernelId = -1;
+	while (argFile >> kernelId) {
+	  assert(kernelId<8 && "Invalid kernel identifier");
+	  if (kernelId != last_KernelId) {
+	    last_KernelId = kernelId;
+	    argFile >> workSizes[kernelId][0] >> workSizes[kernelId][1] >> workSizes[kernelId][2];
+	    argFile >> kernelId;
+	    assert(kernelId == last_KernelId && "Invalid kernel structure");
+	    argFile >> blockSizes[kernelId][0] >> blockSizes[kernelId][1] >> blockSizes[kernelId][2];
+	    argFile >> kernelId;	  
+	    assert(kernelId == last_KernelId && "Invalid kernel structure");
+	  }
+	  argFile >> kind >> index >> arg_name;
+	  if (kind == 1) {
+	    vectorNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
+	  } else if (kind == 2) {
+	    scalarNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
+	  } else
+	    assert (false && "Invalid kernel structure");
 	}
-	argFile >> kind >> index >> arg_name;
-	if (kind == 1) {
-	  vectorNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
-	} else if (kind == 2) {
-	  scalarNames[kernelId].push_back(std::pair<int,std::string>(index,arg_name));
-	} else
-	  assert (false && "Invalid kernel structure");
+	upperKernel = kernelId;
+	argFile.close();
       }
-      upperKernel = kernelId;
-      argFile.close();
-    }
     
-    if (!verbose) {
+      //if (!verbose) {
       const std::string rmAfile = "rm " + TmpName.str();
       std::system(rmAfile.c_str());    
+      //}
     }
-
+    
     // Emit code to load the file that contain the kernels
     llvm::Value *Status = nullptr;   
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     
-    bool CLgen = workSizes[0][0] == 0;  // Polyhedral wasn't work. Gen original code
-    
+    bool CLgen = true;
+    if (scheduleParametric)
+      if (workSizes[0][0] != 0)  // workSizes = 0, means Polyhedral do not work. Gen original code
+	CLgen = false;
+
     if (!CLgen) {
       // Verify if all scalar vars used to construct kernel was declared on host
       for (kernelId=0; kernelId<upperKernel; kernelId++) {
@@ -1623,9 +1637,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       rename(AuxName.c_str(), clName.c_str());
     
     }
-    else if (!verbose) {
+    else {
+      //if (!verbose) {
       const std::string rmAuxfile = "rm " + AuxName;
-      std::system(rmAuxfile.c_str());    
+      std::system(rmAuxfile.c_str());
+      //}
     }
     
     // Generate the spir-code ?
