@@ -1202,16 +1202,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     bool verbose = CGM.getLangOpts().RtlVerbose;
     bool scheduleParametric = CGM.getLangOpts().ScheduleParametric;
 
-    // Start creating a unique name that refers to cl_kernel function
+    // Start creating a unique filename that refers to scop function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);
-    const llvm::StringRef TmpName  = CGM.OpenMPSupport.getTempName();
-    const std::string FileName = TmpName.str();
+    const std::string FileName = CGM.OpenMPSupport.getTempName();
     const std::string clName = FileName + ".cl";
     const std::string AuxName = FileName + ".tmp";
-    llvm::raw_fd_ostream AXOS(CGM.OpenMPSupport.createAuxFile(AuxName), true);
+    std::string Error;
+    llvm::raw_fd_ostream AXOS(AuxName.c_str(), Error, llvm::sys::fs::F_Text);
     
-    // Add the necessary include files, including those 
-    // specified by the user (derived from input).
+    // Add the basic c header files.
+    // Maybe is necessary to including those specified by the user (?)
     CLOS << "#include <stdlib.h>\n";
     CLOS << "#include <math.h>\n";
     
@@ -1282,7 +1282,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     scalarMap.clear();
     
     CLOS << "void foo (\n";
-    AXOS << "\n__kernel void " << TmpName << " (\n";
+    AXOS << "\n__kernel void " << FileName << " (\n";
     
     int j = 0;
     bool needComma = false;
@@ -1368,12 +1368,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     std::vector<std::pair<int,std::string>> pName;
     
     if (!scheduleParametric) {
-      const std::string rmFile = "rm " + TmpName.str();
+      const std::string rmFile = "rm " + FileName;
       std::system(rmFile.c_str());      
     } else {
       // Change the temporary name to c name
-      const llvm::StringRef cName  = TmpName.str() + ".c";
-      rename(TmpName.str().c_str(), cName.str().c_str());
+      const std::string cName  = FileName + ".c";
+      rename(FileName.c_str(), cName.c_str());
 
       // Construct the pairs of <index, arg> that will be passed to
       // the kernels and sort it in alphabetic order
@@ -1388,7 +1388,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::sort(pName.begin(), pName.end(), pairCompare);
 
       // Try to generate a (possible optimized) kernel version using
-      // clang=pcg, a script that invoke Polyhedral Codegen.
+      // clang-pcg, a script that invoke Polyhedral Codegen.
       // Get the loop schedule kind and chunk on pragmas:
       //       schedule(dynamic[,chunk]) set --tile-size=chunk
       //       schedule(static[,chunk]) also use no-reschedule
@@ -1437,17 +1437,17 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	if (hasScheduleStatic) pcg = pcg + "--no-reschedule ";
       }
 
-      const std::string polycg = pcg + cName.str();
+      const std::string polycg = pcg + cName;
       std::system(polycg.c_str());
       // verbose preserve temp files (for debuging)
       //if (!verbose) {
-      const std::string rmCfile = "rm " + TmpName.str() + ".c";
-      std::system(rmCfile.c_str());
-      const std::string rmHfile = "rm " + TmpName.str() + "_host.c";
-      std::system(rmHfile.c_str());
+	const std::string rmCfile = "rm " + FileName + ".c";
+	std::system(rmCfile.c_str());
+	const std::string rmHfile = "rm " + FileName + "_host.c";
+	std::system(rmHfile.c_str());
       //}
 
-      std::ifstream argFile(TmpName.str());
+      std::ifstream argFile(FileName);
       if (argFile.is_open()) {
 	int kind, index;
 	std::string arg_name;
@@ -1476,8 +1476,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     
       //if (!verbose) {
-      const std::string rmAfile = "rm " + TmpName.str();
-      std::system(rmAfile.c_str());    
+	const std::string rmAfile = "rm " + FileName;
+	std::system(rmAfile.c_str());    
       //}
     }
     
@@ -1541,8 +1541,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       if (For) {
 	if (CLgen)
 	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true, loop, CollapseNum-1));
-	else
-	  nCores.push_back(EmitHostParameters (For, false, CLOS, num_args, false, 0, 0));
+	else {
+	  // CLOS is already closed, so we pass AXOS instead (it is not used!)
+	  nCores.push_back(EmitHostParameters (For, false, AXOS, num_args, false, 0, 0));
+	}
 	Body = For->getBody();
 	--nLoops;
 	loop++;
@@ -1638,9 +1640,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     
     }
     else {
+      if (AXOS.has_error()) {
+	AXOS.clear_error();
+      }
+      AXOS.close();
       //if (!verbose) {
-      const std::string rmAuxfile = "rm " + AuxName;
-      std::system(rmAuxfile.c_str());
+	const std::string rmAuxfile = "rm " + AuxName;
+	std::system(rmAuxfile.c_str());
       //}
     }
     
