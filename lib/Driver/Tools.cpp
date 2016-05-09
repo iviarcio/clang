@@ -2575,7 +2575,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
   // pass the schedule-parametric option for codegen
   if (Args.hasArg(options::OPT_schedule_parametric)) {
-    CmdArgs.push_back("-schedule-parametric");
+    CmdArgs.push_back("-opt-poly-all");
   }
 
   if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {

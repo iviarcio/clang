@@ -959,28 +959,24 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &FOS, int &num_
     if (BodyVar) {	     
       const NamedDecl *ND = D->getDecl();
       if (!CGM.OpenMPSupport.inLocalScope(BodyVar)) {
-	if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
-
-	  if (CLgen) {
-	    llvm::Value *BVRef = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);	
+	if (CLgen) {
+	  if (!CGM.OpenMPSupport.isKernelVar(BodyVar)) {
+	    CGM.OpenMPSupport.addKernelVar(BodyVar);
+	    llvm::Value *BVRef  = Builder.CreateBitCast(BodyVar, CGM.VoidPtrTy);
 	    llvm::Value *CArg[] = { Builder.getInt32(num_args++),
 				    Builder.getInt32((dyn_cast<llvm::AllocaInst>(BodyVar)->getAllocatedType())->getPrimitiveSizeInBits()/8), BVRef };
 	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);	    
-	  }
-	  else {
-	    CGM.OpenMPSupport.addKernelVar(BodyVar);
-	    scalarMap[ND->getName().str()] = BodyVar;
-	  }
-	  if (CLgen) {
 	    FOS << ",\n";
 	    FOS << D->getType().getAsString() << " " << ND->getDeclName();
 	  }
-	  else {
-	    FOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
-	  }
 	}
-      }   
-    }
+	else if (!CGM.OpenMPSupport.isScopVar(BodyVar)) {
+	    CGM.OpenMPSupport.addScopVar(BodyVar);
+	    scalarMap[ND->getName().str()] = BodyVar;
+	    FOS << "\t" << D->getType().getAsString() << " " << ND->getDeclName() << ";\n";
+	}
+      }
+    }   
   }
   
   // Get the children of the current node in the AST and call the function recursively
@@ -1277,6 +1273,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       }
     }
 
+    CGM.OpenMPSupport.clearScopVars();
     CGM.OpenMPSupport.clearKernelVars();
     CGM.OpenMPSupport.clearLocalVars();
     scalarMap.clear();
@@ -1294,6 +1291,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       QualType QT = MapClauseQualTypes[j];
       std::string KName = vectorMap[KV];
       
+      CGM.OpenMPSupport.addScopVar(KV);
+      CGM.OpenMPSupport.addScopType(QT);
       CGM.OpenMPSupport.addKernelVar(KV);
       CGM.OpenMPSupport.addKernelType(QT);
       
@@ -1486,13 +1485,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     
+    // CLgen control whether we need to generate original code
+    // if scheduleParametric but workSizes = 0, means Polyhedral do not work.
+    // In this case Gen original code
     bool CLgen = true;
     if (scheduleParametric)
-      if (workSizes[0][0] != 0)  // workSizes = 0, means Polyhedral do not work. Gen original code
+      if (workSizes[0][0] != 0)
 	CLgen = false;
 
+    // Also, check if all scalars used to construct kernel was declared on host
     if (!CLgen) {
-      // Verify if all scalar vars used to construct kernel was declared on host
       for (kernelId=0; kernelId<upperKernel; kernelId++) {
 	for (std::vector<std::pair<int,std::string>>::iterator I = scalarNames[kernelId].begin(),
 	                                                       E = scalarNames[kernelId].end();
@@ -1507,11 +1509,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
     if (CLgen) {
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FileStr);
+      // Get the number of cl_mem args that will be passed first to kernel_function
       int num_args =  CGM.OpenMPSupport.getKernelVarSize();
       llvm::Value *Args[] = {Builder.getInt32(num_args)};
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_args(), Args);
     }
-
+    
     // Look for CollapseNum
     bool hasCollapseClause = false;
     unsigned CollapseNum, loopNest;
@@ -1531,39 +1534,42 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (!hasCollapseClause) CollapseNum = loopNest;
     assert(loopNest<=3 && "Invalid number of Loop nest.");
     assert(CollapseNum<=3 && "Invalid number of Collapsed Loops.");
-  
-    ForStmt *For;
+
+    // nCores is used only with CLgen, but must be declared outside it
     SmallVector<llvm::Value*,3> nCores;
-    unsigned nLoops = CollapseNum;
-    int loop = 0;
-    while (nLoops > 0) {
-      For = dyn_cast<ForStmt>(Body);
-      if (For) {
-	if (CLgen)
-	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true, loop, CollapseNum-1));
-	else {
-	  // CLOS is already closed, so we pass AXOS instead (it is not used!)
-	  nCores.push_back(EmitHostParameters (For, false, AXOS, num_args, false, 0, 0));
-	}
-	Body = For->getBody();
-	--nLoops;
-	loop++;
-      } else if (AttributedStmt *AS = dyn_cast<AttributedStmt>(Body)) {
-	Body = AS->getSubStmt();
-      } else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Body)) {
-	if (CS->size() == 1) {
-	  Body = CS->body_back();
-	} else {
-	  assert(0 && "Unexpected compound stmt in the loop nest");
-	}
-      } else {
-	assert(0 && "Unexpected stmt in the loop nest");
-      }
+
+    // Initialize Body to traverse it again, now for AXOS.
+    Body = S.getAssociatedStmt();
+    if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
+      Body = CS->getCapturedStmt();
     }
     
-    assert(Body && "Failed to extract the loop body");
-
     if (CLgen) {
+      ForStmt *For;
+      unsigned nLoops = CollapseNum;
+      int loop = 0;
+      while (nLoops > 0) {
+	For = dyn_cast<ForStmt>(Body);
+	if (For) {
+	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true, loop, CollapseNum-1));
+	  Body = For->getBody();
+	  --nLoops;
+	  loop++;
+	} else if (AttributedStmt *AS = dyn_cast<AttributedStmt>(Body)) {
+	  Body = AS->getSubStmt();
+	} else if (CompoundStmt *CS = dyn_cast<CompoundStmt>(Body)) {
+	  if (CS->size() == 1) {
+	    Body = CS->body_back();
+	  } else {
+	    assert(0 && "Unexpected compound stmt in the loop nest");
+	  }
+	} else {
+	  assert(0 && "Unexpected stmt in the loop nest");
+	}
+      }
+    
+      assert(Body && "Failed to extract the loop body");
+
       if (loopNest > CollapseNum) {
 	Stmt *Aux = Body;
 	while (loopNest > CollapseNum) {
@@ -1640,14 +1646,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     
     }
     else {
-      if (AXOS.has_error()) {
-	AXOS.clear_error();
-      }
+      // AXOS was not used. Remove it.
       AXOS.close();
-      //if (!verbose) {
-	const std::string rmAuxfile = "rm " + AuxName;
-	std::system(rmAuxfile.c_str());
-      //}
+      const std::string rmAuxfile = "rm " + AuxName;
+      std::system(rmAuxfile.c_str());
     }
     
     // Generate the spir-code ?

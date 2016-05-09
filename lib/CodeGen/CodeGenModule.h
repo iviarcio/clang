@@ -1204,6 +1204,8 @@ public:
       llvm::SmallVector<QualType, 16> KernelTypes;
       llvm::SmallVector<llvm::Value*,16> LocalVars;
       llvm::SmallVector<QualType, 16> LocalTypes;
+      llvm::SmallVector<llvm::Value*,16> ScopVars;
+      llvm::SmallVector<QualType, 16> ScopTypes;
       llvm::Value* OffloadingDevice;
       std::string KernelName;
       OMPStackElemTy(CodeGenModule &CGM);
@@ -1406,6 +1408,23 @@ public:
       LocalTypes = OpenMPStack.back().LocalTypes;
     }
     
+    void addScopVar(llvm::Value *ScopVar) {
+      OpenMPStack.back().ScopVars.push_back(ScopVar);
+    }
+
+    void addScopType(QualType ScopType) {
+      OpenMPStack.back().ScopTypes.push_back(ScopType);
+    }
+    
+    void clearScopVars() {
+      OpenMPStack.back().ScopVars.clear();
+      OpenMPStack.back().ScopTypes.clear();
+    }
+    
+    bool isScopVar(llvm::Value *ScopVar);
+    
+    int getScopVarSize() { return OpenMPStack.back().ScopVars.size(); }
+
     void setOffloadingDevice(llvm::Value *device);
     llvm::Value* getOffloadingDevice();
 

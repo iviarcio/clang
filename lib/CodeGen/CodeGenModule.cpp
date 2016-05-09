@@ -3934,6 +3934,22 @@ bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
   return false;
 }
 
+bool CodeGenModule::OpenMPSupportStackTy::isScopVar(llvm::Value *ScopVar) {
+
+  for (SmallVector<llvm::Value*,16>::iterator I  = OpenMPStack.back().ScopVars.begin(),
+	                                      E  = OpenMPStack.back().ScopVars.end();
+	                                      I != E; ++I) {
+    llvm::Value *LV = (*I);
+    unsigned oper = dyn_cast<llvm::User>(LV)->getNumOperands();
+    while (!isa<llvm::AllocaInst>(LV) && oper>0) {
+      LV = cast<llvm::User>(LV)->getOperand(0);
+      oper = dyn_cast<llvm::User>(LV)->getNumOperands();
+    }
+    if (LV == ScopVar) return true;
+  }
+  return false;
+}
+
 void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
   int i;
   llvm::SmallVector<OMPStackElemTy, 16>::iterator end = OpenMPStack.end();
