@@ -998,19 +998,31 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 						  unsigned loopNest,
 						  unsigned lastLoop) {
 
-  bool compareEqual   = false;
-  bool isLesser       = false;
-  bool isIncrement    = false;
-  llvm::Value *A      = nullptr;
-  llvm::Value *B      = nullptr;
-  llvm::Value *C      = nullptr;
-  llvm::Value *Status = nullptr;
-
-  BinaryOperator *INIT = dyn_cast<BinaryOperator>(FS->getInit());
-  llvm::Value *IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
-  CGM.OpenMPSupport.addLocalVar(IVal);
-  Expr *init = INIT->getRHS();
-  A = EmitAnyExprToTemp(init).getScalarVal();
+  bool compareEqual    = false;
+  bool isLesser        = false;
+  bool isIncrement     = false;
+  llvm::Value *A       = nullptr;
+  llvm::Value *B       = nullptr;
+  llvm::Value *C       = nullptr;
+  llvm::Value *Status  = nullptr;
+  llvm::Value *IVal    = nullptr;
+  Expr* init           = nullptr;
+  std::string initType;
+  
+  if (isa<DeclStmt>(FS->getInit())) {
+    VarDecl *VD = cast<VarDecl>(cast<DeclStmt>(FS->getInit())->getSingleDecl());
+    // fix-me
+    llvm_unreachable("for statement in Non-Canonical form is not supported!");
+    return nullptr;
+  }
+  else {
+    const BinaryOperator* INIT = dyn_cast<BinaryOperator>(FS->getInit());
+    IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
+    init = INIT->getRHS();
+    initType = INIT->getType().getAsString();
+    CGM.OpenMPSupport.addLocalVar(IVal);
+    A = EmitAnyExprToTemp(init).getScalarVal();
+  }
 
   // Check the comparator (<, <=, > or >=)
   BinaryOperator *COND = dyn_cast<BinaryOperator>(FS->getCond());
@@ -1034,7 +1046,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   default:
     break;
   }
-
+							  
   // Check the increment type (i=i(+/-)incr, i(+/-)=incr, i(++/--))
   Expr *inc = FS->getInc();
   if(isa<CompoundAssignOperator>(inc)) {	// i(+/-)=incr
@@ -1103,7 +1115,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 
   if (!CLgen) return nCores;
 
-  FOS << INIT->getType().getAsString();
+  FOS << initType;
   FOS << " _UB_" << loopNest;
   if (Collapse) FOS << ", ";
 
@@ -1112,9 +1124,9 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   llvm::Value *CArg[] = {Builder.getInt32(num_args++),
 			 Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef};	
   Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
-
+  
   if (Collapse) {    
-    FOS << INIT->getType().getAsString();
+    FOS << initType;
     FOS << " _MIN_" << loopNest << ", ";
 
     llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
@@ -1127,7 +1139,7 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
 
-    FOS << INIT->getType().getAsString();
+    FOS << initType;
     FOS << " _INC_" << loopNest;
     if (loopNest != lastLoop) FOS << ",\n";
 
@@ -1290,7 +1302,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       llvm::Value *KV = dyn_cast<llvm::User>(*I)->getOperand(0);
       QualType QT = MapClauseQualTypes[j];
       std::string KName = vectorMap[KV];
-      
+
       CGM.OpenMPSupport.addScopVar(KV);
       CGM.OpenMPSupport.addScopType(QT);
       CGM.OpenMPSupport.addKernelVar(KV);
@@ -3635,7 +3647,7 @@ CodeGenFunction::EmitInitOMPMapClause(const OMPMapClause &C,
 
     // Store the map data into the stack. After all map clauses are codegen,
     // the afterinit emission is going to allocate the arrays in the program
-    // stack
+    // stack 
     CGM.OpenMPSupport.addMapData(VP,VS, QT, VT);
   }
 }
@@ -6220,7 +6232,7 @@ void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
   if(isa<DeclRefExpr>(ST)) {
     const DeclRefExpr *D = dyn_cast<DeclRefExpr>(ST);
     vectorMap[dyn_cast<llvm::User>(val)->getOperand(0)] =
-      (D->getDecl())->getNameAsString();    
+      (D->getDecl())->getNameAsString();
   }
 
   // Get the children of the current node in the AST and call the function recursively
