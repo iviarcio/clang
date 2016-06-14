@@ -2203,7 +2203,6 @@ public:
   unsigned GetNumNestedLoops(const OMPParallelForDirective &S);
 
   llvm::Value *EmitHostParameters(ForStmt *FS,
-				  bool CLgen,
 				  llvm::raw_fd_ostream &FOS,
 				  int &num_args,
 				  bool Collapse,

@@ -5976,7 +5976,8 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
     }
     
     // This is more complicated in gcc...
-    if (getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) {
+    if ((getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) or
+        (getToolChain().getTriple().getEnvironment() == llvm::Triple::GNUEABI)) {
       CmdArgs.push_back("-lgomp");
       b_arch = true;
     }
@@ -7745,7 +7746,8 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       b_arch = false;
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
-	if (getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) {
+	if ((getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) or
+	    (getToolChain().getTriple().getEnvironment() == llvm::Triple::GNUEABI)) {
 	  CmdArgs.push_back("-lgomp");
 	  b_arch = true;
 	}

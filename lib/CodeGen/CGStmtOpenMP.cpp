@@ -991,7 +991,6 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &FOS, int &num_
 /// Emit host arg values that will be passed to kernel function
 ///
 llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
-						  bool CLgen,
 						  llvm::raw_fd_ostream &FOS,
 						  int &num_args,
 						  bool Collapse,
@@ -1006,12 +1005,10 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   llvm::Value *C       = nullptr;
   llvm::Value *Status  = nullptr;
   llvm::Value *IVal    = nullptr;
-  Expr* init           = nullptr;
+  Expr *init           = nullptr;
   std::string initType;
   
   if (isa<DeclStmt>(FS->getInit())) {
-    VarDecl *VD = cast<VarDecl>(cast<DeclStmt>(FS->getInit())->getSingleDecl());
-    // fix-me
     llvm_unreachable("for statement in Non-Canonical form is not supported!");
     return nullptr;
   }
@@ -1113,12 +1110,6 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   llvm::Value *nCores = EmitRuntimeCall(CGM.getMPtoGPURuntime().Get_num_cores(), KArg);
   Builder.CreateStore(nCores, AL);
 
-  if (!CLgen) return nCores;
-
-  FOS << initType;
-  FOS << " _UB_" << loopNest;
-  if (Collapse) FOS << ", ";
-
   // Create hostArg to represent _UB_n (i.e., nCores)
   llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);	
   llvm::Value *CArg[] = {Builder.getInt32(num_args++),
@@ -1126,6 +1117,8 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
   Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
   
   if (Collapse) {    
+    FOS << initType;
+    FOS << " _UB_" << loopNest << ", ";
     FOS << initType;
     FOS << " _MIN_" << loopNest << ", ";
 
@@ -1153,6 +1146,20 @@ llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
 			    Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
   }
+  else {
+    if (isa<BinaryOperator>(FS->getInit())) {
+      BinaryOperator *lInit = dyn_cast<BinaryOperator>(FS->getInit());
+      DeclRefExpr *leftExpr = dyn_cast<DeclRefExpr>(lInit->getLHS());
+      if (leftExpr) {
+	NamedDecl *ND = leftExpr->getDecl();
+	FOS << initType << " " << ND->getNameAsString();
+      }
+      else
+	llvm_unreachable("for statement in Non-Canonical form is not supported!");
+    }
+    else
+      llvm_unreachable("for statement in Non-Canonical form is not supported!");         }
+  
   return nCores;  
   
 }
@@ -1224,11 +1231,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     CLOS << "#include <math.h>\n";
     
     //use of type 'double' requires cl_khr_fp64 extension to be enabled
-    AXOS << "#if defined(cl_khr_fp64)  // Khronos extension available?\n";
     AXOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    AXOS << "#elif defined(cl_amd_fp64)  // AMD extension available?\n";
-    AXOS << "#pragma OPENCL EXTENSION cl_amd_fp64 : enable\n";
-    AXOS << "#endif\n\n";
     
     ArrayRef<llvm::Value*> MapClausePointerValues;
     ArrayRef<llvm::Value*> MapClauseSizeValues;
@@ -1563,7 +1566,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       while (nLoops > 0) {
 	For = dyn_cast<ForStmt>(Body);
 	if (For) {
-	  nCores.push_back(EmitHostParameters (For, true, AXOS, num_args, true, loop, CollapseNum-1));
+	  nCores.push_back(EmitHostParameters (For, AXOS, num_args, true, loop, CollapseNum-1));
 	  Body = For->getBody();
 	  --nLoops;
 	  loop++;
@@ -1589,7 +1592,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	  int loop = loopNest-1;
 	  if (For) {
 	    AXOS << ",\n";
-	    EmitHostParameters (For, true, AXOS, num_args, false, loop, CollapseNum-1);
+	    EmitHostParameters (For, AXOS, num_args, false, loop, CollapseNum-1);
 	    Aux = For->getBody();
 	    --loopNest;
 	    loop--;
