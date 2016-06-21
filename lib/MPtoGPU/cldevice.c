@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.c
 // VERSION
-//    2.0
+//    2.1
 // SYNOPSIS
 //   Source file for the library that manage OpenCL programs,
 //   creating contexts and command queues for main plataform
@@ -718,6 +718,22 @@ int _cl_create_write_only (long size) {
     return 0;
   }
   if (_verbose) printf("<rtl> Creating a write-only buffer %d of size: %lu\n", _curid, size);
+  return 1;
+}
+
+//
+// Create a read-only memory buffer and copy the host loc to the buffer
+//
+int _cl_offloading_write_only (long size, void* loc) {
+  _inc_curid();
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
+				 size, NULL, &_status);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, _curid);
+    _curid--;
+    return 0;
+  }
+  if (_verbose) printf("<rtl> Creating a write-only buffer %d of %lu bytes\n", _curid, size);
   return 1;
 }
 

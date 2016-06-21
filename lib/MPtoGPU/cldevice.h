@@ -1,7 +1,7 @@
 // NAME
 //   cldevice.h
 // VERSION
-//    1.2
+//    2.1
 // SYNOPSIS
 //   header file for the library that manage OpenCL programs,
 //   creating contexts and command queues for each plataform
@@ -76,14 +76,16 @@ cl_uint _get_default_device ();
 
 void _set_default_device (cl_uint id);
 
-int _cl_create_write_only (long size);
-
 int _cl_create_read_only (long size);
 
-int _cl_offloading_read_only (long size, void* loc);
+int _cl_create_write_only (long size);
 
 int _cl_create_read_write (long size);
 
+int _cl_offloading_read_only (long size, void* loc);
+
+int _cl_offloading_write_only (long size, void* loc);
+    
 int _cl_offloading_read_write (long size, void* loc);
 
 int _cl_read_buffer (long size, int id, void* loc);

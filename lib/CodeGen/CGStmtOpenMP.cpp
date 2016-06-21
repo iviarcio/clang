@@ -1454,12 +1454,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       const std::string polycg = pcg + cName;
       std::system(polycg.c_str());
       // verbose preserve temp files (for debuging)
-      //if (!verbose) {
+      if (!verbose) {
 	const std::string rmCfile = "rm " + FileName + ".c";
 	std::system(rmCfile.c_str());
 	const std::string rmHfile = "rm " + FileName + "_host.c";
 	std::system(rmHfile.c_str());
-      //}
+      }
 
       std::ifstream argFile(FileName);
       if (argFile.is_open()) {
@@ -1489,10 +1489,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	argFile.close();
       }
     
-      //if (!verbose) {
+      if (!verbose) {
 	const std::string rmAfile = "rm " + FileName;
 	std::system(rmAfile.c_str());    
-      //}
+      }
     }
     
     // Emit code to load the file that contain the kernels
@@ -6277,7 +6277,8 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
       break;
     case OMP_TGT_MAPTYPE_FROM:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly);
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_write_only(), Args); // version 2.1
+      // Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly); version <= 2.0
       break;
     case OMP_TGT_MAPTYPE_ALLOC:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
