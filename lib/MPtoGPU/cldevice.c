@@ -20,6 +20,8 @@
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
+#ifdef __ALTERA__
+#include <CL/opencl.h>
 #else
 #include <CL/cl.h>
 #endif
@@ -50,7 +52,7 @@ int               _verbose;
 int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
 void _cldevice_details(cl_device_id   id,
-                       cl_device_info param_name, 
+                       cl_device_info param_name,
                        const char*    param_str) {
   cl_uint i;
   cl_int  status = 0;
@@ -68,8 +70,8 @@ void _cldevice_details(cl_device_id   id,
       cl_device_type* devType = (cl_device_type*) alloca(sizeof(cl_device_type) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, devType, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       switch (*devType) {
         case CL_DEVICE_TYPE_CPU : printf("\tDevice is CPU\n"); break;
@@ -78,22 +80,22 @@ void _cldevice_details(cl_device_id   id,
         case CL_DEVICE_TYPE_DEFAULT : printf("\tDevice is Unknown\n"); break;
       }
     } break;
-    case CL_DEVICE_VENDOR_ID : 
-    case CL_DEVICE_MAX_COMPUTE_UNITS : 
+    case CL_DEVICE_VENDOR_ID :
+    case CL_DEVICE_MAX_COMPUTE_UNITS :
     case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS : {
       cl_uint* ret = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       switch (param_name) {
         case CL_DEVICE_VENDOR_ID:
-	  printf("\tVendor ID: 0x%x\n", *ret); break;
+    printf("\tVendor ID: 0x%x\n", *ret); break;
         case CL_DEVICE_MAX_COMPUTE_UNITS:
-	  printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
+    printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
         case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS:
-	  printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
+    printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
       }
     } break;
     case CL_DEVICE_MAX_WORK_ITEM_SIZES : {
@@ -103,12 +105,12 @@ void _cldevice_details(cl_device_id   id,
 
       status = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       printf("\tMaximum number of work-items in each dimension: ( ");
       for(i =0; i < maxWIDimensions; ++i ) {
-	printf("%zu ", ret[i]);
+  printf("%zu ", ret[i]);
       }
       printf(" )\n");
     } break;
@@ -116,8 +118,8 @@ void _cldevice_details(cl_device_id   id,
       size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
     } break;
@@ -126,22 +128,22 @@ void _cldevice_details(cl_device_id   id,
       char data[48];
       status = clGetDeviceInfo( id, param_name, param_size, data, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       switch (param_name) {
         case CL_DEVICE_NAME :
-	  printf("\tDevice name is %s\n", data); break;
+    printf("\tDevice name is %s\n", data); break;
         case CL_DEVICE_VENDOR :
-	  printf("\tDevice vendor is %s\n", data); break;
+    printf("\tDevice vendor is %s\n", data); break;
       }
     } break;
     case CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE: {
       cl_uint* size = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
     } break;
@@ -150,14 +152,14 @@ void _cldevice_details(cl_device_id   id,
       cl_ulong* size = (cl_ulong*) alloca(sizeof(cl_ulong) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-	fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-	return;
+  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+  return;
       }
       switch (param_name) {
         case CL_DEVICE_GLOBAL_MEM_SIZE:
-	  printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
+    printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
         case CL_DEVICE_MAX_MEM_ALLOC_SIZE:
-	  printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break; 
+    printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break;
       }
     } break;
   }
@@ -207,9 +209,9 @@ void _cldevice_init (int verbose) {
       fprintf(stderr, "<rtl> Failed to find any OpenCL device.\n");
       exit(1);
     }
-  
+
     if (_verbose) printf("<rtl> Find %u devices on platform.\n", _ndevices);
-    
+
     idx = 0;
     //Fetch the CPU device list for this platform. Note that the allocation
     //of handlers is done after test because device 0 is reserved to CPU
@@ -226,37 +228,37 @@ void _cldevice_init (int verbose) {
 
     if (_status == CL_SUCCESS) {
       if (_verbose) {
-	printf("<rtl> Find %u CPU device(s).", ndev);
+  printf("<rtl> Find %u CPU device(s).", ndev);
         if (ndev > 1)
-	  printf(" Only the main CPU was handled on device id %d.\n", idx);
-	else
-	  printf(" The CPU was handled on device id %d.\n", idx);
+    printf(" Only the main CPU was handled on device id %d.\n", idx);
+  else
+    printf(" The CPU was handled on device id %d.\n", idx);
       }
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[idx], NULL);
       if (_status != CL_SUCCESS) {
-	fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
+  fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
       }
       else {
-	_cpu_present = 1;
+  _cpu_present = 1;
       }
     }
-    
+
     idx += 1;
     if (_ndevices > idx) {
       //Try to fetch the GPU device list for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-	if (_verbose) {
-	  printf("<rtl> Find %u GPU device(s). ", ndev);
-	  printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
-	}
-	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
-	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
-	}
-	else {
-	  _gpu_present = 1;
-	}
+  if (_verbose) {
+    printf("<rtl> Find %u GPU device(s). ", ndev);
+    printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
+  }
+  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
+  }
+  else {
+    _gpu_present = 1;
+  }
       }
     }
 
@@ -265,14 +267,14 @@ void _cldevice_init (int verbose) {
       //Fetch all accelerator devices for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-	if (_verbose) {
-	  printf("<rtl> Find %u ACC device(s). ", ndev);
-	  printf("Each accelerator device was handled on device id starting with %d.\n", idx);
-	}
-	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
-	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
-	}
+  if (_verbose) {
+    printf("<rtl> Find %u ACC device(s). ", ndev);
+    printf("Each accelerator device was handled on device id starting with %d.\n", idx);
+  }
+  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
+  }
       }
     }
 
@@ -281,50 +283,50 @@ void _cldevice_init (int verbose) {
       //Fetch all default devices for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-	if (_verbose) {
-	  printf("<rtl> Find %u unknown device(s). ", ndev);
-	  printf("Each unknown device was handled on device id starting with %d.\n", idx);
-	}
-	_status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
-	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
-	}
+  if (_verbose) {
+    printf("<rtl> Find %u unknown device(s). ", ndev);
+    printf("Each unknown device was handled on device id starting with %d.\n", idx);
+  }
+  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
+  }
       }
     }
-   
+
     for(i = 0; i < _ndevices; ++ i ) {
-      
+
       if (_verbose && _device[i] != NULL) {
-	printf("<rtl> Retrieve some information about device %u:\n", i);
-	_cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
-	_cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
-	_cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
-	_cldevice_details( _device[i], CL_DEVICE_VENDOR_ID, "CL_DEVICE_VENDOR_ID" );
-	_cldevice_details( _device[i], CL_DEVICE_MAX_MEM_ALLOC_SIZE, "CL_DEVICE_MAX_MEM_ALLOC_SIZE" );
-	_cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, "CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE" );
-	_cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_SIZE, "CL_DEVICE_GLOBAL_MEM_SIZE" );
-	_cldevice_details( _device[i], CL_DEVICE_MAX_COMPUTE_UNITS, "CL_DEVICE_MAX_COMPUTE_UNITS" );
-	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS" );
-	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
-	_cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
+  printf("<rtl> Retrieve some information about device %u:\n", i);
+  _cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
+  _cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
+  _cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
+  _cldevice_details( _device[i], CL_DEVICE_VENDOR_ID, "CL_DEVICE_VENDOR_ID" );
+  _cldevice_details( _device[i], CL_DEVICE_MAX_MEM_ALLOC_SIZE, "CL_DEVICE_MAX_MEM_ALLOC_SIZE" );
+  _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, "CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE" );
+  _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_SIZE, "CL_DEVICE_GLOBAL_MEM_SIZE" );
+  _cldevice_details( _device[i], CL_DEVICE_MAX_COMPUTE_UNITS, "CL_DEVICE_MAX_COMPUTE_UNITS" );
+  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS" );
+  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
+  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
       }
-      
+
       if (_device[i] != NULL) {
 
-	//Create one OpenCL context for each device in the platform
-	_context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
-	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
-	}
-      
-	//Create a command queue for each context to communicate with the associated device
-	_cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
-	if (_status != CL_SUCCESS) {
-	  fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
-	}
+  //Create one OpenCL context for each device in the platform
+  _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
+  }
+
+  //Create a command queue for each context to communicate with the associated device
+  _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
+  }
       }
     }
-    
+
   }
 
   // Allocate room to handle program and kernel objects
@@ -342,7 +344,7 @@ void _cldevice_init (int verbose) {
 
   // initialize default device to 0 (CPU) unless CPU is not present
   if ( _cpu_present ) {
-    _clid = 0; 
+    _clid = 0;
   }
   else {
     _clid = 1; // At least, one accelerator is present & was mapped to device 1
@@ -355,7 +357,7 @@ void _cldevice_init (int verbose) {
 void _cldevice_finish() {
 
   cl_uint i;
-  
+
   // Clean up and wait for all the comands to complete
   for (i = 0; i< _ndevices; i++) {
     _status = clFlush(_cmd_queue[i]);
@@ -367,7 +369,7 @@ void _cldevice_finish() {
     _status = clReleaseKernel(_kernel[i]);
     _status = clReleaseProgram(_program[i]);
   }
-  
+
   for (i = 0; i < _ndevices; i++) {
     _status = clReleaseCommandQueue(_cmd_queue[i]);
     _status = clReleaseContext(_context[i]);
@@ -384,8 +386,8 @@ void _cldevice_finish() {
 //  Create an OpenCL program from the kernel source file
 //
 cl_program _create_fromSource(cl_context context,
-			      cl_device_id device,
-			      const char* fileName) {
+            cl_device_id device,
+            const char* fileName) {
     cl_int errNum;
     cl_program program;
 
@@ -417,7 +419,7 @@ cl_program _create_fromSource(cl_context context,
       // Determine the reason for the error
       char buildLog[16384];
       clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
-			    sizeof(buildLog), buildLog, NULL);
+          sizeof(buildLog), buildLog, NULL);
 
       fprintf(stderr, "<rtl> Error building %s : %s\n", fileName, buildLog);
       clReleaseProgram(program);
@@ -431,8 +433,8 @@ cl_program _create_fromSource(cl_context context,
 //  Attempt to create the program object from a cached binary.
 //
 cl_program _create_fromBinary(cl_context context,
-			      cl_device_id device,
-			      const char* fileName) {
+            cl_device_id device,
+            const char* fileName) {
 
   FILE *fp = fopen(fileName, "rb");
   if (fp == NULL) {
@@ -454,12 +456,12 @@ cl_program _create_fromBinary(cl_context context,
   cl_int binaryStatus;
 
   program = clCreateProgramWithBinary(context,
-				      1,
-				      &device,
-				      &binarySize,
-				      (const unsigned char**)&programBinary,
-				      &binaryStatus,
-				      &errNum);
+              1,
+              &device,
+              &binarySize,
+              (const unsigned char**)&programBinary,
+              &binaryStatus,
+              &errNum);
 
   free(programBinary);
 
@@ -483,7 +485,7 @@ cl_program _create_fromBinary(cl_context context,
     // Determine the reason for the error
     char buildLog[16384];
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
-			  sizeof(buildLog), buildLog, NULL);
+        sizeof(buildLog), buildLog, NULL);
 
     if (!_spir_support) {
       fprintf(stderr, "<rtl> %s: This platform does not support cl_khr_spir extension!\n", buildLog);
@@ -503,8 +505,8 @@ cl_program _create_fromBinary(cl_context context,
 //  the program and store the one for the device passed in
 //
 int _save_toBinary(cl_program program,
-		   cl_device_id device,
-		   const char* fileName)
+       cl_device_id device,
+       const char* fileName)
 {
     cl_uint numDevices = 0;
     cl_int errNum;
@@ -549,14 +551,14 @@ int _save_toBinary(cl_program program,
 
     // 4 - Get all of the program binaries
     errNum = clGetProgramInfo(program, CL_PROGRAM_BINARIES,
-			      sizeof(unsigned char*) * numDevices,
+            sizeof(unsigned char*) * numDevices,
                               programBinaries, NULL);
     if (errNum != CL_SUCCESS) {
       fprintf(stderr, "<rtl> Error querying for program binaries.\n");
       free(devices);
       free(programBinarySizes);
       for (i = 0; i < numDevices; i++) {
-	free(programBinaries[i]);
+  free(programBinaries[i]);
       }
       free(programBinaries);
       return 0;
@@ -567,10 +569,10 @@ int _save_toBinary(cl_program program,
     for (i = 0; i < numDevices; i++) {
         // Store the binary just for the device requested.
         if (devices[i] == device) {
-	  FILE *fp = fopen(fileName, "wb");
-	  fwrite(programBinaries[i], 1, programBinarySizes[i], fp);
-	  fclose(fp);
-	  break;
+    FILE *fp = fopen(fileName, "wb");
+    fwrite(programBinaries[i], 1, programBinarySizes[i], fp);
+    fclose(fp);
+    break;
         }
     }
 
@@ -620,7 +622,7 @@ void _set_default_device (cl_uint id) {
       _clid = 1;
       fprintf(stderr, "<rtl> Warning: CPU is not set, run on device 1 instead.\n");
   }
-  
+
   if (id == 1) {
     if (!_gpu_present && _cpu_present && _ndevices == 1 ) {
       _clid = 0;
@@ -655,7 +657,7 @@ void _set_default_device (cl_uint id) {
     fprintf(stderr, "<rtl> Warning: Unable to obtain MAX_WORK_ITEM_DIMENSIONS for device %u.\n", _clid);
     return;
   }
-  
+
   // checking the default work_group map.
   //     cpu     {0:128, 1:1, 2:1}
   //     gpu 1-d {3:512, 4:1, 5:1}
@@ -671,7 +673,7 @@ void _set_default_device (cl_uint id) {
   if ((int)ret[i+1] < _work_group[j+1]) {
     _work_group[j+1] = (int)ret[i+1];
   }
-  
+
   // assert x-dimmension * y-dimmension for selected device
   if ((int)ret[i] < _work_group[j]*_work_group[j+1]) {
     _work_group[j+1] /= 2;
@@ -691,7 +693,7 @@ void _set_default_device (cl_uint id) {
     if ((int)ret[i+1] > 2*_work_group[j+1])
       _work_group[j+1] *= 2;
   }
-  
+
 }
 
 //
@@ -708,10 +710,10 @@ void _inc_curid () {
 //
 // Create a write-only memory buffer on the selected device of a given size
 //
-int _cl_create_write_only (long size) {
+int _cl_create_write_only (uint64_t size) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer on device.\n", size);
     _curid--;
@@ -724,10 +726,10 @@ int _cl_create_write_only (long size) {
 //
 // Create a read-only memory buffer and copy the host loc to the buffer
 //
-int _cl_offloading_write_only (long size, void* loc) {
+int _cl_offloading_write_only (uint64_t size, void* loc) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, _curid);
     _curid--;
@@ -740,10 +742,10 @@ int _cl_offloading_write_only (long size, void* loc) {
 //
 // Create a read-only memory buffer to offloading host locations
 //
-int _cl_create_read_only (long size) {
+int _cl_create_read_only (uint64_t size) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %lu read-only buffer on device.\n", size);
     _curid--;
@@ -756,12 +758,12 @@ int _cl_create_read_only (long size) {
 //
 // Create a read-only memory buffer and copy the host loc to the buffer
 //
-int _cl_offloading_read_only (long size, void* loc) {
+int _cl_offloading_read_only (uint64_t size, void* loc) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
-  				 0, size, loc, 0, NULL, NULL);
+           0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
@@ -774,10 +776,10 @@ int _cl_offloading_read_only (long size, void* loc) {
 //
 // Create a read-write memory buffer
 //
-int _cl_create_read_write (long size) {
+int _cl_create_read_write (uint64_t size) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %lu.\n", size);
     _curid--;
@@ -790,12 +792,12 @@ int _cl_create_read_write (long size) {
 //
 // Create a read-write memory buffer and copy the host loc to the buffer
 //
-int _cl_offloading_read_write (long size, void* loc) {
+int _cl_offloading_read_write (uint64_t size, void* loc) {
   _inc_curid();
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
-				 size, NULL, &_status);
+         size, NULL, &_status);
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
-  				 0, size, loc, 0, NULL, NULL);
+           0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
@@ -808,7 +810,7 @@ int _cl_offloading_read_write (long size, void* loc) {
 //
 // Read the cl_memory given by index on selected device to the host variable
 //
-int _cl_read_buffer (long size, int id, void* loc) {
+int _cl_read_buffer (uint64_t size, int id, void* loc) {
 
   _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
              CL_TRUE, 0, size, loc, 0, NULL, NULL);
@@ -823,10 +825,10 @@ int _cl_read_buffer (long size, int id, void* loc) {
 //
 // Write (sync) the host variable to cl_memory given by index
 //
-int _cl_write_buffer (long size, int id, void* loc) {
+int _cl_write_buffer (uint64_t size, int id, void* loc) {
 
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
-  				 0, size, loc, 0, NULL, NULL);
+           0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, id);
     return 0;
@@ -839,7 +841,7 @@ int _cl_write_buffer (long size, int id, void* loc) {
 int _program_created(const char* str) {
 
   cl_uint i;
-  
+
   for ( i = 0; i < _sentinel; i++)
     if (strcmp (str, _strprog[i]) == 0) {
       _kerid = i;
@@ -889,17 +891,17 @@ int _cl_create_program (char* str) {
     //Attempting to create program from binary
     if (_verbose)
       printf("<rtl> Creating the program object for %s.\n", str);
-    
+
     _program[_kerid] = _create_fromBinary(_context[_clid],
-					  _device[_clid],
-					  bc_file);
+            _device[_clid],
+            bc_file);
     if (_program[_kerid] != NULL) return 1;
   }
-  
+
   //Binary not loaded, create from source
   _program[_kerid] = _create_fromSource(_context[_clid],
-					_device[_clid],
-					cl_file);
+          _device[_clid],
+          cl_file);
   if (_program[_kerid] == NULL) {
     fprintf(stderr, "<rtl> Attempting to create program object failed.\n");
     return 0;
@@ -920,7 +922,7 @@ int _cl_create_kernel (char* str) {
 
     if (_verbose)
       printf("<rtl> Creating the kernel object for %s.\n", str);
-    
+
     _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
     if (_kernel[_kerid] == NULL) {
       fprintf(stderr, "<rtl> Failed to create kernel object.\n");
@@ -948,7 +950,7 @@ int _cl_set_kernel_args (int nargs) {
 }
 
 //
-// Set the kernel argument for cl_mem buffer given by index 
+// Set the kernel argument for cl_mem buffer given by index
 //
 int _cl_set_kernel_arg (int pos, int index) {
   _status |= clSetKernelArg (_kernel[_kerid], pos, sizeof(cl_mem), &_locs[index]);
@@ -975,7 +977,7 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
 //
 // Enqueues a command to execute a kernel on a device (without tiling).
 //
-int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
+int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) {
 
   size_t  *global_size;
   size_t  *local_size;
@@ -993,32 +995,32 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
   global_size[0] = (size_t)ceil(((float)size1) / ((float)_work_group[idx])) * _work_group[idx];
   global_size[1] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+1])) * _work_group[idx+1];
   global_size[2] = (size_t)ceil(((float)size2) / ((float)_work_group[idx+2])) * _work_group[idx+2];
-  
+
   local_size = (size_t *) calloc(3, sizeof(size_t));
   local_size[0] = _work_group[idx];
   local_size[1] = _work_group[idx+1];
   local_size[2] = _work_group[idx+2];
- 
+
   if (_verbose) {
     printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
     printf("<rtl> Work Group was configured to:\n");
     printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
-    if (dim >= 2) 
+    if (dim >= 2)
       printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
     if (dim == 3)
       printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
   }
-  
+
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
-				   _kernel[_kerid],
-				   wd,          // number of dimmensions
-				   NULL,        // global_work_offset
-				   global_size, // global_work_size
-				   local_size,  // local_work_size
-				   0,           // num_events_in_wait_list
-				   NULL,        // event_wait_list
-				   NULL         // event
-				   );
+           _kernel[_kerid],
+           wd,          // number of dimmensions
+           NULL,        // global_work_offset
+           global_size, // global_work_size
+           local_size,  // local_work_size
+           0,           // num_events_in_wait_list
+           NULL,        // event_wait_list
+           NULL         // event
+           );
   if (_status == CL_SUCCESS) {
     if (_verbose)
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
@@ -1043,8 +1045,8 @@ int _cl_execute_kernel(long size1, long size2, long size3, int dim) {
 // Enqueues a command to execute a (possible optimized w/ tilling) kernel.
 //
 int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
-			     int block0, int block1, int block2,
-			     int dim) {
+           int block0, int block1, int block2,
+           int dim) {
 
   size_t  *global_size;
   size_t  *local_size;
@@ -1052,26 +1054,26 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
 
   global_size = (size_t *) calloc(3, sizeof(size_t));
   local_size = (size_t *) calloc(3, sizeof(size_t));
-  
+
   global_size[0] = (size_t)(wsize0 * block0);
   local_size[0]  = (size_t)block0;
 
   if (dim == 2) {
     global_size[1] = (size_t)(wsize1 * block1);
-    local_size[1]  = block1;    
+    local_size[1]  = block1;
     if (block2 == 0) {
-      global_size[2] = 0;   
+      global_size[2] = 0;
       local_size[2]  = 0;
-    }				   
+    }
     else {
       global_size[2] = block2;
       local_size[2] = block2;
       wd = 3;
-    }  
-  } 
+    }
+  }
   else if (dim == 3) {
     global_size[1] = (size_t)(wsize1 * block1);
-    local_size[1]  = block1;    
+    local_size[1]  = block1;
     global_size[2] = (size_t)(wsize2 * block2);
     local_size[2]  = block2;
   }
@@ -1080,22 +1082,22 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
     printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
     printf("<rtl> Work Group was configured to:\n");
     printf("\tX-size=%d\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", wsize0, local_size[0], global_size[0]);
-    if (wd >= 2) 
+    if (wd >= 2)
       printf("\tY-size=%d\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", wsize1, local_size[1], global_size[1]);
     if (wd == 3)
       printf("\tZ-size=%d\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", wsize2, local_size[2], global_size[2]);
   }
-  
+
   _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
-				   _kernel[_kerid],
-				   wd,          // number of dimmensions
-				   NULL,        // global_work_offset
-				   global_size, // global_work_size
-				   local_size,  // local_work_size
-				   0,           // num_events_in_wait_list
-				   NULL,        // event_wait_list
-				   NULL         // event
-				   );
+           _kernel[_kerid],
+           wd,          // number of dimmensions
+           NULL,        // global_work_offset
+           global_size, // global_work_size
+           local_size,  // local_work_size
+           0,           // num_events_in_wait_list
+           NULL,        // event_wait_list
+           NULL         // event
+           );
   if (_status == CL_SUCCESS) {
     if (_verbose)
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
