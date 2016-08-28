@@ -20,7 +20,7 @@
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
-#ifdef __ALTERA__
+#elif __ALTERA__
 #include <CL/opencl.h>
 #else
 #include <CL/cl.h>
