@@ -1,0 +1,79 @@
+
+# This is a GNU Makefile.
+
+# It can be used to compile an OpenCL program with
+# the Altera Beta OpenCL Development Kit.
+# See README.txt for more information.
+
+
+# You must configure ALTERAOCLSDKROOT to point the root directory of the Altera SDK for OpenCL
+# software installation.
+# See doc/getting_started.txt for more information on installing and
+# configuring the Altera SDK for OpenCL.
+
+
+# Creating a static library
+TARGET = libmptogpu.a
+
+# Where is the Altera SDK for OpenCL software?
+ifeq ($(wildcard $(ALTERAOCLSDKROOT)),)
+$(error Set ALTERAOCLSDKROOT to the root directory of the Altera SDK for OpenCL software installation)
+endif
+ifeq ($(wildcard $(ALTERAOCLSDKROOT)/host/include/CL/opencl.h),)
+$(error Set ALTERAOCLSDKROOT to the root directory of the Altera SDK for OpenCL software installation.)
+endif
+
+# Libraries to use, objects to compile
+SRCS_FILES = cldevice.c
+COMMON_FILES =
+
+# arm cross compiler
+
+COMPILE_INCLUDE = -I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/../../../../arm-linux-gnueabihf/include/c++/4.7.3 \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/../../../../arm-linux-gnueabihf/include/c++/4.7.3/arm-linux-gnueabihf/ \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/../../../../arm-linux-gnueabihf/include/c++/4.7.3/backward \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/include \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/include-fixed \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/../../../../arm-linux-gnueabihf/include \
+									-I$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/usr/include/.
+
+COMPILE_SYSROOT = --sysroot=$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc
+
+COMPILE_LIBS = -L$(wildcard $(ALTERAOCLSDKROOT))/board/terasic/de1soc/arm32/lib \
+							 -L$(wildcard $(ALTERAOCLSDKROOT))/host/arm32/lib \
+							 -L$(wildcard $(ALTERAOCLSDKROOT))/host/arm32/lib \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3 \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../lib/gcc/arm-linux-gnueabihf/4.7.3/../../../../arm-linux-gnueabihf/lib \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/lib/arm-linux-gnueabihf \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/lib \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/lib/arm-linux-gnueabihf \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/usr/lib/arm-linux-gnueabihf \
+							 -L$(wildcard $(ARM_DS5_PATH))/sw/gcc/bin/../arm-linux-gnueabihf/libc/usr/lib
+
+COMPILE_LINKER = -B$(wildcard $(ARM_DS5_PATH))/sw/gcc/arm-linux-gnueabihf/bin
+COMPILE_LINKER += -B$(wildcard $(ARM_DS5_PATH))/sw/gcc/lib/gcc/arm-linux-gnueabihf/4.7.3
+
+# CROSS-COMPILE = clang --target=arm-none-linux-gnueabihf -O2 -c -Wall -Iinclude $(COMPILE_INCLUDE) $(COMPILE_LIBS) $(COMPILE_SYSROOT) $(COMPILE_LINKER)
+CROSS-COMPILE = clang --target=arm-none-linux-gnueabihf -O2 -c -Wall -Iinclude $(COMPILE_INCLUDE) $(COMPILE_LIBS) $(COMPILE_SYSROOT)
+# CROSS-COMPILE += -g # debug information
+
+# OpenCL compile and link flags.
+AOCL_COMPILE_CONFIG=$(shell aocl compile-config --arm) -I../common/inc -Ihost/inc
+AOCL_LINK_CONFIG=$(shell aocl link-config --arm)
+
+IR_FLAGS = -S -emit-llvm
+
+# Make it all!
+all :
+	$(CROSS-COMPILE) $(SRCS_FILES) $(COMMON_FILES) -o cldevice.o $(AOCL_COMPILE_CONFIG) $(AOCL_LINK_CONFIG)
+	llvm-ar rcs $(TARGET) cldevice.o
+
+ir :
+	$(CROSS-COMPILE) $(IR_FLAGS) $(SRCS_FILES) $(COMMON_FILES) -o cldevice.ll $(AOCL_COMPILE_CONFIG) $(AOCL_LINK_CONFIG)
+
+# Standard make targets
+clean :
+	@rm -f *.o $(TARGET)
