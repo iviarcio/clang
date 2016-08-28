@@ -1429,7 +1429,7 @@ public:
     llvm::Value* getOffloadingDevice();
 
     int createTempFile() {
-      char *tmpName = strdup("_kernel_XXXXXX");
+      char *tmpName = strdup("xkernel_XXXXXX");
       int fd = mkstemp (tmpName);
       OpenMPStack.back().KernelName = std::string(tmpName);
       return fd;
