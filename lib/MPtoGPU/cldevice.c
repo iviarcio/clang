@@ -882,10 +882,18 @@ int _cl_create_program (char* str) {
 
   // otherwise, create it
   int fsize = strlen(str);
-  char* cl_file = calloc(fsize + 4, sizeof(char));
-  char* bc_file = calloc(fsize + 4, sizeof(char));
-  strcpy(cl_file, str); strcat(cl_file, ".cl");
-  strcpy(bc_file, str); strcat(bc_file, ".bc");
+
+  char* cl_file   = calloc(fsize + 4, sizeof(char));
+  char* bc_file   = calloc(fsize + 4, sizeof(char));
+  char* aocx_file = calloc(fsize + 6, sizeof(char));
+
+  strcpy(cl_file, str);
+  strcpy(bc_file, str);
+  strcpy(aocx_file, str);
+
+  strcat(bc_file, ".bc");
+  strcat(cl_file, ".cl");
+  strcat(aocx_file, ".aocx");
 
   if (_does_file_exist(bc_file)) {
     //Attempting to create program from binary
@@ -895,6 +903,16 @@ int _cl_create_program (char* str) {
     _program[_kerid] = _create_fromBinary(_context[_clid],
             _device[_clid],
             bc_file);
+    if (_program[_kerid] != NULL) return 1;
+  } else if (_does_file_exist(aocx_file)) {
+    //Attempting to create program from aocx
+    if (_verbose)
+      printf("<rtl> Creating the program object for %s.\n", str);
+
+    _program[_kerid] = _create_fromBinary(_context[_clid],
+            _device[_clid],
+            aocx_file);
+
     if (_program[_kerid] != NULL) return 1;
   }
 

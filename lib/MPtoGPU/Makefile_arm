@@ -57,7 +57,7 @@ COMPILE_LINKER = -B$(wildcard $(ARM_DS5_PATH))/sw/gcc/arm-linux-gnueabihf/bin
 COMPILE_LINKER += -B$(wildcard $(ARM_DS5_PATH))/sw/gcc/lib/gcc/arm-linux-gnueabihf/4.7.3
 
 # CROSS-COMPILE = clang --target=arm-none-linux-gnueabihf -O2 -c -Wall -Iinclude $(COMPILE_INCLUDE) $(COMPILE_LIBS) $(COMPILE_SYSROOT) $(COMPILE_LINKER)
-CROSS-COMPILE = clang --target=arm-none-linux-gnueabihf -O2 -c -Wall -Iinclude $(COMPILE_INCLUDE) $(COMPILE_LIBS) $(COMPILE_SYSROOT)
+CROSS-COMPILE = clang --target=arm-none-linux-gnueabihf -O2 -c -Wall -Iinclude -D__ALTERA__ $(COMPILE_INCLUDE) $(COMPILE_LIBS) $(COMPILE_SYSROOT)
 # CROSS-COMPILE += -g # debug information
 
 # OpenCL compile and link flags.
