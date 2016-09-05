@@ -44,3 +44,9 @@ unittests/
 *.inc
 include/clang/Config/config.h
 runtime/compiler-rt/
+
+# ---------------------
+# Introduced by Ciro
+# ---------------------
+build/
+install/
