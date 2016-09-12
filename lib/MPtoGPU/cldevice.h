@@ -26,6 +26,8 @@
 #include <CL/cl.h>
 #endif
 
+#include <sys/time.h>
+
 extern cl_device_id     *_device;
 extern cl_context       *_context;
 extern cl_command_queue *_cmd_queue;
@@ -49,6 +51,9 @@ extern int               _cpu_present;
 extern int               _upperid;
 extern int               _curid;
 extern int               _verbose;
+
+extern cl_event         *_kernel_event;
+extern cl_event         _global_event;
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name,
@@ -109,6 +114,8 @@ int _cl_execute_kernel (uint64_t size1, uint64_t size2, uint64_t size3, int dim)
 int _cl_execute_tiled_kernel (int wsize0, int wsize1, int wsize2, int block0, int block1, int block2, int dim);
 
 void _cl_release_buffers (int upper);
+
+void _cl_profile(const char* str, cl_event event);
 
 #ifdef __cplusplus
   }

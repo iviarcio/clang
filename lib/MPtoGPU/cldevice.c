@@ -51,6 +51,8 @@ int               _curid;
 int               _verbose;
 int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
+cl_event         _global_event;
+
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name,
                        const char*    param_str) {
@@ -70,8 +72,8 @@ void _cldevice_details(cl_device_id   id,
       cl_device_type* devType = (cl_device_type*) alloca(sizeof(cl_device_type) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, devType, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       switch (*devType) {
         case CL_DEVICE_TYPE_CPU : printf("\tDevice is CPU\n"); break;
@@ -86,16 +88,16 @@ void _cldevice_details(cl_device_id   id,
       cl_uint* ret = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       switch (param_name) {
         case CL_DEVICE_VENDOR_ID:
-    printf("\tVendor ID: 0x%x\n", *ret); break;
+          printf("\tVendor ID: 0x%x\n", *ret); break;
         case CL_DEVICE_MAX_COMPUTE_UNITS:
-    printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
+          printf("\tMaximum number of parallel compute units: %u\n", *ret); break;
         case CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS:
-    printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
+          printf("\tMaximum dimensions for global/local work-item IDs: %u\n", *ret); break;
       }
     } break;
     case CL_DEVICE_MAX_WORK_ITEM_SIZES : {
@@ -105,12 +107,12 @@ void _cldevice_details(cl_device_id   id,
 
       status = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       printf("\tMaximum number of work-items in each dimension: ( ");
       for(i =0; i < maxWIDimensions; ++i ) {
-  printf("%zu ", ret[i]);
+        printf("%zu ", ret[i]);
       }
       printf(" )\n");
     } break;
@@ -118,8 +120,8 @@ void _cldevice_details(cl_device_id   id,
       size_t* ret = (size_t*) alloca(sizeof(size_t) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
     } break;
@@ -128,22 +130,22 @@ void _cldevice_details(cl_device_id   id,
       char data[48];
       status = clGetDeviceInfo( id, param_name, param_size, data, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       switch (param_name) {
         case CL_DEVICE_NAME :
-    printf("\tDevice name is %s\n", data); break;
+          printf("\tDevice name is %s\n", data); break;
         case CL_DEVICE_VENDOR :
-    printf("\tDevice vendor is %s\n", data); break;
+          printf("\tDevice vendor is %s\n", data); break;
       }
     } break;
     case CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE: {
       cl_uint* size = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
     } break;
@@ -152,14 +154,14 @@ void _cldevice_details(cl_device_id   id,
       cl_ulong* size = (cl_ulong*) alloca(sizeof(cl_ulong) * param_size);
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
-  fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
-  return;
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+        return;
       }
       switch (param_name) {
         case CL_DEVICE_GLOBAL_MEM_SIZE:
-    printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
+          printf("\tDevice global mem: %llu mega-bytes\n", (*size)>>20); break;
         case CL_DEVICE_MAX_MEM_ALLOC_SIZE:
-    printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break;
+          printf("\tDevice max memory allocation: %llu mega-bytes\n", (*size)>>20); break;
       }
     } break;
   }
@@ -221,25 +223,25 @@ void _cldevice_init (int verbose) {
       _cpu_present = 0;
     }
 
-    _device      = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
-    _context     = (cl_context *) calloc(_ndevices, sizeof(cl_context));
-    _cmd_queue   = (cl_command_queue *) calloc(_ndevices, sizeof(cl_command_queue));
-    _gpu_present = 0;
+    _device       = (cl_device_id *) calloc(_ndevices, sizeof(cl_device_id));
+    _context      = (cl_context *) calloc(_ndevices, sizeof(cl_context));
+    _cmd_queue    = (cl_command_queue *) calloc(_ndevices, sizeof(cl_command_queue));
+    _gpu_present  = 0;
 
     if (_status == CL_SUCCESS) {
       if (_verbose) {
-  printf("<rtl> Find %u CPU device(s).", ndev);
+        printf("<rtl> Find %u CPU device(s).", ndev);
         if (ndev > 1)
-    printf(" Only the main CPU was handled on device id %d.\n", idx);
-  else
-    printf(" The CPU was handled on device id %d.\n", idx);
+          printf(" Only the main CPU was handled on device id %d.\n", idx);
+        else
+          printf(" The CPU was handled on device id %d.\n", idx);
       }
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[idx], NULL);
       if (_status != CL_SUCCESS) {
-  fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
+        fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
       }
       else {
-  _cpu_present = 1;
+        _cpu_present = 1;
       }
     }
 
@@ -248,17 +250,17 @@ void _cldevice_init (int verbose) {
       //Try to fetch the GPU device list for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-  if (_verbose) {
-    printf("<rtl> Find %u GPU device(s). ", ndev);
-    printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
-  }
-  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
-  if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
-  }
-  else {
-    _gpu_present = 1;
-  }
+        if (_verbose) {
+          printf("<rtl> Find %u GPU device(s). ", ndev);
+          printf("GPU(s) was handled on device(s) id(s) starting with %d.\n", idx);
+        }
+        _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
+        if (_status != CL_SUCCESS) {
+          fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
+        }
+        else {
+          _gpu_present = 1;
+        }
       }
     }
 
@@ -267,14 +269,14 @@ void _cldevice_init (int verbose) {
       //Fetch all accelerator devices for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-  if (_verbose) {
-    printf("<rtl> Find %u ACC device(s). ", ndev);
-    printf("Each accelerator device was handled on device id starting with %d.\n", idx);
-  }
-  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
-  if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
-  }
+        if (_verbose) {
+          printf("<rtl> Find %u ACC device(s). ", ndev);
+          printf("Each accelerator device was handled on device id starting with %d.\n", idx);
+        }
+        _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
+        if (_status != CL_SUCCESS) {
+          fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
+        }
       }
     }
 
@@ -283,47 +285,55 @@ void _cldevice_init (int verbose) {
       //Fetch all default devices for this platform
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, 0, NULL, &ndev);
       if (_status == CL_SUCCESS) {
-  if (_verbose) {
-    printf("<rtl> Find %u unknown device(s). ", ndev);
-    printf("Each unknown device was handled on device id starting with %d.\n", idx);
-  }
-  _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
-  if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
-  }
+        if (_verbose) {
+          printf("<rtl> Find %u unknown device(s). ", ndev);
+          printf("Each unknown device was handled on device id starting with %d.\n", idx);
+        }
+        _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
+        if (_status != CL_SUCCESS) {
+          fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
+        }
       }
     }
 
     for(i = 0; i < _ndevices; ++ i ) {
 
       if (_verbose && _device[i] != NULL) {
-  printf("<rtl> Retrieve some information about device %u:\n", i);
-  _cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
-  _cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
-  _cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
-  _cldevice_details( _device[i], CL_DEVICE_VENDOR_ID, "CL_DEVICE_VENDOR_ID" );
-  _cldevice_details( _device[i], CL_DEVICE_MAX_MEM_ALLOC_SIZE, "CL_DEVICE_MAX_MEM_ALLOC_SIZE" );
-  _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, "CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE" );
-  _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_SIZE, "CL_DEVICE_GLOBAL_MEM_SIZE" );
-  _cldevice_details( _device[i], CL_DEVICE_MAX_COMPUTE_UNITS, "CL_DEVICE_MAX_COMPUTE_UNITS" );
-  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS" );
-  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
-  _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
+        printf("<rtl> Retrieve some information about device %u:\n", i);
+        _cldevice_details( _device[i], CL_DEVICE_TYPE, "CL_DEVICE_TYPE" );
+        _cldevice_details( _device[i], CL_DEVICE_NAME, "CL_DEVICE_NAME" );
+        _cldevice_details( _device[i], CL_DEVICE_VENDOR, "CL_DEVICE_VENDOR" );
+        _cldevice_details( _device[i], CL_DEVICE_VENDOR_ID, "CL_DEVICE_VENDOR_ID" );
+        _cldevice_details( _device[i], CL_DEVICE_MAX_MEM_ALLOC_SIZE, "CL_DEVICE_MAX_MEM_ALLOC_SIZE" );
+        _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, "CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE" );
+        _cldevice_details( _device[i], CL_DEVICE_GLOBAL_MEM_SIZE, "CL_DEVICE_GLOBAL_MEM_SIZE" );
+        _cldevice_details( _device[i], CL_DEVICE_MAX_COMPUTE_UNITS, "CL_DEVICE_MAX_COMPUTE_UNITS" );
+        _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS" );
+        _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
+        _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
       }
 
       if (_device[i] != NULL) {
+        cl_command_queue_properties properties;
 
-  //Create one OpenCL context for each device in the platform
-  _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
-  if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
-  }
+        properties = 0;
 
-  //Create a command queue for each context to communicate with the associated device
-  _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
-  if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
-  }
+        if (_verbose) {
+          // enabling profile
+          properties = CL_QUEUE_PROFILING_ENABLE;
+        }
+
+        //Create one OpenCL context for each device in the platform
+        _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
+        if (_status != CL_SUCCESS) {
+          fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
+        }
+
+        //Create a command queue for each context to communicate with the associated device
+        _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
+        if (_status != CL_SUCCESS) {
+          fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
+        }
       }
     }
 
@@ -363,6 +373,7 @@ void _cldevice_finish() {
     _status = clFlush(_cmd_queue[i]);
     _status = clFinish(_cmd_queue[i]);
   }
+
 
   // Release OpenCL allocated objects
   for (i = 0; i < _sentinel; i++) {
@@ -558,7 +569,7 @@ int _save_toBinary(cl_program program,
       free(devices);
       free(programBinarySizes);
       for (i = 0; i < numDevices; i++) {
-  free(programBinaries[i]);
+        free(programBinaries[i]);
       }
       free(programBinaries);
       return 0;
@@ -569,10 +580,10 @@ int _save_toBinary(cl_program program,
     for (i = 0; i < numDevices; i++) {
         // Store the binary just for the device requested.
         if (devices[i] == device) {
-    FILE *fp = fopen(fileName, "wb");
-    fwrite(programBinaries[i], 1, programBinarySizes[i], fp);
-    fclose(fp);
-    break;
+          FILE *fp = fopen(fileName, "wb");
+          fwrite(programBinaries[i], 1, programBinarySizes[i], fp);
+          fclose(fp);
+          break;
         }
     }
 
@@ -760,16 +771,34 @@ int _cl_create_read_only (uint64_t size) {
 //
 int _cl_offloading_read_only (uint64_t size, void* loc) {
   _inc_curid();
+
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
          size, NULL, &_status);
-  _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
-           0, size, loc, 0, NULL, NULL);
+
+  _status = clEnqueueWriteBuffer
+              (
+                _cmd_queue[_clid],
+                _locs[_curid], CL_TRUE,
+                0,
+                size,
+                loc,
+                0,
+                NULL,
+                (_verbose) ? &_global_event : NULL
+              );
+
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Offloading %lu bytes to buffer %d\n", size, _curid);
+
+  if (_verbose) {
+    _cl_profile("_cl_offloading_read_only", _global_event);
+
+    printf("<rtl> Offloading %lu bytes to buffer %d\n", size, _curid);
+  }
+
   return 1;
 }
 
@@ -794,16 +823,35 @@ int _cl_create_read_write (uint64_t size) {
 //
 int _cl_offloading_read_write (uint64_t size, void* loc) {
   _inc_curid();
+
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
          size, NULL, &_status);
-  _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[_curid], CL_TRUE,
-           0, size, loc, 0, NULL, NULL);
+
+  _status = clEnqueueWriteBuffer
+              (
+                _cmd_queue[_clid],
+                _locs[_curid],
+                CL_TRUE,
+                0,
+                size,
+                loc,
+                0,
+                NULL,
+                (_verbose) ? &_global_event : NULL
+              );
+
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Creating read-write buffer %d of size: %lu\n", _curid, size);
+
+  if (_verbose) {
+    _cl_profile("_cl_offloading_read_write", _global_event);
+
+    printf("<rtl> Creating read-write buffer %d of size: %lu\n", _curid, size);
+  }
+
   return 1;
 }
 
@@ -812,13 +860,27 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
 //
 int _cl_read_buffer (uint64_t size, int id, void* loc) {
 
-  _status = clEnqueueReadBuffer(_cmd_queue[_clid], _locs[id],
-             CL_TRUE, 0, size, loc, 0, NULL, NULL);
+  _status = clEnqueueReadBuffer(_cmd_queue[_clid],
+              _locs[id],
+              CL_TRUE,
+              0,
+              size,
+              loc,
+              0,
+              NULL,
+              (_verbose) ? &_global_event : NULL
+            );
+
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed reading %lu bytes from buffer %d.\n", size, id);
     return 0;
   }
-  if (_verbose) printf("<rtl> Reading %lu bytes from buffer %d\n", size, id);
+
+  if (_verbose) {
+    _cl_profile("_cl_read_buffer", _global_event);
+    printf("<rtl> Reading %lu bytes from buffer %d\n", size, id);
+  }
+
   return 1;
 }
 
@@ -864,9 +926,9 @@ int _program_created(const char* str) {
 // Auxiliary Function. Return true if file exist.
 //
 int _does_file_exist(const char *filename) {
-    struct stat st;
-    int result = stat(filename, &st);
-    return result == 0;
+  struct stat st;
+  int result = stat(filename, &st);
+  return result == 0;
 }
 
 //
@@ -1029,22 +1091,27 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
       printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
   }
 
-  _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
-           _kernel[_kerid],
-           wd,          // number of dimmensions
-           NULL,        // global_work_offset
-           global_size, // global_work_size
-           local_size,  // local_work_size
-           0,           // num_events_in_wait_list
-           NULL,        // event_wait_list
-           NULL         // event
-           );
+  _status = clEnqueueNDRangeKernel
+              (
+                _cmd_queue[_clid],
+                _kernel[_kerid],
+                wd,                                // number of dimmensions
+                NULL,                              // global_work_offset
+                global_size,                       // global_work_size
+                local_size,                        // local_work_size
+                0,                                 // num_events_in_wait_list
+                NULL,                              // event_wait_list
+                (_verbose) ? &_global_event : NULL // event
+              );
+
   if (_status == CL_SUCCESS) {
-    if (_verbose)
+    if (_verbose) {
+      _cl_profile("_cl_execute_kernel", _global_event);
+
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
+    }
     return 1;
-  }
-  else {
+  } else {
     if (_status == CL_INVALID_WORK_DIMENSION)
       fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
     else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
@@ -1056,6 +1123,7 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
     else
       fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
   }
+
   return 0;
 }
 
@@ -1106,22 +1174,28 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
       printf("\tZ-size=%d\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", wsize2, local_size[2], global_size[2]);
   }
 
-  _status = clEnqueueNDRangeKernel(_cmd_queue[_clid],
-           _kernel[_kerid],
-           wd,          // number of dimmensions
-           NULL,        // global_work_offset
-           global_size, // global_work_size
-           local_size,  // local_work_size
-           0,           // num_events_in_wait_list
-           NULL,        // event_wait_list
-           NULL         // event
-           );
+  _status = clEnqueueNDRangeKernel
+              (
+                _cmd_queue[_clid],
+                _kernel[_kerid],
+                wd,                                // number of dimmensions
+                NULL,                              // global_work_offset
+                global_size,                       // global_work_size
+                local_size,                        // local_work_size
+                0,                                 // num_events_in_wait_list
+                NULL,                              // event_wait_list
+                (_verbose) ? &_global_event : NULL // event
+              );
+
   if (_status == CL_SUCCESS) {
-    if (_verbose)
+    if (_verbose) {
+      _cl_profile("_cl_execute_tiled_kernel", _global_event);
+
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
+    }
+
     return 1;
-  }
-  else {
+  } else {
     if (_status == CL_INVALID_WORK_DIMENSION)
       fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
     else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
@@ -1133,6 +1207,7 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
     else
       fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
   }
+
   return 0;
 }
 
@@ -1161,4 +1236,53 @@ void _cl_release_buffer(int index) {
     _locs[index] = NULL;
     _curid--;
   }
+}
+
+void _cl_profile(const char* str, cl_event event) {
+  cl_ulong time_start;
+  cl_ulong time_end;
+  cl_ulong time_elapsed;
+
+  if (!_verbose) {
+    return;
+  }
+
+  _status = clFinish(_cmd_queue[_clid]);
+
+  if (_status != CL_SUCCESS ) {
+    fprintf(stderr, "<rtl> unable to finish command queue.");
+    return;
+  }
+
+  _status = clGetEventProfilingInfo
+              (
+                event,
+                CL_PROFILING_COMMAND_START,
+                sizeof(cl_ulong),
+                &time_start,
+                NULL
+              );
+
+  if (_status != CL_SUCCESS ) {
+    fprintf(stderr, "<rtl> unable to start profile.");
+    return;
+  }
+
+  _status = clGetEventProfilingInfo
+              (
+                event,
+                CL_PROFILING_COMMAND_END,
+                sizeof(cl_ulong),
+                &time_end,
+                NULL
+              );
+
+  if (_status != CL_SUCCESS ) {
+    fprintf(stderr, "<rtl> unable to finish profile.");
+    return;
+  }
+
+  time_elapsed = time_end - time_start;
+
+  printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
 }
