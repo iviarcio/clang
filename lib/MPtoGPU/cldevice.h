@@ -63,17 +63,17 @@ void _cldevice_init (int verbose);
 
 void _cldevice_finish ();
 
-cl_program _create_fromSource(cl_context context,
-            cl_device_id device,
-            const char* fileName);
+cl_program _create_fromSource(cl_context   context,
+                              cl_device_id device,
+                              const char*  fileName);
 
 cl_program _create_fromBinary(cl_context   context,
-            cl_device_id device,
-            const char*  fileName);
+                              cl_device_id device,
+                              const char*  fileName);
 
 int _save_toBinary(cl_program    program,
-        cl_device_id device,
-        const char*  fileName);
+                   cl_device_id device,
+                   const char*  fileName);
 
 cl_uint _get_num_cores (int A, int B, int C, int T);
 
