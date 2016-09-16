@@ -2583,7 +2583,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString("-tile-size=" + tile));
   }
 
-  if (Args.hasArg(options::OPT_fopenmp), Args.hasArg(options::OPT_fopenmp_EQ)){
+  if (Args.hasArg(options::OPT_fopenmp) || Args.hasArg(options::OPT_fopenmp_EQ)){
     CmdArgs.push_back("-fopenmp");
     
     // pass the targets we are generating code to

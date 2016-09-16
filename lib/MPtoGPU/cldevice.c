@@ -330,7 +330,7 @@ void _cldevice_init (int verbose) {
         }
 
         //Create a command queue for each context to communicate with the associated device
-        _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], 0, &_status);
+        _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], properties, &_status);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
         }
@@ -726,11 +726,11 @@ int _cl_create_write_only (uint64_t size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer on device.\n", size);
+    fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer on device.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Creating a write-only buffer %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a write-only buffer %d of size: %llu\n", _curid, size);
   return 1;
 }
 
@@ -742,11 +742,11 @@ int _cl_offloading_write_only (uint64_t size, void* loc) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, _curid);
+    fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Creating a write-only buffer %d of %lu bytes\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a write-only buffer %d of %llu bytes\n", _curid, size);
   return 1;
 }
 
@@ -758,11 +758,11 @@ int _cl_create_read_only (uint64_t size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed creating a %lu read-only buffer on device.\n", size);
+    fprintf(stderr, "<rtl> Failed creating a %llu read-only buffer on device.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Creating a read-only buffer %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a read-only buffer %d of size: %llu\n", _curid, size);
   return 1;
 }
 
@@ -788,7 +788,7 @@ int _cl_offloading_read_only (uint64_t size, void* loc) {
               );
 
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
+    fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
@@ -796,7 +796,7 @@ int _cl_offloading_read_only (uint64_t size, void* loc) {
   if (_verbose) {
     _cl_profile("_cl_offloading_read_only", _global_event);
 
-    printf("<rtl> Offloading %lu bytes to buffer %d\n", size, _curid);
+    printf("<rtl> Offloading %llu bytes to buffer %d\n", size, _curid);
   }
 
   return 1;
@@ -810,11 +810,11 @@ int _cl_create_read_write (uint64_t size) {
   _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %lu.\n", size);
+    fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %llu.\n", size);
     _curid--;
     return 0;
   }
-  if (_verbose) printf("<rtl> Creating a read-write buffer %d of size: %lu\n", _curid, size);
+  if (_verbose) printf("<rtl> Creating a read-write buffer %d of size: %llu\n", _curid, size);
   return 1;
 }
 
@@ -841,7 +841,7 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
               );
 
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, _curid);
+    fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, _curid);
     _curid--;
     return 0;
   }
@@ -849,7 +849,7 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
   if (_verbose) {
     _cl_profile("_cl_offloading_read_write", _global_event);
 
-    printf("<rtl> Creating read-write buffer %d of size: %lu\n", _curid, size);
+    printf("<rtl> Creating read-write buffer %d of size: %llu\n", _curid, size);
   }
 
   return 1;
@@ -872,13 +872,13 @@ int _cl_read_buffer (uint64_t size, int id, void* loc) {
             );
 
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed reading %lu bytes from buffer %d.\n", size, id);
+    fprintf(stderr, "<rtl> Failed reading %llu bytes from buffer %d.\n", size, id);
     return 0;
   }
 
   if (_verbose) {
     _cl_profile("_cl_read_buffer", _global_event);
-    printf("<rtl> Reading %lu bytes from buffer %d\n", size, id);
+    printf("<rtl> Reading %llu bytes from buffer %d\n", size, id);
   }
 
   return 1;
@@ -892,10 +892,10 @@ int _cl_write_buffer (uint64_t size, int id, void* loc) {
   _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
            0, size, loc, 0, NULL, NULL);
   if (_status != CL_SUCCESS) {
-    fprintf(stderr, "<rtl> Failed writing %lu bytes into buffer %d.\n", size, id);
+    fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, id);
     return 0;
   }
-  if (_verbose) printf("<rtl> Writing %lu bytes into buffer %d\n", size, id);
+  if (_verbose) printf("<rtl> Writing %llu bytes into buffer %d\n", size, id);
   return 1;
 }
 
@@ -1084,11 +1084,11 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
   if (_verbose) {
     printf("<rtl> %s will be executed on device: %d\n", _strprog[_kerid], _clid);
     printf("<rtl> Work Group was configured to:\n");
-    printf("\tX-size=%lu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
+    printf("\tX-size=%llu\t,Local X-WGS=%lu\t,Global X-WGS=%lu\n", size1, local_size[0], global_size[0]);
     if (dim >= 2)
-      printf("\tY-size=%lu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
+      printf("\tY-size=%llu\t,Local Y-WGS=%lu\t,Global Y-WGS=%lu\n", size2, local_size[1], global_size[1]);
     if (dim == 3)
-      printf("\tZ-size=%lu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
+      printf("\tZ-size=%llu\t,Local Z-WGS=%lu\t,Global Z-WGS=%lu\n", size3, local_size[2], global_size[2]);
   }
 
   _status = clEnqueueNDRangeKernel
@@ -1250,7 +1250,7 @@ void _cl_profile(const char* str, cl_event event) {
   _status = clFinish(_cmd_queue[_clid]);
 
   if (_status != CL_SUCCESS ) {
-    fprintf(stderr, "<rtl> unable to finish command queue.");
+    fprintf(stderr, "<rtl> unable to finish command queue.\n");
     return;
   }
 
@@ -1264,7 +1264,7 @@ void _cl_profile(const char* str, cl_event event) {
               );
 
   if (_status != CL_SUCCESS ) {
-    fprintf(stderr, "<rtl> unable to start profile.");
+    fprintf(stderr, "<rtl> unable to start profile.\n");
     return;
   }
 
@@ -1278,7 +1278,7 @@ void _cl_profile(const char* str, cl_event event) {
               );
 
   if (_status != CL_SUCCESS ) {
-    fprintf(stderr, "<rtl> unable to finish profile.");
+    fprintf(stderr, "<rtl> unable to finish profile.\n");
     return;
   }
 
