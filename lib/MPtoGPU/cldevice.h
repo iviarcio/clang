@@ -51,6 +51,7 @@ extern int               _cpu_present;
 extern int               _upperid;
 extern int               _curid;
 extern int               _verbose;
+extern int               _profile;
 
 extern cl_event         *_kernel_event;
 extern cl_event         _global_event;
@@ -59,7 +60,7 @@ void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name,
                        const char*    param_str);
 
-void _cldevice_init (int verbose);
+void _cldevice_init (int rtlmode);
 
 void _cldevice_finish ();
 

@@ -790,9 +790,10 @@ def fomit_frame_pointer : Flag<["-"], "fomit-frame-pointer">, Group<f_Group>;
 def fopenmp : Flag<["-"], "fopenmp">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>;
 def fopenmp_EQ : Joined<["-"], "fopenmp=">, Group<f_Group>, Flags<[CC1Option]>;
 def mptogpu : Flag<["-"], "mptogpu">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>;
-def verbose_rtl : Flag<["-"], "verbose-rtl">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>;
+def debug_schd : Flag<["-"], "debug-schd">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>;
 def schedule_parametric : Flag<["-"], "opt-poly-all">, Group<f_Group>, Flags<[CC1Option, NoArgumentUnused]>;
 def tile_size_EQ : Joined<["-"], "tile-size=">, Group<f_Group>, Flags<[CC1Option]>;
+def rtl_mode_EQ : Joined<["-"], "rtl-mode=">, Group<f_Group>, Flags<[CC1Option]>;
 
 def fno_optimize_sibling_calls : Flag<["-"], "fno-optimize-sibling-calls">, Group<f_Group>;
 def foptimize_sibling_calls : Flag<["-"], "foptimize-sibling-calls">, Group<f_Group>;

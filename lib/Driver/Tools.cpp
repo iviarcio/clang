@@ -2569,9 +2569,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
-  // pass the verbose mode for runtime library
-  if (Args.hasArg(options::OPT_verbose_rtl)) {
-    CmdArgs.push_back("-verbose-rtl");
+  // pass the debug mode for Schedule Parametric Feature
+  if (Args.hasArg(options::OPT_debug_schd)) {
+    CmdArgs.push_back("-debug-schd");
   }
   // pass the schedule-parametric option for codegen
   if (Args.hasArg(options::OPT_schedule_parametric)) {
@@ -2581,6 +2581,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {
     StringRef tile = A->getValue();
     CmdArgs.push_back(Args.MakeArgString("-tile-size=" + tile));
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_rtl_mode_EQ)) {
+    StringRef rtlmode = A->getValue();
+    CmdArgs.push_back(Args.MakeArgString("-rtl-mode=" + rtlmode));
   }
 
   if (Args.hasArg(options::OPT_fopenmp) || Args.hasArg(options::OPT_fopenmp_EQ)){

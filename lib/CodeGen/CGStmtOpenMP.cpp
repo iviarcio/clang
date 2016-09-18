@@ -1214,7 +1214,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // ========================================================
     // Preparing data to Polyedral extraction & parallelization
     // ========================================================
-    bool verbose = CGM.getLangOpts().RtlVerbose;
+    bool verbose = CGM.getLangOpts().SchdDebug;
     bool scheduleParametric = CGM.getLangOpts().ScheduleParametric;
 
     // Start creating a unique filename that refers to scop function
@@ -1453,7 +1453,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       const std::string polycg = pcg + cName;
       std::system(polycg.c_str());
-      // verbose preserve temp files (for debuging)
+      // verbose preserve temp files (for debuging Schedule Parametric Feature)
       if (!verbose) {
 	const std::string rmCfile = "rm " + FileName + ".c";
 	std::system(rmCfile.c_str());

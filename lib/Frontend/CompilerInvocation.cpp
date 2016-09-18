@@ -1538,7 +1538,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
-  Opts.RtlVerbose = Args.hasArg(OPT_verbose_rtl);
+  Opts.SchdDebug = Args.hasArg(OPT_debug_schd);
   Opts.ScheduleParametric = Args.hasArg(OPT_schedule_parametric);
 
   unsigned tileSize = 16; // default value
@@ -1546,6 +1546,33 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     StringRef(A->getValue()).getAsInteger(0, tileSize);
   }    
   Opts.TileSize = tileSize;
+
+  Opts.setRtlMode(LangOptions::RTL_none); // default value
+  if (Arg *A = Args.getLastArg(options::OPT_rtl_mode_EQ)) {
+    switch (llvm::StringSwitch<unsigned>(A->getValue())
+	    .Case("none", LangOptions::RTL_none)
+	    .Case("verbose", LangOptions::RTL_verbose)
+	    .Case("profile", LangOptions::RTL_profile)
+	    .Case("all", LangOptions::RTL_all)
+	    .Default(255)) {
+    default:
+      Diags.Report(diag::err_drv_invalid_value) 
+        << "-rtl-mode=" << A->getValue();
+      break;
+    case LangOptions::RTL_none:
+      Opts.setRtlMode(LangOptions::RTL_none);
+      break;
+    case LangOptions::RTL_verbose:
+      Opts.setRtlMode(LangOptions::RTL_verbose);
+      break;
+    case LangOptions::RTL_profile:
+      Opts.setRtlMode(LangOptions::RTL_profile);
+      break;
+    case LangOptions::RTL_all:
+      Opts.setRtlMode(LangOptions::RTL_all);
+      break;
+    }
+  }    
   
   // Get the OpenMP target triples if any
   if ( Arg *A = Args.getLastArg(options::OPT_omptargets_EQ) ){

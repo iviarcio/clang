@@ -49,9 +49,12 @@ int               _cpu_present;
 int               _upperid;
 int               _curid;
 int               _verbose;
+int               _profile;
 int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
 cl_event         _global_event;
+
+enum RtlModeOptions { RTL_none, RTL_verbose, RTL_profile, RTL_all };
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name,
@@ -170,14 +173,15 @@ void _cldevice_details(cl_device_id   id,
 //
 // Initialize cldevice
 //
-void _cldevice_init (int verbose) {
+void _cldevice_init (int rtlmode) {
 
   cl_uint nplatforms;
   cl_uint ndev;
   cl_uint i;
   cl_uint idx;
 
-  _verbose = verbose;
+  _verbose = rtlmode == RTL_verbose || rtlmode == RTL_all;
+  _profile = rtlmode == RTL_profile || rtlmode == RTL_all;
 
   if (_device == NULL) {
     //Fetch the main Platform (the first one)
@@ -315,13 +319,8 @@ void _cldevice_init (int verbose) {
 
       if (_device[i] != NULL) {
         cl_command_queue_properties properties;
-
-        properties = 0;
-
-        if (_verbose) {
-          // enabling profile
-          properties = CL_QUEUE_PROFILING_ENABLE;
-        }
+	// enabling profile if set (i.e. rtlmode == profile or all)
+	properties = _profile ? CL_QUEUE_PROFILING_ENABLE : 0;
 
         //Create one OpenCL context for each device in the platform
         _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
@@ -784,7 +783,7 @@ int _cl_offloading_read_only (uint64_t size, void* loc) {
                 loc,
                 0,
                 NULL,
-                (_verbose) ? &_global_event : NULL
+                (_profile) ? &_global_event : NULL
               );
 
   if (_status != CL_SUCCESS) {
@@ -793,9 +792,10 @@ int _cl_offloading_read_only (uint64_t size, void* loc) {
     return 0;
   }
 
-  if (_verbose) {
+  if (_profile) {
     _cl_profile("_cl_offloading_read_only", _global_event);
-
+  }
+  if (_verbose) {
     printf("<rtl> Offloading %llu bytes to buffer %d\n", size, _curid);
   }
 
@@ -837,7 +837,7 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
                 loc,
                 0,
                 NULL,
-                (_verbose) ? &_global_event : NULL
+                (_profile) ? &_global_event : NULL
               );
 
   if (_status != CL_SUCCESS) {
@@ -846,9 +846,10 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
     return 0;
   }
 
-  if (_verbose) {
+  if (_profile) {
     _cl_profile("_cl_offloading_read_write", _global_event);
-
+  }
+  if (_verbose) {
     printf("<rtl> Creating read-write buffer %d of size: %llu\n", _curid, size);
   }
 
@@ -868,7 +869,7 @@ int _cl_read_buffer (uint64_t size, int id, void* loc) {
               loc,
               0,
               NULL,
-              (_verbose) ? &_global_event : NULL
+              (_profile) ? &_global_event : NULL
             );
 
   if (_status != CL_SUCCESS) {
@@ -876,8 +877,10 @@ int _cl_read_buffer (uint64_t size, int id, void* loc) {
     return 0;
   }
 
-  if (_verbose) {
+  if (_profile) {
     _cl_profile("_cl_read_buffer", _global_event);
+  }
+  if (_verbose) {
     printf("<rtl> Reading %llu bytes from buffer %d\n", size, id);
   }
 
@@ -889,13 +892,27 @@ int _cl_read_buffer (uint64_t size, int id, void* loc) {
 //
 int _cl_write_buffer (uint64_t size, int id, void* loc) {
 
-  _status = clEnqueueWriteBuffer(_cmd_queue[_clid], _locs[id], CL_TRUE,
-           0, size, loc, 0, NULL, NULL);
+  _status = clEnqueueWriteBuffer(_cmd_queue[_clid],
+				 _locs[id],
+				 CL_TRUE,
+				 0,
+				 size,
+				 loc,
+				 0,
+				 NULL,
+				 (_profile) ? &_global_event : NULL);
+  
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, id);
     return 0;
   }
-  if (_verbose) printf("<rtl> Writing %llu bytes into buffer %d\n", size, id);
+
+  if (_profile) {
+    _cl_profile("_cl_write_buffer", _global_event);
+  }
+  if (_verbose) {
+    printf("<rtl> Writing %llu bytes into buffer %d\n", size, id);
+  }
   return 1;
 }
 
@@ -1101,13 +1118,14 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
                 local_size,                        // local_work_size
                 0,                                 // num_events_in_wait_list
                 NULL,                              // event_wait_list
-                (_verbose) ? &_global_event : NULL // event
+                (_profile) ? &_global_event : NULL // event
               );
 
   if (_status == CL_SUCCESS) {
-    if (_verbose) {
+    if (_profile) {
       _cl_profile("_cl_execute_kernel", _global_event);
-
+    }
+    if (_verbose) {    
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     }
     return 1;
@@ -1184,13 +1202,14 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
                 local_size,                        // local_work_size
                 0,                                 // num_events_in_wait_list
                 NULL,                              // event_wait_list
-                (_verbose) ? &_global_event : NULL // event
+                (_profile) ? &_global_event : NULL // event
               );
 
   if (_status == CL_SUCCESS) {
-    if (_verbose) {
+    if (_profile) {
       _cl_profile("_cl_execute_tiled_kernel", _global_event);
-
+    }
+    if (_verbose) {
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     }
 
@@ -1243,7 +1262,7 @@ void _cl_profile(const char* str, cl_event event) {
   cl_ulong time_end;
   cl_ulong time_elapsed;
 
-  if (!_verbose) {
+  if (!_profile) {
     return;
   }
 

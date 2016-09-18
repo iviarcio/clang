@@ -74,6 +74,8 @@ public:
 
   enum AddrSpaceMapMangling { ASMM_Target, ASMM_On, ASMM_Off };
 
+  enum RtlModeOptions { RTL_none, RTL_verbose, RTL_profile, RTL_all };
+
 public:
   clang::ObjCRuntime ObjCRuntime;
 
