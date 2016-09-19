@@ -2569,13 +2569,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
-  // pass the debug mode for Schedule Parametric Feature
+  // pass the debug mode for Schedule Parametric Feature in Polyhedral Optmization
   if (Args.hasArg(options::OPT_debug_schd)) {
     CmdArgs.push_back("-debug-schd");
   }
-  // pass the schedule-parametric option for codegen
-  if (Args.hasArg(options::OPT_schedule_parametric)) {
-    CmdArgs.push_back("-opt-poly-all");
+  
+  // pass the polyhedral optimization (if any) for codegen
+  if (Arg *A = Args.getLastArg(options::OPT_polyhedral_EQ)) {
+    StringRef polymode = A->getValue();
+    CmdArgs.push_back(Args.MakeArgString("-opt-poly=" + polymode));
   }
 
   if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {

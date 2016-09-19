@@ -76,6 +76,8 @@ public:
 
   enum RtlModeOptions { RTL_none, RTL_verbose, RTL_profile, RTL_all };
 
+  enum PolyhedralOptions { OPT_none, OPT_tile, OPT_stripmine, OPT_vectorize, OPT_all };
+
 public:
   clang::ObjCRuntime ObjCRuntime;
 

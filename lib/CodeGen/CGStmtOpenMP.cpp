@@ -1211,11 +1211,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       return;
     }
 
-    // ========================================================
-    // Preparing data to Polyedral extraction & parallelization
-    // ========================================================
+    // =========================================================
+    // Preparing data to Polyhedral extraction & parallelization
+    // =========================================================
+    LangOptions::PolyhedralOptions polymode = CGM.getLangOpts().getOptPoly();
+    bool scheduleParametric = (polymode == LangOptions::OPT_tile) || (polymode == LangOptions::OPT_all);
     bool verbose = CGM.getLangOpts().SchdDebug;
-    bool scheduleParametric = CGM.getLangOpts().ScheduleParametric;
 
     // Start creating a unique filename that refers to scop function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(),true);

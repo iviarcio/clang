@@ -1539,7 +1539,37 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
   Opts.OpenMPTargetMode = Args.hasArg(OPT_omp_target_mode);
   Opts.SchdDebug = Args.hasArg(OPT_debug_schd);
-  Opts.ScheduleParametric = Args.hasArg(OPT_schedule_parametric);
+
+  Opts.setOptPoly(LangOptions::OPT_none); // default value
+  if (Arg *A = Args.getLastArg(options::OPT_polyhedral_EQ)) {
+    switch (llvm::StringSwitch<unsigned>(A->getValue())
+	    .Case("none", LangOptions::OPT_none)
+	    .Case("tile", LangOptions::OPT_tile)
+	    .Case("stripmine", LangOptions::OPT_stripmine)
+	    .Case("vectorize", LangOptions::OPT_vectorize)
+	    .Case("all", LangOptions::OPT_all)
+	    .Default(255)) {
+    default:
+      Diags.Report(diag::err_drv_invalid_value) 
+        << "-opt-poly=" << A->getValue();
+      break;
+    case LangOptions::OPT_none:
+      Opts.setOptPoly(LangOptions::OPT_none);
+      break;
+    case LangOptions::OPT_tile:
+      Opts.setOptPoly(LangOptions::OPT_tile);
+      break;
+    case LangOptions::OPT_stripmine:
+      Opts.setOptPoly(LangOptions::OPT_stripmine);
+      break;
+    case LangOptions::OPT_vectorize:
+      Opts.setOptPoly(LangOptions::OPT_vectorize);
+      break;
+    case LangOptions::OPT_all:
+      Opts.setOptPoly(LangOptions::OPT_all);
+      break;
+    }
+  }    
 
   unsigned tileSize = 16; // default value
   if (Arg *A = Args.getLastArg(options::OPT_tile_size_EQ)) {
