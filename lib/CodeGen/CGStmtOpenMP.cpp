@@ -1207,7 +1207,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // When an if clause is present and the if clause expression
     // evaluates to false, the loop will be executed on host.
     if(isTargetDataIf && TargetDataIfRegion == 2) {
-      EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+      EmitStmt(CS->getCapturedStmt());
       return;
     }
 
@@ -6179,12 +6180,12 @@ void CodeGenFunction::ReleaseBuffers() {
 // Release Buffers of mapped locations
 //
 void CodeGenFunction::ReleaseBuffers(int init, int count) {
-	int i;
-	for(i=(init+count-1); i>=init; i--) {
-	  llvm::Value *Status = nullptr;
-	  llvm::Value *Args[] = {Builder.getInt32(i)};
-	  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Args);
-	}
+  int i;
+  for(i=(init+count-1); i>=init; i--) {
+    llvm::Value *Status = nullptr;
+    llvm::Value *Args[] = {Builder.getInt32(i)};
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Args);
+  }
 }
 
 //
@@ -6278,8 +6279,8 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
       break;
     case OMP_TGT_MAPTYPE_FROM:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_write_only(), Args); // version 2.1
-      // Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly); version <= 2.0
+      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_write_only(), Args); // gpuclang >= version 2.1
+      // Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly); gpuclang <= 2.0
       break;
     case OMP_TGT_MAPTYPE_ALLOC:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
@@ -6458,7 +6459,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	  }
 	}
       }      
-      //CGM.OpenMPSupport.PrintAllStack(); //For test purposes only
+      //CGM.OpenMPSupport.PrintAllStack(); //Used for test purposes only
     }
     
     EmitStmt(CS->getCapturedStmt());
