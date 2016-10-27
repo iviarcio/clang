@@ -52,9 +52,69 @@ int               _verbose;
 int               _profile;
 int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
 
-cl_event         _global_event;
+cl_event          _global_event;
 
 enum RtlModeOptions { RTL_none, RTL_verbose, RTL_profile, RTL_all };
+
+void _clErrorCode(cl_int status) {
+  if (_verbose || _profile) {
+    char* code;
+    switch (status) {
+    case CL_DEVICE_NOT_FOUND:                         code = "CL_DEVICE_NOT_FOUND"; break;
+    case CL_DEVICE_NOT_AVAILABLE:                     code = "CL_DEVICE_NOT_AVAILABLE"; break;
+    case CL_COMPILER_NOT_AVAILABLE:                   code = "CL_COMPILER_NOT_AVAILABLE"; break;
+    case CL_MEM_OBJECT_ALLOCATION_FAILURE:            code = "CL_MEM_OBJECT_ALLOCATION_FAILURE"; break;
+    case CL_OUT_OF_RESOURCES:                         code = "CL_OUT_OF_RESOURCES"; break;
+    case CL_OUT_OF_HOST_MEMORY:                       code = "CL_OUT_OF_HOST_MEMORY"; break;
+    case CL_PROFILING_INFO_NOT_AVAILABLE:             code = "CL_PROFILING_INFO_NOT_AVAILABLE"; break;
+    case CL_MEM_COPY_OVERLAP:                         code = "CL_MEM_COPY_OVERLAP"; break;
+    case CL_IMAGE_FORMAT_MISMATCH:                    code = "CL_IMAGE_FORMAT_MISMATCH"; break;
+    case CL_IMAGE_FORMAT_NOT_SUPPORTED:               code = "CL_IMAGE_FORMAT_NOT_SUPPORTED"; break;
+    case CL_BUILD_PROGRAM_FAILURE:                    code = "CL_BUILD_PROGRAM_FAILURE"; break;
+    case CL_MAP_FAILURE:                              code = "CL_MAP_FAILURE"; break;
+    case CL_MISALIGNED_SUB_BUFFER_OFFSET:             code = "CL_MISALIGNED_SUB_BUFFER_OFFSET"; break;
+    case CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST:code = "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST"; break;  
+    case CL_INVALID_VALUE:                            code = "CL_INVALID_VALUE"; break;
+    case CL_INVALID_DEVICE_TYPE:                      code = "CL_INVALID_DEVICE_TYPE"; break;
+    case CL_INVALID_PLATFORM:                         code = "CL_INVALID_PLATFORM"; break;
+    case CL_INVALID_DEVICE:                           code = "CL_INVALID_DEVICE"; break;
+    case CL_INVALID_CONTEXT:                          code = "CL_INVALID_CONTEXT"; break;
+    case CL_INVALID_QUEUE_PROPERTIES:                 code = "CL_INVALID_QUEUE_PROPERTIES"; break;
+    case CL_INVALID_COMMAND_QUEUE:                    code = "CL_INVALID_COMMAND_QUEUE"; break;
+    case CL_INVALID_HOST_PTR:                         code = "CL_INVALID_HOST_PTR"; break;
+    case CL_INVALID_MEM_OBJECT:                       code = "CL_INVALID_MEM_OBJECT"; break;
+    case CL_INVALID_IMAGE_FORMAT_DESCRIPTOR:          code = "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR"; break;
+    case CL_INVALID_IMAGE_SIZE:                       code = "CL_INVALID_IMAGE_SIZE"; break;
+    case CL_INVALID_SAMPLER:                          code = "CL_INVALID_SAMPLER"; break;
+    case CL_INVALID_BINARY:                           code = "CL_INVALID_BINARY"; break;
+    case CL_INVALID_BUILD_OPTIONS:                    code = "CL_INVALID_BUILD_OPTIONS"; break;
+    case CL_INVALID_PROGRAM:                          code = "CL_INVALID_PROGRAM"; break;
+    case CL_INVALID_PROGRAM_EXECUTABLE:               code = "CL_INVALID_PROGRAM_EXECUTABLE"; break;
+    case CL_INVALID_KERNEL_NAME:                      code = "CL_INVALID_KERNEL_NAME"; break;
+    case CL_INVALID_KERNEL_DEFINITION:                code = "CL_INVALID_KERNEL_DEFINITION"; break;
+    case CL_INVALID_KERNEL:                           code = "CL_INVALID_KERNEL"; break;
+    case CL_INVALID_ARG_INDEX:                        code = "CL_INVALID_ARG_INDEX"; break;
+    case CL_INVALID_ARG_VALUE:                        code = "CL_INVALID_ARG_VALUE"; break;
+    case CL_INVALID_ARG_SIZE:                         code = "CL_INVALID_ARG_SIZE"; break;
+    case CL_INVALID_KERNEL_ARGS:                      code = "CL_INVALID_KERNEL_ARGS"; break;
+    case CL_INVALID_WORK_DIMENSION:                   code = "CL_INVALID_WORK_DIMENSION"; break;
+    case CL_INVALID_WORK_GROUP_SIZE:                  code = "CL_INVALID_WORK_GROUP_SIZE"; break;
+    case CL_INVALID_WORK_ITEM_SIZE:                   code = "CL_INVALID_WORK_ITEM_SIZE"; break;
+    case CL_INVALID_GLOBAL_OFFSET:                    code = "CL_INVALID_GLOBAL_OFFSET"; break;
+    case CL_INVALID_EVENT_WAIT_LIST:                  code = "CL_INVALID_EVENT_WAIT_LIST"; break;
+    case CL_INVALID_EVENT:                            code = "CL_INVALID_EVENT"; break;
+    case CL_INVALID_OPERATION:                        code = "CL_INVALID_OPERATION"; break;
+    case CL_INVALID_GL_OBJECT:                        code = "CL_INVALID_GL_OBJECT"; break;
+    case CL_INVALID_BUFFER_SIZE:                      code = "CL_INVALID_BUFFER_SIZE"; break;
+    case CL_INVALID_MIP_LEVEL:                        code = "CL_INVALID_MIP_LEVEL"; break;
+    case CL_INVALID_GLOBAL_WORK_SIZE:                 code = "CL_INVALID_GLOBAL_WORK_SIZE"; break;
+    case CL_INVALID_PROPERTY:                         code = "CL_INVALID_PROPERTY";      
+    default:                                          code = "CL_UNKNOWN_ERROR_CODE";      
+    }
+    fprintf(stderr, "<rtl> Error Code: %s\n", code);
+  }
+}
+		     
 
 void _cldevice_details(cl_device_id   id,
                        cl_device_info param_name,
@@ -66,6 +126,7 @@ void _cldevice_details(cl_device_id   id,
   status = clGetDeviceInfo( id, param_name, 0, NULL, &param_size );
   if (status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+    _clErrorCode (status);
     return;
   }
 
@@ -76,6 +137,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, devType, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       switch (*devType) {
@@ -92,6 +154,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       switch (param_name) {
@@ -111,6 +174,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(cl_uint), &maxWIDimensions, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       printf("\tMaximum number of work-items in each dimension: ( ");
@@ -124,6 +188,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, ret, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
@@ -134,6 +199,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, data, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       switch (param_name) {
@@ -148,6 +214,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       printf("\tDevice global cacheline size: %d bytes\n", (*size)); break;
@@ -158,6 +225,7 @@ void _cldevice_details(cl_device_id   id,
       status = clGetDeviceInfo( id, param_name, param_size, size, NULL );
       if (status != CL_SUCCESS ) {
         fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
         return;
       }
       switch (param_name) {
@@ -188,6 +256,7 @@ void _cldevice_init (int rtlmode) {
     _status = clGetPlatformIDs(1, &_platform, &nplatforms);
     if (_status != CL_SUCCESS || nplatforms <= 0) {
       fprintf(stderr, "<rtl> Failed to find any OpenCL platform.\n");
+      _clErrorCode (_status);
       exit(1);
     }
 
@@ -213,6 +282,7 @@ void _cldevice_init (int rtlmode) {
     _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ALL, 0, NULL, &_ndevices);
     if (_status != CL_SUCCESS) {
       fprintf(stderr, "<rtl> Failed to find any OpenCL device.\n");
+      _clErrorCode (_status);
       exit(1);
     }
 
@@ -243,6 +313,7 @@ void _cldevice_init (int rtlmode) {
       _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_CPU, 1, &_device[idx], NULL);
       if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> Failed to create CPU device id .\n");
+        _clErrorCode (_status);
       }
       else {
         _cpu_present = 1;
@@ -261,6 +332,7 @@ void _cldevice_init (int rtlmode) {
         _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_GPU, ndev, &_device[idx], NULL);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create GPU device id(s) .\n");
+	  _clErrorCode (_status);
         }
         else {
           _gpu_present = 1;
@@ -280,6 +352,7 @@ void _cldevice_init (int rtlmode) {
         _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_ACCELERATOR, ndev, &_device[idx], NULL);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create any accelerator device id .\n");
+	  _clErrorCode (_status);
         }
       }
     }
@@ -296,6 +369,7 @@ void _cldevice_init (int rtlmode) {
         _status = clGetDeviceIDs(_platform, CL_DEVICE_TYPE_DEFAULT, ndev, &_device[idx], NULL);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create any unknown device id .\n");
+	  _clErrorCode (_status);
         }
       }
     }
@@ -326,12 +400,14 @@ void _cldevice_init (int rtlmode) {
         _context[i] = clCreateContext( NULL, 1, &_device[i], NULL, NULL, &_status);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create context for device %u.\n", i);
+	  _clErrorCode (_status);
         }
 
         //Create a command queue for each context to communicate with the associated device
         _cmd_queue[i] = clCreateCommandQueue(_context[i], _device[i], properties, &_status);
         if (_status != CL_SUCCESS) {
           fprintf(stderr, "<rtl> Failed to create commandQueue for device %u.\n", i);
+	  _clErrorCode (_status);
         }
       }
     }
@@ -726,6 +802,7 @@ int _cl_create_write_only (uint64_t size) {
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer on device.\n", size);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -742,6 +819,7 @@ int _cl_offloading_write_only (uint64_t size, void* loc) {
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer %d.\n", size, _curid);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -758,6 +836,7 @@ int _cl_create_read_only (uint64_t size) {
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %llu read-only buffer on device.\n", size);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -788,6 +867,7 @@ int _cl_offloading_read_only (uint64_t size, void* loc) {
 
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, _curid);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -811,6 +891,7 @@ int _cl_create_read_write (uint64_t size) {
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %llu.\n", size);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -842,6 +923,7 @@ int _cl_offloading_read_write (uint64_t size, void* loc) {
 
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, _curid);
+    _clErrorCode (_status);
     _curid--;
     return 0;
   }
@@ -874,6 +956,7 @@ int _cl_read_buffer (uint64_t size, int id, void* loc) {
 
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed reading %llu bytes from buffer %d.\n", size, id);
+    _clErrorCode (_status);
     return 0;
   }
 
@@ -904,6 +987,7 @@ int _cl_write_buffer (uint64_t size, int id, void* loc) {
   
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed writing %llu bytes into buffer %d.\n", size, id);
+    _clErrorCode (_status);
     return 0;
   }
 
@@ -1039,6 +1123,7 @@ int _cl_set_kernel_args (int nargs) {
     _status |= clSetKernelArg (_kernel[_kerid], i, sizeof(cl_mem), &_locs[i]);
     if (_status != CL_SUCCESS) {
       fprintf(stderr, "<rtl> Error setting buffer %d to kernel in pos %d.\n", i, i);
+      _clErrorCode (_status);
       return 0;
     }
     if (_verbose) printf("<rtl> Pass buffer %d to kernel in pos %d\n", i, i);
@@ -1053,6 +1138,7 @@ int _cl_set_kernel_arg (int pos, int index) {
   _status |= clSetKernelArg (_kernel[_kerid], pos, sizeof(cl_mem), &_locs[index]);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Error setting buffer %d to kernel in pos %d.\n", index, pos);
+    _clErrorCode (_status);
     return 0;
   }
   if (_verbose) printf("<rtl> Pass buffer %d to kernel in pos %d\n", index, pos);
@@ -1066,6 +1152,7 @@ int _cl_set_kernel_hostArg (int pos, int size, void* loc) {
   _status = clSetKernelArg (_kernel[_kerid], pos, size, loc);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Error setting host args on device.\n");
+    _clErrorCode (_status);
     return 0;
   }
   return 1;
@@ -1139,7 +1226,8 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
     else if (_status == CL_INVALID_WORK_ITEM_SIZE)
       fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
     else
-      fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
+      fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
+    _clErrorCode (_status);
   }
 
   return 0;
@@ -1224,7 +1312,8 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
     else if (_status == CL_INVALID_WORK_ITEM_SIZE)
       fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
     else
-      fprintf(stderr, "<rtl> Error executing kernel on device %d. Error Code = %d\n", _clid, _status);
+      fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
+    _clErrorCode (_status);
   }
 
   return 0;
@@ -1270,6 +1359,7 @@ void _cl_profile(const char* str, cl_event event) {
 
   if (_status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> unable to finish command queue.\n");
+    _clErrorCode (_status);
     return;
   }
 
@@ -1284,6 +1374,7 @@ void _cl_profile(const char* str, cl_event event) {
 
   if (_status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> unable to start profile.\n");
+    _clErrorCode (_status);
     return;
   }
 
@@ -1298,6 +1389,7 @@ void _cl_profile(const char* str, cl_event event) {
 
   if (_status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> unable to finish profile.\n");
+    _clErrorCode (_status);
     return;
   }
 
