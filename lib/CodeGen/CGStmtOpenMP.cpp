@@ -1216,7 +1216,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Preparing data to Polyhedral extraction & parallelization
     // =========================================================
     LangOptions::PolyhedralOptions polymode = CGM.getLangOpts().getOptPoly();
-    bool scheduleParametric = (polymode == LangOptions::OPT_tile) || (polymode == LangOptions::OPT_all);
+    bool tile = (polymode == LangOptions::OPT_tile) || (polymode == LangOptions::OPT_all);
+    bool vectorize = (polymode == LangOptions::OPT_vectorize) || (polymode == LangOptions::OPT_all);
+    bool stripmine = (polymode == LangOptions::OPT_stripmine) || (polymode == LangOptions::OPT_all);
     bool verbose = CGM.getLangOpts().SchdDebug;
 
     // Start creating a unique filename that refers to scop function
@@ -1383,7 +1385,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     int k = 0;
     std::vector<std::pair<int,std::string>> pName;
     
-    if (!scheduleParametric) {
+    if (!(tile || vectorize || stripmine)) {
       const std::string rmFile = "rm " + FileName;
       std::system(rmFile.c_str());      
     } else {
@@ -1443,6 +1445,13 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	}
       }
 
+      if (vectorize) {
+	// For now, vectorize has some limitations. We will
+	// ignore ChunkSize and use tile-size = 4, instead.
+	// Also, turn off use of shared & private memories.
+	ChunkSize = "--tile-size=4 --no-shared-memory --no-private-memory ";
+      }
+      
       std::string pcg;    
       if (verbose) {
 	pcg = "clang-pcg --verbose " + ChunkSize;
@@ -1455,7 +1464,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       const std::string polycg = pcg + cName;
       std::system(polycg.c_str());
-      // verbose preserve temp files (for debuging Schedule Parametric Feature)
+      // verbose preserve temp files (for debuging polyhedral optimizations)
       if (!verbose) {
 	const std::string rmCfile = "rm " + FileName + ".c";
 	std::system(rmCfile.c_str());
@@ -1503,10 +1512,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     
     // CLgen control whether we need to generate original code
-    // if scheduleParametric but workSizes = 0, means Polyhedral do not work.
-    // In this case Gen original code
+    // if polyhedral optimization but workSizes = 0, means that
+    // polyhedral does not work. In this case Gen original code.
     bool CLgen = true;
-    if (scheduleParametric)
+    if (tile || vectorize || stripmine)
       if (workSizes[0][0] != 0)
 	CLgen = false;
 
@@ -1667,6 +1676,12 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       AXOS.close();
       const std::string rmAuxfile = "rm " + AuxName;
       std::system(rmAuxfile.c_str());
+    }
+
+    // Generate vectorization ?
+    if (vectorize) {
+      const std::string vectorizer = "vectorizer -silent " + clName;
+      std::system(vectorizer.c_str());
     }
     
     // Generate the spir-code ?

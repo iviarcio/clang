@@ -248,8 +248,8 @@ void _cldevice_init (int rtlmode) {
   cl_uint i;
   cl_uint idx;
 
-  _verbose = rtlmode == RTL_verbose || rtlmode == RTL_all;
-  _profile = rtlmode == RTL_profile || rtlmode == RTL_all;
+  _verbose = (rtlmode == RTL_verbose) || (rtlmode == RTL_all);
+  _profile = (rtlmode == RTL_profile) || (rtlmode == RTL_all);
 
   if (_device == NULL) {
     //Fetch the main Platform (the first one)
@@ -448,7 +448,6 @@ void _cldevice_finish() {
     _status = clFlush(_cmd_queue[i]);
     _status = clFinish(_cmd_queue[i]);
   }
-
 
   // Release OpenCL allocated objects
   for (i = 0; i < _sentinel; i++) {
@@ -1229,7 +1228,6 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
       fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
     _clErrorCode (_status);
   }
-
   return 0;
 }
 
@@ -1243,7 +1241,7 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
   size_t  *global_size;
   size_t  *local_size;
   cl_uint  wd = dim;
-
+  
   global_size = (size_t *) calloc(3, sizeof(size_t));
   local_size = (size_t *) calloc(3, sizeof(size_t));
 
@@ -1300,7 +1298,6 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
     if (_verbose) {
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     }
-
     return 1;
   } else {
     if (_status == CL_INVALID_WORK_DIMENSION)
@@ -1315,7 +1312,6 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
       fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
     _clErrorCode (_status);
   }
-
   return 0;
 }
 

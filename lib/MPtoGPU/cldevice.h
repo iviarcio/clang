@@ -53,7 +53,8 @@ extern int               _curid;
 extern int               _verbose;
 extern int               _profile;
 
-extern cl_event         *_kernel_event;
+extern int               _work_group[9];
+
 extern cl_event         _global_event;
 
 void _cldevice_details(cl_device_id   id,
