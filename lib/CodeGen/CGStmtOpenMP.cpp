@@ -1464,7 +1464,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       const std::string polycg = pcg + cName;
       std::system(polycg.c_str());
-      // verbose preserve temp files (for debuging polyhedral optimizations)
+      // verbose preserve temp files (for debug purposes)
       if (!verbose) {
 	const std::string rmCfile = "rm " + FileName + ".c";
 	std::system(rmCfile.c_str());
@@ -1682,6 +1682,10 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (vectorize) {
       const std::string vectorizer = "vectorizer -silent " + clName;
       std::system(vectorizer.c_str());
+      if (!verbose) {
+	const std::string rmAuxfile = "rm " + AuxName;
+	std::system(rmAuxfile.c_str());    
+      }
     }
     
     // Generate the spir-code ?
