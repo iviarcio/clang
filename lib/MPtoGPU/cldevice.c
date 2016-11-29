@@ -797,7 +797,7 @@ void _inc_curid () {
 //
 int _cl_create_write_only (uint64_t size) {
   _inc_curid();
-  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer on device.\n", size);
@@ -814,7 +814,7 @@ int _cl_create_write_only (uint64_t size) {
 //
 int _cl_offloading_write_only (uint64_t size, void* loc) {
   _inc_curid();
-  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY,
+  _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
          size, NULL, &_status);
   if (_status != CL_SUCCESS) {
     fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer %d.\n", size, _curid);
@@ -1098,19 +1098,17 @@ int _cl_create_program (char* str) {
 //
 int _cl_create_kernel (char* str) {
 
+  if (_kernel[_kerid] != NULL) {
+    clReleaseKernel(_kernel[_kerid]);
+  }
+
+  if (_verbose) printf("<rtl> Creating the kernel object for %s.\n", str);
+  _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
   if (_kernel[_kerid] == NULL) {
-
-    if (_verbose)
-      printf("<rtl> Creating the kernel object for %s.\n", str);
-
-    _kernel[_kerid] = clCreateKernel(_program[_kerid], str, NULL);
-    if (_kernel[_kerid] == NULL) {
-      fprintf(stderr, "<rtl> Failed to create kernel object.\n");
-      return 0;
-    }
+    fprintf(stderr, "<rtl> Failed to create kernel object.\n");
+    return 0;
   }
   return 1;
-
 }
 
 //
@@ -1299,19 +1297,19 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
       printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
     }
     return 1;
-  } else {
-    if (_status == CL_INVALID_WORK_DIMENSION)
-      fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
-    else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
-      fprintf(stderr, "<rtl> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
-    else if (_status == CL_INVALID_WORK_GROUP_SIZE)
-      fprintf(stderr, "<rtl> Error executing kernel. Local Work Size does not match the Work Group size.\n");
-    else if (_status == CL_INVALID_WORK_ITEM_SIZE)
-      fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
-    else
-      fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
-    _clErrorCode (_status);
   }
+
+  if (_status == CL_INVALID_WORK_DIMENSION)
+    fprintf(stderr, "<rtl> Error executing kernel. Number of dimmensions is not a valid value.\n");
+  else if (_status == CL_INVALID_GLOBAL_WORK_SIZE)
+    fprintf(stderr, "<rtl> Error executing kernel. Global Work Size is NULL or exceeded valid range.\n");
+  else if (_status == CL_INVALID_WORK_GROUP_SIZE)
+    fprintf(stderr, "<rtl> Error executing kernel. Local Work Size does not match the Work Group size.\n");
+  else if (_status == CL_INVALID_WORK_ITEM_SIZE)
+    fprintf(stderr, "<rtl> Error executing kernel. The number of work-items is greater than Max Work-items.\n");
+  else
+    fprintf(stderr, "<rtl> Error executing kernel on device %d\n", _clid);
+  _clErrorCode (_status);
   return 0;
 }
 
@@ -1350,9 +1348,8 @@ void _cl_profile(const char* str, cl_event event) {
   if (!_profile) {
     return;
   }
-
+  
   _status = clFinish(_cmd_queue[_clid]);
-
   if (_status != CL_SUCCESS ) {
     fprintf(stderr, "<rtl> unable to finish command queue.\n");
     _clErrorCode (_status);
