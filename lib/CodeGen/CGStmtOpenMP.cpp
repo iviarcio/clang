@@ -1216,6 +1216,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Preparing data to Polyhedral extraction & parallelization
     // =========================================================
     LangOptions::PolyhedralOptions polymode = CGM.getLangOpts().getOptPoly();
+    bool naive = (polymode == LangOptions::OPT_none);
     bool tile = (polymode == LangOptions::OPT_tile) || (polymode == LangOptions::OPT_all);
     bool vectorize = (polymode == LangOptions::OPT_vectorize) || (polymode == LangOptions::OPT_all);
     bool stripmine = (polymode == LangOptions::OPT_stripmine) || (polymode == LangOptions::OPT_all);
@@ -1385,7 +1386,7 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     int k = 0;
     std::vector<std::pair<int,std::string>> pName;
     
-    if (!(tile || vectorize || stripmine)) {
+    if (!(naive || tile || vectorize || stripmine)) {
       const std::string rmFile = "rm " + FileName;
       std::system(rmFile.c_str());      
     } else {
@@ -1445,9 +1446,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 	}
       }
 
-      if (vectorize) {
-	// For now, vectorize has some limitations. We will
-	// ignore ChunkSize and use tile-size = 4, instead.
+      if (naive) {
+	ChunkSize = "--no-reschedule --tile-size=1 --no-shared-memory --no-private-memory ";	
+      }
+      else if (vectorize) {
+	// Vectorize use tile-size = 4, the preferred vector size for float.
 	// Also, turn off use of shared & private memories.
 	ChunkSize = "--tile-size=4 --no-shared-memory --no-private-memory ";
       }
@@ -1511,11 +1514,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     llvm::Value *FileStr = Builder.CreateGlobalStringPtr(FileName);
     Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStr);
     
-    // CLgen control whether we need to generate original code
-    // if polyhedral optimization but workSizes = 0, means that
-    // polyhedral does not work. In this case Gen original code.
+    // CLgen control whether we need to generate the default kernel code.
+    // The polyhedral optimization returns workSizes = 0, meaning that
+    // the polyhedral does not worked. In this case Gen default kernel.
     bool CLgen = true;
-    if (tile || vectorize || stripmine)
+    if (naive || tile || vectorize || stripmine)
       if (workSizes[0][0] != 0)
 	CLgen = false;
 
@@ -1678,9 +1681,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       std::system(rmAuxfile.c_str());
     }
 
-    // Generate vectorization ?
+    // Generate kernel with vectorization ?
     if (vectorize) {
-      const std::string vectorizer = "vectorizer -silent " + clName;
+      const std::string vectorizer = "$LLVM_INCLUDE_PATH/vectorize/vectorize -silent " + clName;
       std::system(vectorizer.c_str());
       if (!verbose) {
 	const std::string rmAuxfile = "rm " + AuxName;
