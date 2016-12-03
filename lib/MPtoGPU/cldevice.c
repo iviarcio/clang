@@ -193,6 +193,16 @@ void _cldevice_details(cl_device_id   id,
       }
       printf("\tMaximum number of work-items in a work-group: %zu\n", *ret);
     } break;
+    case CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT: {
+      cl_uint* preferred_size = (cl_uint*) alloca(sizeof(cl_uint) * param_size);
+      status = clGetDeviceInfo( id, param_name, param_size, preferred_size, NULL );
+      if (status != CL_SUCCESS ) {
+        fprintf(stderr, "<rtl> Unable to obtain device info for %s.\n", param_str);
+	_clErrorCode (status);
+        return;
+      }
+      printf("\tPreferred vector width size for float: %d\n", (*preferred_size));
+    } break;
     case CL_DEVICE_NAME :
     case CL_DEVICE_VENDOR : {
       char data[48];
@@ -389,6 +399,7 @@ void _cldevice_init (int rtlmode) {
         _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, "CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS" );
         _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_ITEM_SIZES, "CL_DEVICE_MAX_WORK_ITEM_SIZES" );
         _cldevice_details( _device[i], CL_DEVICE_MAX_WORK_GROUP_SIZE, "CL_DEVICE_MAX_WORK_GROUP_SIZE" );
+        _cldevice_details( _device[i], CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT, "CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT" );
       }
 
       if (_device[i] != NULL) {
