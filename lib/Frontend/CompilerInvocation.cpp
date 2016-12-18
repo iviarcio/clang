@@ -1621,8 +1621,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   if (Targets.size()==1) {
     // MPtoGPU only support one target at this time
     llvm::Triple::ArchType AT = Targets[0].getArch();
-    if (AT == llvm::Triple::spir || AT == llvm::Triple::spir64 ||
-	AT == llvm::Triple::opencl32 || AT == llvm::Triple::opencl) {
+    if (AT == llvm::Triple::spir ||
+	AT == llvm::Triple::spir64 ||
+	AT == llvm::Triple::spirv ||
+	AT == llvm::Triple::opencl32 ||
+	AT == llvm::Triple::opencl) {
       Opts.MPtoGPU = true;
       Opts.OpenMPTargetMode = false;
       Opts.OMPtoGPUTriple = Targets[0];

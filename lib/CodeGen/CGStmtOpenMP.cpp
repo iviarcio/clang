@@ -1693,7 +1693,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     
     // Generate the spir-code ?
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
-    if (Tgt.getArch() == llvm::Triple::spir || Tgt.getArch() == llvm::Triple::spir64) {
+    if (Tgt.getArch() == llvm::Triple::spir ||
+	Tgt.getArch() == llvm::Triple::spir64 ||
+	Tgt.getArch() == llvm::Triple::spirv) {
       const std::string tgtStr = Tgt.getTriple();
       const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
 	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
@@ -1705,6 +1707,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
 
       const std::string rmStr = "rm " + AuxName;
       std::system(rmStr.c_str());
+
+      if (Tgt.getArch() == llvm::Triple::spirv) {
+	const std::string spirvStr = "llvm-spirv " + FileName + ".bc";
+	std::system(spirvStr.c_str());	
+      }
     }
     
     if (!CLgen) {

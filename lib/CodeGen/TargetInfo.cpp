@@ -6888,6 +6888,7 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
     return *(TheTargetCodeGenInfo = new XCoreTargetCodeGenInfo(Types));
   case llvm::Triple::spir:
   case llvm::Triple::spir64:
+  case llvm::Triple::spirv:
     return *(TheTargetCodeGenInfo = new SPIRTargetCodeGenInfo(Types));    
   }
 }

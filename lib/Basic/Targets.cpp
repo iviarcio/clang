@@ -5954,6 +5954,22 @@ namespace {
       DefineStd(Builder, "SPIR64", Opts);
     }
   };
+
+  class SPIRVTargetInfo : public SPIRTargetInfo {
+  public:
+    SPIRVTargetInfo(const llvm::Triple &Triple) : SPIRTargetInfo(Triple) {
+      PointerWidth = PointerAlign = 64;
+      SizeType     = TargetInfo::UnsignedLong;
+      PtrDiffType = IntPtrType = TargetInfo::SignedLong;
+      DescriptionString = "e-i64:64-v16:16-v24:32-v32:32-v48:64-"
+                          "v96:128-v192:256-v256:256-v512:512-v1024:1024";
+    }
+    void getTargetDefines(const LangOptions &Opts,
+                          MacroBuilder &Builder) const override {
+      DefineStd(Builder, "SPIRV", Opts);
+    }
+  };
+  
 }
 
 namespace {
@@ -6391,6 +6407,12 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
         return nullptr;
       return new SPIR64TargetInfo(Triple);
     }
+    case llvm::Triple::spirv: {
+      if (Triple.getOS() != llvm::Triple::UnknownOS ||
+          Triple.getEnvironment() != llvm::Triple::UnknownEnvironment)
+        return nullptr;
+      return new SPIRVTargetInfo(Triple);
+    }      
   }
 }
 
