@@ -1696,7 +1696,16 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     if (Tgt.getArch() == llvm::Triple::spir ||
 	Tgt.getArch() == llvm::Triple::spir64 ||
 	Tgt.getArch() == llvm::Triple::spirv) {
-      const std::string tgtStr = Tgt.getTriple();
+      
+      std::string tgtStr;
+      if (Tgt.getArch() == llvm::Triple::spirv) {
+	// First Generate code for spir64
+	tgtStr = "spir64-unknown-unknown";
+      }
+      else {
+	tgtStr = Tgt.getTriple();
+      }
+      
       const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
 	tgtStr + " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
 	AuxName + " " + clName;
@@ -1705,12 +1714,17 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       const std::string encodeStr = "spir-encoder " + AuxName + " " + FileName + ".bc";
       std::system(encodeStr.c_str());
 
-      const std::string rmStr = "rm " + AuxName;
-      std::system(rmStr.c_str());
+      const std::string rmaux = "rm " + AuxName;
+      std::system(rmaux.c_str());
 
       if (Tgt.getArch() == llvm::Triple::spirv) {
+	// Now convert to spir-v format
 	const std::string spirvStr = "llvm-spirv " + FileName + ".bc";
-	std::system(spirvStr.c_str());	
+	std::system(spirvStr.c_str());
+	if (!verbose) {
+	  const std::string rmbc = "rm " + FileName + ".bc";
+	  std::system(rmbc.c_str());
+	}
       }
     }
     
