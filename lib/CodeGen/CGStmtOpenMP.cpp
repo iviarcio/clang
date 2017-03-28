@@ -1233,6 +1233,8 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     // Add the basic c header files.
     // Maybe is necessary to including those specified by the user (?)
     CLOS << "#include <stdlib.h>\n";
+    CLOS << "#include <stdint.h>\n";
+    CLOS << "#include <stdbool.h>\n";
     CLOS << "#include <math.h>\n";
     
     //use of type 'double' requires cl_khr_fp64 extension to be enabled
