@@ -36,6 +36,7 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
+#include <sys/stat.h>
 
 using namespace clang;
 using namespace CodeGen;
@@ -1688,8 +1689,11 @@ void CodeGenFunction::EmitOMPParallelForDirective(
       const std::string vectorizer = "$LLVM_INCLUDE_PATH/vectorize/vectorize -silent " + clName;
       std::system(vectorizer.c_str());
       if (!verbose) {
-	const std::string rmAuxfile = "rm " + AuxName;
-	std::system(rmAuxfile.c_str());    
+	struct stat buffer;   
+        if (stat (AuxName.c_str(), &buffer) == 0) { 
+	  const std::string rmAuxfile = "rm " + AuxName;
+	  std::system(rmAuxfile.c_str());
+	}
       }
     }
     
