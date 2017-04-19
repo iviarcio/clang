@@ -54,7 +54,8 @@ extern int               _verbose;
 extern int               _profile;
 
 extern int               _work_group[9];
-
+extern int               _block_sizes[11];
+    
 extern cl_event         _global_event;
 
 void _cldevice_details(cl_device_id   id,
@@ -118,6 +119,9 @@ int _cl_execute_tiled_kernel (int wsize0, int wsize1, int wsize2, int block0, in
 void _cl_release_buffers (int upper);
 
 void _cl_profile(const char* str, cl_event event);
+
+int _cl_get_threads_blocks (int* threads, int* blocks, int size);
+
 
 #ifdef __cplusplus
   }

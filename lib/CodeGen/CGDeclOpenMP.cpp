@@ -233,17 +233,34 @@ void CodeGenModule::EmitOMPDeclareTarget(const OMPDeclareTargetDecl *D) {
 
   // Create a region for the declare target so the the codegen knows
   // that is a valid region for a target
+
   OpenMPSupport.startOpenMPRegion(false);
   OpenMPSupport.setTargetDeclare(true);
 
-  for (DeclContext::decl_iterator I = D->decls_begin(), E = D->decls_end();
+    llvm::raw_fd_ostream INOS(OpenMPSupport.createIncludeFile(), true);
+    const std::string fileName = OpenMPSupport.getIncludeName();
+    const std::string incName = fileName + ".h";
+
+    for (DeclContext::decl_iterator I = D->decls_begin(), E = D->decls_end();
        I != E; ++I) {
     if (const VarDecl *VD = dyn_cast<VarDecl>(*I))
       if (VD->getTemplateSpecializationKind() != TSK_ExplicitSpecialization &&
           VD->getTemplateSpecializationKind() != TSK_Undeclared)
         continue;
+    if (getLangOpts().MPtoGPU) {
+        I->print(INOS, PrintingPolicy(getContext().getLangOpts()), 0);
+    }
     EmitTopLevelDecl(*I);
   }
 
+  INOS.close();
+  if (getLangOpts().MPtoGPU) {
+      // Change the fileName to OpenCL kernel include name
+      rename(fileName.c_str(), incName.c_str());
+  }
+  else {
+      const std::string incFile = "rm " + fileName;
+      std::system(incFile.c_str());
+  }
   OpenMPSupport.endOpenMPRegion();
 }

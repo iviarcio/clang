@@ -30,6 +30,8 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/TypeBuilder.h"
 #include "llvm/IR/CallSite.h"
+#include <sys/stat.h>
+
 using namespace clang;
 using namespace CodeGen;
 
@@ -1093,29 +1095,35 @@ void CodeGenFunction::EmitReturnOfRValue(RValue RV, QualType Ty) {
 /// non-void.  Fun stuff :).
 void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
 
-  if (CGM.getLangOpts().MPtoGPU) {
-    // If it is a return in main function then
-    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
-      if (FD->isMain()) {
-	// Then, emit runtime call for cldevice_finish at the end of main function 
-	llvm::Value* funcFinish = CGM.getMPtoGPURuntime().cldevice_finish(); 
-	EmitRuntimeCall(funcFinish);
-      }
-  }
-  
-  // Emit the result value, even if unused, to evalute the side effects.
-  const Expr *RV = S.getRetValue();
+    if (CGM.getLangOpts().MPtoGPU) {
+        // If it is a return in main function then
+        if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurFuncDecl))
+            if (FD->isMain()) {
+                // Then, emit runtime call for cldevice_finish at the end of main function
+                llvm::Value *funcFinish = CGM.getMPtoGPURuntime().cldevice_finish();
+                // Get the include file name, if any
+                const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
+                struct stat buffer;
+                if (stat(incName.c_str(), &buffer) == 0) {
+                    std::remove(incName.c_str());
+                }
+                EmitRuntimeCall(funcFinish);
+            }
+    }
 
-  // Treat block literals in a return expression as if they appeared
-  // in their own scope.  This permits a small, easily-implemented
-  // exception to our over-conservative rules about not jumping to
-  // statements following block literals with non-trivial cleanups.
-  RunCleanupsScope cleanupScope(*this);
-  if (const ExprWithCleanups *cleanups =
-        dyn_cast_or_null<ExprWithCleanups>(RV)) {
-    enterFullExpression(cleanups);
-    RV = cleanups->getSubExpr();
-  }
+    // Emit the result value, even if unused, to evalute the side effects.
+    const Expr *RV = S.getRetValue();
+
+    // Treat block literals in a return expression as if they appeared
+    // in their own scope.  This permits a small, easily-implemented
+    // exception to our over-conservative rules about not jumping to
+    // statements following block literals with non-trivial cleanups.
+    RunCleanupsScope cleanupScope(*this);
+    if (const ExprWithCleanups *cleanups =
+            dyn_cast_or_null<ExprWithCleanups>(RV)) {
+        enterFullExpression(cleanups);
+        RV = cleanups->getSubExpr();
+    }
 
   // FIXME: Clean this up by using an LValue for ReturnTemp,
   // EmitStoreThroughLValue, and EmitAnyExpr.

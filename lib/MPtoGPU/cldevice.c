@@ -51,6 +51,7 @@ int               _curid;
 int               _verbose;
 int               _profile;
 int               _work_group[9] = {128, 1, 1, 256, 1, 1, 32, 8, 1};
+int               _block_sizes[11] = { 2 , 4 , 8 , 16 , 32 , 64 , 128, 256 , 512 , 1024, 2048 };
 
 cl_event          _global_event;
 
@@ -1400,4 +1401,28 @@ void _cl_profile(const char* str, cl_event event) {
   time_elapsed = time_end - time_start;
 
   printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
+}
+
+
+//
+// Return the threads & blocks used to allocate auxiliary buffers
+// and the adequate size of the vector to scan
+//
+int _cl_get_threads_blocks (int* threads, int* blocks, int size) {
+  
+  int n = (int) sqrt(size-1);
+  int t = 1;
+  for (int i = 0 ; i <= 10 ; i++) {
+    if (_block_sizes[i] >= n) {
+      t = _block_sizes[i];
+      break;
+    }
+  }
+  
+  int r = size / t;
+  n = r * t;
+  if (size % t != 0) n += t;
+  *threads = t;
+  *blocks = n/t;
+  return n;
 }
