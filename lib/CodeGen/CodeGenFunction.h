@@ -2200,7 +2200,7 @@ public:
   void ReleaseBuffers();
   void ReleaseBuffers(int init, int count);
 
-  unsigned GetNumNestedLoops(const OMPParallelForDirective &S);
+  unsigned GetNumNestedLoops(const OMPExecutableDirective &S);
 
   llvm::Value *EmitHostParameters(ForStmt *FS,
 				  llvm::raw_fd_ostream &FOS,
@@ -2301,6 +2301,10 @@ public:
   void EmitOMPBarrier(SourceLocation L, unsigned Flags);
   void EmitOMPCancelBarrier(SourceLocation L, unsigned Flags,
                             bool IgnoreResult = false);
+  void EmitOMPtoOpenCLParallelFor(
+        OpenMPDirectiveKind DKind,
+        ArrayRef<OpenMPDirectiveKind> SKinds,
+        const OMPExecutableDirective &S);
 
   //===--------------------------------------------------------------------===//
   //                         LValue Expression Emission
