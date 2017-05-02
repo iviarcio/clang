@@ -26,6 +26,7 @@
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/Diagnostic.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/DataLayout.h"
@@ -765,12 +766,21 @@ void CodeGenFunction::EmitOMPDirectiveWithParallel(
             EmitOMPtoOpenCLParallelFor(DKind, SKinds, S);
             return;
         }
-        else {
-          if (DKind == OMPD_parallel_sections)
-              llvm_unreachable("(omp parallel sections is not supported for this target yet!");
-          if (DKind == OMPD_parallel)
-              llvm_unreachable("(omp parallel is not supported for this target yet!");
+        else if (DKind == OMPD_parallel) {
+            CapturedStmt *CStmt = cast<CapturedStmt>(S.getAssociatedStmt());
+            if (isa<OMPForDirective>(CStmt->getCapturedStmt())) {
+                const OMPExecutableDirective *D = cast<OMPExecutableDirective>(CStmt->getCapturedStmt());
+                EmitOMPtoOpenCLParallelFor(OMPD_parallel_for, SKinds, *D);
+                return;
+            }
+            else if (isa<OMPForSimdDirective>(CStmt->getCapturedStmt())) {
+                const OMPExecutableDirective *D = cast<OMPExecutableDirective>(CStmt->getCapturedStmt());
+                EmitOMPtoOpenCLParallelFor(OMPD_parallel_for_simd, SKinds, *D);
+                return;
+            }
         }
+        DiagnosticsEngine &Diags = CGM.getDiags();
+        Diags.Report(S.getLocStart(),8) << "target directive" << "parallel for [simd]" ;
     }
 
     // Generate shared args for captured stmt.
@@ -1007,178 +1017,171 @@ void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &FOS, int &num_
 ///
 /// Emit host arg values that will be passed to kernel function
 ///
-llvm::Value *CodeGenFunction::EmitHostParameters (ForStmt *FS,
-						  llvm::raw_fd_ostream &FOS,
-						  int &num_args,
-						  bool Collapse,
-						  unsigned loopNest,
-						  unsigned lastLoop) {
+llvm::Value *CodeGenFunction::EmitHostParameters(ForStmt *FS,
+                                                 llvm::raw_fd_ostream &FOS,
+                                                 int &num_args,
+                                                 bool Collapse,
+                                                 unsigned loopNest,
+                                                 unsigned lastLoop) {
 
-  bool compareEqual    = false;
-  bool isLesser        = false;
-  bool isIncrement     = false;
-  llvm::Value *A       = nullptr;
-  llvm::Value *B       = nullptr;
-  llvm::Value *C       = nullptr;
-  llvm::Value *Status  = nullptr;
-  llvm::Value *IVal    = nullptr;
-  Expr *init           = nullptr;
-  std::string initType;
-  
-  if (isa<DeclStmt>(FS->getInit())) {
-    llvm_unreachable("for statement in Non-Canonical form is not supported!");
-    return nullptr;
-  }
-  else {
-    const BinaryOperator* INIT = dyn_cast<BinaryOperator>(FS->getInit());
-    IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
-    init = INIT->getRHS();
-    initType = INIT->getType().getAsString();
-    CGM.OpenMPSupport.addLocalVar(IVal);
-    A = EmitAnyExprToTemp(init).getScalarVal();
-  }
+    DiagnosticsEngine &Diags = CGM.getDiags();
+    bool compareEqual = false;
+    bool isLesser = false;
+    bool isIncrement = false;
+    llvm::Value *A = nullptr;
+    llvm::Value *B = nullptr;
+    llvm::Value *C = nullptr;
+    llvm::Value *Status = nullptr;
+    llvm::Value *IVal = nullptr;
+    Expr *init = nullptr;
+    std::string initType;
 
-  // Check the comparator (<, <=, > or >=)
-  BinaryOperator *COND = dyn_cast<BinaryOperator>(FS->getCond());
-  switch(COND->getOpcode()) {
-  case BO_LT:
-    isLesser = true;
-    compareEqual = false;
-    break;
-  case BO_GT:
-    isLesser = false;
-    compareEqual = false;
-    break;
-  case BO_LE:
-    isLesser = true;
-    compareEqual = true;
-    break;
-  case BO_GE:
-    isLesser = false;
-    compareEqual = true;
-    break;
-  default:
-    break;
-  }
-							  
-  // Check the increment type (i=i(+/-)incr, i(+/-)=incr, i(++/--))
-  Expr *inc = FS->getInc();
-  if(isa<CompoundAssignOperator>(inc)) {	// i(+/-)=incr
-    BinaryOperator *BO = dyn_cast<BinaryOperator>(inc);
-    Expr *incr = BO->getRHS();
-    C = EmitAnyExprToTemp(incr).getScalarVal();
-    if(BO->getOpcode() == BO_AddAssign)
-      isIncrement = true;
-    else if(BO->getOpcode() == BO_SubAssign)
-      isIncrement = false;
-  }
-  else if(isa<BinaryOperator>(inc)) {	// i=i(+/-)incr
-    Stmt::child_iterator ci = inc->child_begin();
-    ci++;
-    BinaryOperator *BO = dyn_cast<BinaryOperator>(*ci);
-    Expr *incr = BO->getRHS();
-    C = EmitAnyExprToTemp(incr).getScalarVal();
-    if(BO->getOpcode() == BO_Add)
-      isIncrement = true;
-    else if(BO->getOpcode() == BO_Sub)
-      isIncrement = false;
-  }
-  else if(isa<UnaryOperator>(inc)) {	// i(++/--)
-    const UnaryOperator *BO = dyn_cast<UnaryOperator>(inc);
-    C = Builder.getInt32(1);
-    if(BO->isIncrementOp())
-      isIncrement = true;
-    else if(BO->isDecrementOp())
-      isIncrement = false;
-  }
-
-  Expr *cond = nullptr;
-  if(isIncrement && isLesser)
-    cond = COND->getRHS();
-  else if(isIncrement && !isLesser)
-    cond = COND->getLHS();
-  else if(!isIncrement && isLesser)
-    cond = COND->getLHS();
-  else // !isIncrement && !isLesser
-    cond = COND->getRHS();
-    
-  B = EmitAnyExprToTemp(cond).getScalarVal();
-    
-  llvm::Value *MIN;
-  if(isIncrement) {
-    MIN = A;
-  }
-  else {
-    if(compareEqual)
-      MIN = B;
-    else
-      MIN = Builder.CreateAdd(B, Builder.getInt32(1));
-  }
-  
-  std::string IName = getVarNameAsString(IVal);    
-  llvm::AllocaInst *AL = Builder.CreateAlloca(B->getType(), NULL);
-  AL->setUsedWithInAlloca(true);
-
-  llvm::Value *T;
-  if(compareEqual) T = Builder.getInt32(0);
-  else T = Builder.getInt32(1);
-
-  llvm::Value *KArg[] = {A, B, C, T};
-  llvm::Value *nCores = EmitRuntimeCall(CGM.getMPtoGPURuntime().Get_num_cores(), KArg);
-  Builder.CreateStore(nCores, AL);
-
-  // Create hostArg to represent _UB_n (i.e., nCores)
-  llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);	
-  llvm::Value *CArg[] = {Builder.getInt32(num_args++),
-			 Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef};	
-  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
-  
-  if (Collapse) {    
-    FOS << initType;
-    FOS << " _UB_" << loopNest << ", ";
-    FOS << initType;
-    FOS << " _MIN_" << loopNest << ", ";
-
-    llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
-    AL2->setUsedWithInAlloca(true);
-    Builder.CreateStore(MIN, AL2);
-    llvm::Value *CVRef2 = Builder.CreateBitCast(AL2, CGM.VoidPtrTy);
-
-    // Create hostArg to represent _MIN_n
-    llvm::Value *CArg2[] = {Builder.getInt32(num_args++),
-	  		    Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef2};	
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
-
-    FOS << initType;
-    FOS << " _INC_" << loopNest;
-    if (loopNest != lastLoop) FOS << ",\n";
-
-    llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
-    AL2->setUsedWithInAlloca(true);
-    Builder.CreateStore(C, AL3);
-    llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
-
-    // Create hostArg to represent _INC_n
-    llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
-			    Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits()/8), CVRef3};	
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
-  }
-  else {
-    if (isa<BinaryOperator>(FS->getInit())) {
-      BinaryOperator *lInit = dyn_cast<BinaryOperator>(FS->getInit());
-      DeclRefExpr *leftExpr = dyn_cast<DeclRefExpr>(lInit->getLHS());
-      if (leftExpr) {
-	NamedDecl *ND = leftExpr->getDecl();
-	FOS << initType << " " << ND->getNameAsString();
-      }
-      else
-	llvm_unreachable("for statement in Non-Canonical form is not supported!");
+    if (isa<DeclStmt>(FS->getInit())) {
+        Diags.Report(FS->getLocStart(),7) << "for statement in Canonical-form only";
+        return nullptr;
+    } else {
+        const BinaryOperator *INIT = dyn_cast<BinaryOperator>(FS->getInit());
+        IVal = EmitLValue(dyn_cast<Expr>(INIT)).getAddress();
+        init = INIT->getRHS();
+        initType = INIT->getType().getAsString();
+        CGM.OpenMPSupport.addLocalVar(IVal);
+        A = EmitAnyExprToTemp(init).getScalarVal();
     }
-    else
-      llvm_unreachable("for statement in Non-Canonical form is not supported!");         }
-  
-  return nCores;  
-  
+
+    // Check the comparator (<, <=, > or >=)
+    BinaryOperator *COND = dyn_cast<BinaryOperator>(FS->getCond());
+    switch (COND->getOpcode()) {
+        case BO_LT:
+            isLesser = true;
+            compareEqual = false;
+            break;
+        case BO_GT:
+            isLesser = false;
+            compareEqual = false;
+            break;
+        case BO_LE:
+            isLesser = true;
+            compareEqual = true;
+            break;
+        case BO_GE:
+            isLesser = false;
+            compareEqual = true;
+            break;
+        default:
+            break;
+    }
+
+    // Check the increment type (i=i(+/-)incr, i(+/-)=incr, i(++/--))
+    Expr *inc = FS->getInc();
+    if (isa<CompoundAssignOperator>(inc)) {    // i(+/-)=incr
+        BinaryOperator *BO = dyn_cast<BinaryOperator>(inc);
+        Expr *incr = BO->getRHS();
+        C = EmitAnyExprToTemp(incr).getScalarVal();
+        if (BO->getOpcode() == BO_AddAssign)
+            isIncrement = true;
+        else if (BO->getOpcode() == BO_SubAssign)
+            isIncrement = false;
+    } else if (isa<BinaryOperator>(inc)) {    // i=i(+/-)incr
+        Stmt::child_iterator ci = inc->child_begin();
+        ci++;
+        BinaryOperator *BO = dyn_cast<BinaryOperator>(*ci);
+        Expr *incr = BO->getRHS();
+        C = EmitAnyExprToTemp(incr).getScalarVal();
+        if (BO->getOpcode() == BO_Add)
+            isIncrement = true;
+        else if (BO->getOpcode() == BO_Sub)
+            isIncrement = false;
+    } else if (isa<UnaryOperator>(inc)) {    // i(++/--)
+        const UnaryOperator *BO = dyn_cast<UnaryOperator>(inc);
+        C = Builder.getInt32(1);
+        if (BO->isIncrementOp())
+            isIncrement = true;
+        else if (BO->isDecrementOp())
+            isIncrement = false;
+    }
+
+    Expr *cond = nullptr;
+    if (isIncrement && isLesser)
+        cond = COND->getRHS();
+    else if (isIncrement && !isLesser)
+        cond = COND->getLHS();
+    else if (!isIncrement && isLesser)
+        cond = COND->getLHS();
+    else // !isIncrement && !isLesser
+        cond = COND->getRHS();
+
+    B = EmitAnyExprToTemp(cond).getScalarVal();
+
+    llvm::Value *MIN;
+    if (isIncrement) {
+        MIN = A;
+    } else {
+        if (compareEqual)
+            MIN = B;
+        else
+            MIN = Builder.CreateAdd(B, Builder.getInt32(1));
+    }
+
+    std::string IName = getVarNameAsString(IVal);
+    llvm::AllocaInst *AL = Builder.CreateAlloca(B->getType(), NULL);
+    AL->setUsedWithInAlloca(true);
+
+    llvm::Value *T;
+    if (compareEqual) T = Builder.getInt32(0);
+    else T = Builder.getInt32(1);
+
+    llvm::Value *KArg[] = {A, B, C, T};
+    llvm::Value *nCores = EmitRuntimeCall(CGM.getMPtoGPURuntime().Get_num_cores(), KArg);
+    Builder.CreateStore(nCores, AL);
+
+    // Create hostArg to represent _UB_n (i.e., nCores)
+    llvm::Value *CVRef = Builder.CreateBitCast(AL, CGM.VoidPtrTy);
+    llvm::Value *CArg[] = {Builder.getInt32(num_args++),
+                           Builder.getInt32((AL->getAllocatedType())->getPrimitiveSizeInBits() / 8), CVRef};
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg);
+
+    if (Collapse) {
+        FOS << initType;
+        FOS << " _UB_" << loopNest << ", ";
+        FOS << initType;
+        FOS << " _MIN_" << loopNest << ", ";
+
+        llvm::AllocaInst *AL2 = Builder.CreateAlloca(B->getType(), NULL);
+        AL2->setUsedWithInAlloca(true);
+        Builder.CreateStore(MIN, AL2);
+        llvm::Value *CVRef2 = Builder.CreateBitCast(AL2, CGM.VoidPtrTy);
+
+        // Create hostArg to represent _MIN_n
+        llvm::Value *CArg2[] = {Builder.getInt32(num_args++),
+                                Builder.getInt32((AL2->getAllocatedType())->getPrimitiveSizeInBits() / 8), CVRef2};
+        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg2);
+
+        FOS << initType;
+        FOS << " _INC_" << loopNest;
+        if (loopNest != lastLoop) FOS << ",\n";
+
+        llvm::AllocaInst *AL3 = Builder.CreateAlloca(C->getType(), NULL);
+        AL2->setUsedWithInAlloca(true);
+        Builder.CreateStore(C, AL3);
+        llvm::Value *CVRef3 = Builder.CreateBitCast(AL3, CGM.VoidPtrTy);
+
+        // Create hostArg to represent _INC_n
+        llvm::Value *CArg3[] = {Builder.getInt32(num_args++),
+                                Builder.getInt32((AL3->getAllocatedType())->getPrimitiveSizeInBits() / 8), CVRef3};
+        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArg3);
+    } else {
+        if (isa<BinaryOperator>(FS->getInit())) {
+            BinaryOperator *lInit = dyn_cast<BinaryOperator>(FS->getInit());
+            DeclRefExpr *leftExpr = dyn_cast<DeclRefExpr>(lInit->getLHS());
+            if (leftExpr) {
+                NamedDecl *ND = leftExpr->getDecl();
+                FOS << initType << " " << ND->getNameAsString();
+            } else
+                Diags.Report(FS->getLocStart(),7) << "for statement in Canonical-form only";
+        } else
+            Diags.Report(FS->getLocStart(),7) << "for statement in Canonical-form only";
+    }
+    return nCores;
 }
 
 ///
@@ -1242,8 +1245,22 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     bool stripmine = (polymode == LangOptions::OPT_stripmine) || (polymode == LangOptions::OPT_all);
     bool verbose = CGM.getLangOpts().SchdDebug;
 
-    if (tile && DKind == OMPD_parallel_for_simd)
-        vectorize = true;
+    bool HasSimd = DKind == OMPD_parallel_for_simd ||
+                   DKind == OMPD_distribute_parallel_for_simd ||
+                   DKind == OMPD_teams_distribute_parallel_for_simd ||
+                   DKind == OMPD_target_teams_distribute_parallel_for_simd;
+    if (tile && HasSimd) vectorize = true;
+
+    llvm::Value *NumTeams = nullptr;
+    if (DKind == OMPD_teams_distribute_parallel_for ||
+        DKind == OMPD_teams_distribute_parallel_for_simd ||
+        DKind == OMPD_target_teams_distribute_parallel_for ||
+        DKind == OMPD_target_teams_distribute_parallel_for_simd ||
+        DKind == OMPD_target_teams_distribute_simd) {
+        llvm::errs () << CGM.OpenMPSupport.getNumTeams() << "\n";
+        NumTeams = CGM.OpenMPSupport.getNumTeams();
+    }
+
 
     // Start creating a unique filename that refers to scop function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), true);
@@ -1838,6 +1855,19 @@ void CodeGenFunction::EmitOMPParallelSectionsDirective(
 void CodeGenFunction::EmitOMPDirectiveWithLoop(OpenMPDirectiveKind DKind,
     OpenMPDirectiveKind SKind, const OMPExecutableDirective &S) {
 
+    // Are we generating code for Accelerators (e.g. GPU) via OpenCL?
+    if (CGM.getLangOpts().MPtoGPU && insideTarget) {
+        if (DKind == OMPD_parallel_for ||
+            DKind == OMPD_parallel_for_simd) {
+            EmitOMPtoOpenCLParallelFor(DKind, SKind, S);
+            return;
+        }
+        else {
+            DiagnosticsEngine &Diags = CGM.getDiags();
+            Diags.Report(S.getLocStart(),8) << "target directive" << "parallel for [simd]" ;
+         }
+    }
+
   // Several Simd-specific vars are declared here.
   // OMPD_distribute_parallel_for_simd is not included because it separates to
   // OMPD_distribute and OMPD_parallel_for_simd directives intentionally and
@@ -2328,236 +2358,237 @@ void CodeGenFunction::EmitOMPDistributeDirective(
 }
 
 /// Generate an instructions for directive with 'teams' region.
-void
-CodeGenFunction::EmitOMPDirectiveWithTeams(OpenMPDirectiveKind DKind,
+void CodeGenFunction::EmitOMPDirectiveWithTeams(OpenMPDirectiveKind DKind,
                                            ArrayRef<OpenMPDirectiveKind> SKinds,
                                            const OMPExecutableDirective &S) {
 
-  // Generate shared args for captured stmt.
-  CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-  llvm::Value *Arg = GenerateCapturedStmtArgument(*CS);
-
-  // Init list of private globals in the stack.
-  CGM.OpenMPSupport.startOpenMPRegion(true);
-  CGM.OpenMPSupport.setMergeable(false);
-  CGM.OpenMPSupport.setOrdered(false);
-  CGM.OpenMPSupport.setNoWait(true);
-  CGM.OpenMPSupport.setScheduleChunkSize(KMP_SCH_DEFAULT, 0);
-
-  // CodeGen for clauses (task init).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                       E = S.clauses().end();
-       I != E; ++I)
-    if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-      EmitInitOMPClause(*(*I), S);
-  llvm::Value *NumTeams = CGM.OpenMPSupport.getNumTeams();
-  llvm::Value *ThreadLimit = CGM.OpenMPSupport.getThreadLimit();
-  if (NumTeams && ThreadLimit) {
-    // __kmpc_push_num_teams(&loc, global_tid, num_threads, thread_limit);
-    // ident_t loc = {...};
-    llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
-    // global_tid = __kmpc_global_thread_num(...);
-    llvm::Value *GTid = OPENMPRTL_THREADNUM(S.getLocStart(), *this);
-    llvm::Value *RealArgs[] = {Loc, GTid,
-                               NumTeams ? NumTeams : Builder.getInt32(0),
-                               ThreadLimit ? ThreadLimit : Builder.getInt32(0)};
-    EmitRuntimeCall(OPENMPRTL_FUNC(push_num_teams), RealArgs);
-  }
-
-  // CodeGen for clauses (task init).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                       E = S.clauses().end();
-       I != E; ++I)
-    if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-      EmitAfterInitOMPClause(*(*I), S);
-
-  // Generate microtask.
-  // void .omp_microtask.(int32_t *, int32_t *, void */*AutoGenRecord **/arg3) {
-  //  captured_stmt(arg3);
-  // }
-  IdentifierInfo *Id = &getContext().Idents.get(".omp_microtask.");
-  QualType PtrIntTy = getContext().getPointerType(getContext().IntTy);
-  SmallVector<QualType, 4> FnArgTypes;
-  FnArgTypes.push_back(PtrIntTy);
-  FnArgTypes.push_back(PtrIntTy);
-  FnArgTypes.push_back(getContext().VoidPtrTy);
-  FunctionProtoType::ExtProtoInfo EPI;
-  EPI.ExceptionSpecType = EST_BasicNoexcept;
-  QualType FnTy =
-      getContext().getFunctionType(getContext().VoidTy, FnArgTypes, EPI);
-  TypeSourceInfo *TI =
-      getContext().getTrivialTypeSourceInfo(FnTy, SourceLocation());
-  FunctionDecl *FD = FunctionDecl::Create(
-      getContext(), getContext().getTranslationUnitDecl(), CS->getLocStart(),
-      SourceLocation(), Id, FnTy, TI, SC_Static, false, false, false);
-  TypeSourceInfo *PtrIntTI =
-      getContext().getTrivialTypeSourceInfo(PtrIntTy, SourceLocation());
-  TypeSourceInfo *PtrVoidTI = getContext().getTrivialTypeSourceInfo(
-      getContext().VoidPtrTy, SourceLocation());
-  ParmVarDecl *Arg1 =
-      ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
-                          0, PtrIntTy, PtrIntTI, SC_Auto, 0);
-  ParmVarDecl *Arg2 =
-      ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
-                          0, PtrIntTy, PtrIntTI, SC_Auto, 0);
-  ParmVarDecl *Arg3 =
-      ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
-                          0, getContext().VoidPtrTy, PtrVoidTI, SC_Auto, 0);
-  CodeGenFunction CGF(CGM, true);
-  const CGFunctionInfo &FI = getTypes().arrangeFunctionDeclaration(FD);
-  llvm::Function *Fn = llvm::Function::Create(getTypes().GetFunctionType(FI),
-                                              llvm::GlobalValue::PrivateLinkage,
-                                              FD->getName(), &CGM.getModule());
-  CGM.SetInternalFunctionAttributes(CurFuncDecl, Fn, FI);
-  llvm::AttributeSet Set = CurFn->getAttributes();
-  for (unsigned i = 0; i < Set.getNumSlots(); ++i) {
-    if (Set.getSlotIndex(i) == llvm::AttributeSet::FunctionIndex) {
-      for (llvm::AttributeSet::iterator I = Set.begin(i), E = Set.end(i);
-           I != E; ++I) {
-        if (I->isStringAttribute() && I->getKindAsString().startswith("INTEL:"))
-          Fn->addFnAttr(I->getKindAsString());
-      }
+    // Are we generating code for Accelerators (e.g. GPU) via OpenCL?
+    if (CGM.getLangOpts().MPtoGPU && insideTarget) {
+        DiagnosticsEngine &Diags = CGM.getDiags();
+        Diags.Report(S.getLocStart(),8) << "target directive" << "parallel for [simd]" ;
     }
-  }
- FunctionArgList FnArgs;
-  FnArgs.push_back(Arg1);
-  FnArgs.push_back(Arg2);
-  FnArgs.push_back(Arg3);
-  CGF.OpenMPRoot = OpenMPRoot ? OpenMPRoot : this;
-  CGF.StartFunction(FD, getContext().VoidTy, Fn, FI, FnArgs, SourceLocation());
-  CGF.Builder.CreateLoad(CGF.GetAddrOfLocalVar(Arg1),
-                         ".__kmpc_global_thread_num.");
 
-  // Emit call to the helper function.
-  llvm::Value *Arg3Val =
-      CGF.Builder.CreateLoad(CGF.GetAddrOfLocalVar(Arg3), "arg3");
-  QualType QTy = getContext().getRecordType(CS->getCapturedRecordDecl());
-  llvm::Type *ConvertedType =
-      CGF.getTypes().ConvertTypeForMem(QTy)->getPointerTo();
-  llvm::Value *RecArg =
-      CGF.Builder.CreatePointerCast(Arg3Val, ConvertedType, "(anon)arg3");
+    // Generate shared args for captured stmt.
+    CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+    llvm::Value *Arg = GenerateCapturedStmtArgument(*CS);
 
-  // CodeGen for clauses (call start).
-  {
-    OpenMPRegionRAII OMPRegion(CGF, RecArg, *CS);
+    // Init list of private globals in the stack.
+    CGM.OpenMPSupport.startOpenMPRegion(true);
+    CGM.OpenMPSupport.setMergeable(false);
+    CGM.OpenMPSupport.setOrdered(false);
+    CGM.OpenMPSupport.setNoWait(true);
+    CGM.OpenMPSupport.setScheduleChunkSize(KMP_SCH_DEFAULT, 0);
+
+    // CodeGen for clauses (task init).
     for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                         E = S.clauses().end();
+                 E = S.clauses().end();
          I != E; ++I)
-      if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-        CGF.EmitPreOMPClause(*(*I), S);
+        if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+            EmitInitOMPClause(*(*I), S);
+    llvm::Value *NumTeams = CGM.OpenMPSupport.getNumTeams();
+    llvm::Value *ThreadLimit = CGM.OpenMPSupport.getThreadLimit();
+    if (NumTeams && ThreadLimit) {
+        // __kmpc_push_num_teams(&loc, global_tid, num_threads, thread_limit);
+        // ident_t loc = {...};
+        llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
+        // global_tid = __kmpc_global_thread_num(...);
+        llvm::Value *GTid = OPENMPRTL_THREADNUM(S.getLocStart(), *this);
+        llvm::Value *RealArgs[] = {Loc, GTid,
+                                   NumTeams ? NumTeams : Builder.getInt32(0),
+                                   ThreadLimit ? ThreadLimit : Builder.getInt32(0)};
+        EmitRuntimeCall(OPENMPRTL_FUNC(push_num_teams), RealArgs);
+    }
 
-    switch (DKind) {
-    case OMPD_target_teams:
-    case OMPD_teams:
-      CGF.EmitStmt(CS->getCapturedStmt());
-      break;
-    case OMPD_teams_distribute:
-    case OMPD_target_teams_distribute:
-      EmitOMPDirectiveWithLoop(OMPD_teams_distribute, OMPD_distribute, S);
-      break;
-    case OMPD_teams_distribute_simd:
-    case OMPD_target_teams_distribute_simd:
-      EmitOMPDirectiveWithLoop(OMPD_teams_distribute_simd, OMPD_distribute_simd,
-                               S);
-      break;
-    case OMPD_teams_distribute_parallel_for: {
-      const OMPTeamsDistributeParallelForDirective &D =
-          cast<OMPTeamsDistributeParallelForDirective>(S);
-      assert(D.getLowerBound() && "No lower bound");
-      assert(D.getUpperBound() && "No upper bound");
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
-      EmitOMPDirectiveWithLoop(OMPD_teams_distribute_parallel_for,
-                               OMPD_distribute, S);
-      break;
-    }
-    case OMPD_teams_distribute_parallel_for_simd: {
-      const OMPTeamsDistributeParallelForSimdDirective &D =
-          cast<OMPTeamsDistributeParallelForSimdDirective>(S);
-      assert(D.getLowerBound() && "No lower bound");
-      assert(D.getUpperBound() && "No upper bound");
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
-      EmitOMPDirectiveWithLoop(OMPD_teams_distribute_parallel_for_simd,
-                               OMPD_distribute, S);
-      break;
-    }
-    case OMPD_target_teams_distribute_parallel_for: {
-      const OMPTargetTeamsDistributeParallelForDirective &D =
-          cast<OMPTargetTeamsDistributeParallelForDirective>(S);
-      assert(D.getLowerBound() && "No lower bound");
-      assert(D.getUpperBound() && "No upper bound");
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
-      EmitOMPDirectiveWithLoop(OMPD_target_teams_distribute_parallel_for,
-                               OMPD_distribute, S);
-      break;
-    }
-    case OMPD_target_teams_distribute_parallel_for_simd: {
-      const OMPTargetTeamsDistributeParallelForSimdDirective &D =
-          cast<OMPTargetTeamsDistributeParallelForSimdDirective>(S);
-      assert(D.getLowerBound() && "No lower bound");
-      assert(D.getUpperBound() && "No upper bound");
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
-      EmitAutoVarDecl(
-          *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
-      EmitOMPDirectiveWithLoop(OMPD_target_teams_distribute_parallel_for_simd,
-                               OMPD_distribute, S);
-      break;
-    }
-    default:
-      break;
-    }
-    CGF.EnsureInsertPoint();
-
-    // CodeGen for clauses (call end).
+    // CodeGen for clauses (task init).
     for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                         E = S.clauses().end();
+                 E = S.clauses().end();
          I != E; ++I)
-      if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-        CGF.EmitPostOMPClause(*(*I), S);
+        if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+            EmitAfterInitOMPClause(*(*I), S);
 
-    // CodeGen for clauses (closing steps).
+    // Generate microtask.
+    // void .omp_microtask.(int32_t *, int32_t *, void */*AutoGenRecord **/arg3) {
+    //  captured_stmt(arg3);
+    // }
+    IdentifierInfo *Id = &getContext().Idents.get(".omp_microtask.");
+    QualType PtrIntTy = getContext().getPointerType(getContext().IntTy);
+    SmallVector<QualType, 4> FnArgTypes;
+    FnArgTypes.push_back(PtrIntTy);
+    FnArgTypes.push_back(PtrIntTy);
+    FnArgTypes.push_back(getContext().VoidPtrTy);
+    FunctionProtoType::ExtProtoInfo EPI;
+    EPI.ExceptionSpecType = EST_BasicNoexcept;
+    QualType FnTy =
+            getContext().getFunctionType(getContext().VoidTy, FnArgTypes, EPI);
+    TypeSourceInfo *TI =
+            getContext().getTrivialTypeSourceInfo(FnTy, SourceLocation());
+    FunctionDecl *FD = FunctionDecl::Create(
+            getContext(), getContext().getTranslationUnitDecl(), CS->getLocStart(),
+            SourceLocation(), Id, FnTy, TI, SC_Static, false, false, false);
+    TypeSourceInfo *PtrIntTI =
+            getContext().getTrivialTypeSourceInfo(PtrIntTy, SourceLocation());
+    TypeSourceInfo *PtrVoidTI = getContext().getTrivialTypeSourceInfo(
+            getContext().VoidPtrTy, SourceLocation());
+    ParmVarDecl *Arg1 =
+            ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
+                                0, PtrIntTy, PtrIntTI, SC_Auto, 0);
+    ParmVarDecl *Arg2 =
+            ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
+                                0, PtrIntTy, PtrIntTI, SC_Auto, 0);
+    ParmVarDecl *Arg3 =
+            ParmVarDecl::Create(getContext(), FD, SourceLocation(), SourceLocation(),
+                                0, getContext().VoidPtrTy, PtrVoidTI, SC_Auto, 0);
+    CodeGenFunction CGF(CGM, true);
+    const CGFunctionInfo &FI = getTypes().arrangeFunctionDeclaration(FD);
+    llvm::Function *Fn = llvm::Function::Create(getTypes().GetFunctionType(FI),
+                                                llvm::GlobalValue::PrivateLinkage,
+                                                FD->getName(), &CGM.getModule());
+    CGM.SetInternalFunctionAttributes(CurFuncDecl, Fn, FI);
+    llvm::AttributeSet Set = CurFn->getAttributes();
+    for (unsigned i = 0; i < Set.getNumSlots(); ++i) {
+        if (Set.getSlotIndex(i) == llvm::AttributeSet::FunctionIndex) {
+            for (llvm::AttributeSet::iterator I = Set.begin(i), E = Set.end(i);
+                 I != E; ++I) {
+                if (I->isStringAttribute() && I->getKindAsString().startswith("INTEL:"))
+                    Fn->addFnAttr(I->getKindAsString());
+            }
+        }
+    }
+    FunctionArgList FnArgs;
+    FnArgs.push_back(Arg1);
+    FnArgs.push_back(Arg2);
+    FnArgs.push_back(Arg3);
+    CGF.OpenMPRoot = OpenMPRoot ? OpenMPRoot : this;
+    CGF.StartFunction(FD, getContext().VoidTy, Fn, FI, FnArgs, SourceLocation());
+    CGF.Builder.CreateLoad(CGF.GetAddrOfLocalVar(Arg1),
+                           ".__kmpc_global_thread_num.");
+
+    // Emit call to the helper function.
+    llvm::Value *Arg3Val =
+            CGF.Builder.CreateLoad(CGF.GetAddrOfLocalVar(Arg3), "arg3");
+    QualType QTy = getContext().getRecordType(CS->getCapturedRecordDecl());
+    llvm::Type *ConvertedType =
+            CGF.getTypes().ConvertTypeForMem(QTy)->getPointerTo();
+    llvm::Value *RecArg =
+            CGF.Builder.CreatePointerCast(Arg3Val, ConvertedType, "(anon)arg3");
+
+    // CodeGen for clauses (call start).
+    {
+        OpenMPRegionRAII OMPRegion(CGF, RecArg, *CS);
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I)
+            if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+                CGF.EmitPreOMPClause(*(*I), S);
+
+        switch (DKind) {
+            case OMPD_target_teams:
+            case OMPD_teams:
+                CGF.EmitStmt(CS->getCapturedStmt());
+                break;
+            case OMPD_teams_distribute:
+            case OMPD_target_teams_distribute:
+                EmitOMPDirectiveWithLoop(OMPD_teams_distribute, OMPD_distribute, S);
+                break;
+            case OMPD_teams_distribute_simd:
+            case OMPD_target_teams_distribute_simd:
+                EmitOMPDirectiveWithLoop(OMPD_teams_distribute_simd, OMPD_distribute_simd,
+                                         S);
+                break;
+            case OMPD_teams_distribute_parallel_for: {
+                const OMPTeamsDistributeParallelForDirective &D = cast<OMPTeamsDistributeParallelForDirective>(S);
+                assert(D.getLowerBound() && "No lower bound");
+                assert(D.getUpperBound() && "No upper bound");
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
+                EmitOMPDirectiveWithLoop(OMPD_teams_distribute_parallel_for,
+                                         OMPD_distribute, S);
+                break;
+            }
+            case OMPD_teams_distribute_parallel_for_simd: {
+                const OMPTeamsDistributeParallelForSimdDirective &D = cast<OMPTeamsDistributeParallelForSimdDirective>(S);
+                assert(D.getLowerBound() && "No lower bound");
+                assert(D.getUpperBound() && "No upper bound");
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
+                EmitOMPDirectiveWithLoop(OMPD_teams_distribute_parallel_for_simd,
+                                         OMPD_distribute, S);
+                break;
+            }
+            case OMPD_target_teams_distribute_parallel_for: {
+                const OMPTargetTeamsDistributeParallelForDirective &D = cast<OMPTargetTeamsDistributeParallelForDirective>(S);
+                assert(D.getLowerBound() && "No lower bound");
+                assert(D.getUpperBound() && "No upper bound");
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
+                EmitOMPDirectiveWithLoop(OMPD_target_teams_distribute_parallel_for,
+                                         OMPD_distribute, S);
+                break;
+            }
+            case OMPD_target_teams_distribute_parallel_for_simd: {
+                const OMPTargetTeamsDistributeParallelForSimdDirective &D = cast<OMPTargetTeamsDistributeParallelForSimdDirective>(S);
+                assert(D.getLowerBound() && "No lower bound");
+                assert(D.getUpperBound() && "No upper bound");
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getLowerBound())->getDecl()));
+                EmitAutoVarDecl(
+                        *cast<VarDecl>(cast<DeclRefExpr>(D.getUpperBound())->getDecl()));
+                EmitOMPDirectiveWithLoop(OMPD_target_teams_distribute_parallel_for_simd,
+                                         OMPD_distribute, S);
+                break;
+            }
+            default:
+                break;
+        }
+        CGF.EnsureInsertPoint();
+
+        // CodeGen for clauses (call end).
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I)
+            if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+                CGF.EmitPostOMPClause(*(*I), S);
+
+        // CodeGen for clauses (closing steps).
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I)
+            if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+                CGF.EmitCloseOMPClause(*(*I), S);
+    }
+
+    CGF.FinishFunction();
+
+    // CodeGen for "omp parallel {Associated statement}".
+    {
+        RunCleanupsScope MainBlock(*this);
+
+        llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
+        llvm::Type *KmpcMicroTy =
+                llvm::TypeBuilder<kmpc_micro, false>::get(getLLVMContext());
+        llvm::Value *RealArgs[] = {
+                Loc, Builder.getInt32(2),
+                CGF.Builder.CreateBitCast(Fn, KmpcMicroTy, "(kmpc_micro_ty)helper"),
+                Arg};
+        // __kmpc_fork_teams(&loc, argc/*2*/, microtask, arg);
+        EmitRuntimeCall(OPENMPRTL_FUNC(fork_teams), makeArrayRef(RealArgs));
+    }
+
+    // CodeGen for clauses (task finalize).
     for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                         E = S.clauses().end();
+                 E = S.clauses().end();
          I != E; ++I)
-      if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-        CGF.EmitCloseOMPClause(*(*I), S);
-  }
+        if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
+            EmitFinalOMPClause(*(*I), S);
 
-  CGF.FinishFunction();
-
-  // CodeGen for "omp parallel {Associated statement}".
-  {
-    RunCleanupsScope MainBlock(*this);
-
-    llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
-    llvm::Type *KmpcMicroTy =
-        llvm::TypeBuilder<kmpc_micro, false>::get(getLLVMContext());
-    llvm::Value *RealArgs[] = {
-        Loc, Builder.getInt32(2),
-        CGF.Builder.CreateBitCast(Fn, KmpcMicroTy, "(kmpc_micro_ty)helper"),
-        Arg};
-    // __kmpc_fork_teams(&loc, argc/*2*/, microtask, arg);
-    EmitRuntimeCall(OPENMPRTL_FUNC(fork_teams), makeArrayRef(RealArgs));
-  }
-
-  // CodeGen for clauses (task finalize).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                       E = S.clauses().end();
-       I != E; ++I)
-    if (*I && !IsAllowedClause((*I)->getClauseKind(), SKinds))
-      EmitFinalOMPClause(*(*I), S);
-
-  // Remove list of private globals from the stack.
-  CGM.OpenMPSupport.endOpenMPRegion();
+    // Remove list of private globals from the stack.
+    CGM.OpenMPSupport.endOpenMPRegion();
 }
 
 
@@ -6064,22 +6095,25 @@ void CodeGenFunction::CGPragmaOmpSimd::emitLinearFinal(
 /// Generate an instructions for '#pragma omp teams' directive.
 void CodeGenFunction::EmitOMPTeamsDirective(const OMPTeamsDirective &S) {
 
-  if (CGM.getLangOpts().MPtoGPU) {
+/*
+ * if (CGM.getLangOpts().MPtoGPU) {
       llvm_unreachable("(omp teams is not supported for this target yet!");
       CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
       EmitStmt(CS->getCapturedStmt());
   }
   else {
+*/
     RunCleanupsScope ExecutedScope(*this);
     EmitOMPDirectiveWithTeams(OMPD_teams, OMPD_unknown, S);
-  }
+//  }
 }
 
 // Generate the instructions for '#pragma omp simd' directive.
 void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
 
   if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp simd is not supported for this target yet!");
+      DiagnosticsEngine &Diags = CGM.getDiags();
+      Diags.Report(S.getLocStart(),8) << "target directive" << "parallel for [simd]" ;
       CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
       EmitStmt(CS->getCapturedStmt());
   }
@@ -6092,44 +6126,19 @@ void CodeGenFunction::EmitOMPSimdDirective(const OMPSimdDirective &S) {
 
 // Generate the instructions for '#pragma omp for simd' directive.
 void CodeGenFunction::EmitOMPForSimdDirective(const OMPForSimdDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp for simd is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
     RunCleanupsScope ExecutedScope(*this);
     EmitOMPDirectiveWithLoop(OMPD_for_simd, OMPD_for_simd, S);
-  }
 }
 
 // Generate the instructions for '#pragma omp distribute simd' directive.
-void CodeGenFunction::EmitOMPDistributeSimdDirective(
-    const OMPDistributeSimdDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp distribute simd is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+void CodeGenFunction::EmitOMPDistributeSimdDirective(const OMPDistributeSimdDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
     EmitOMPDirectiveWithLoop(OMPD_distribute_simd, OMPD_distribute_simd, S);
-  }
 }
 
 // Generate the instructions for '#pragma omp distribute parallel for'
 // directive.
-void CodeGenFunction::EmitOMPDistributeParallelForDirective(
-    const OMPDistributeParallelForDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp distribute parallel is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+void CodeGenFunction::EmitOMPDistributeParallelForDirective(const OMPDistributeParallelForDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
     assert(S.getLowerBound() && "No lower bound");
     assert(S.getUpperBound() && "No upper bound");
@@ -6138,20 +6147,11 @@ void CodeGenFunction::EmitOMPDistributeParallelForDirective(
     EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getUpperBound())->getDecl()));
     EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for, OMPD_distribute, S);
-  }
 }
 
 // Generate the instructions for '#pragma omp distribute parallel for simd'
 // directive.
-void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(
-    const OMPDistributeParallelForSimdDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp distribute parallel is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(const OMPDistributeParallelForSimdDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
     assert(S.getLowerBound() && "No lower bound");
     assert(S.getUpperBound() && "No upper bound");
@@ -6159,77 +6159,31 @@ void CodeGenFunction::EmitOMPDistributeParallelForSimdDirective(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getLowerBound())->getDecl()));
     EmitAutoVarDecl(
       *cast<VarDecl>(cast<DeclRefExpr>(S.getUpperBound())->getDecl()));
-    EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for_simd, OMPD_distribute,
-			     S);
-  }
+    EmitOMPDirectiveWithLoop(OMPD_distribute_parallel_for_simd, OMPD_distribute, S);
 }
 
-// Generate the instructions for '#pragma omp teams distribute parallel for'
-// directive.
-void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(
-    const OMPTeamsDistributeParallelForDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp target teams is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+// Generate the instructions for '#pragma omp teams distribute parallel for' directive.
+void CodeGenFunction::EmitOMPTeamsDistributeParallelForDirective(const OMPTeamsDistributeParallelForDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
-    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for,
-			      OMPD_distribute_parallel_for, S);
-  }
+    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for, OMPD_distribute_parallel_for, S);
 }
 
-// Generate the instructions for '#pragma omp teams distribute parallel for simd'
-// directive.
-void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(
-    const OMPTeamsDistributeParallelForSimdDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp target teams is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+// Generate the instructions for '#pragma omp teams distribute parallel for simd' directive.
+void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(const OMPTeamsDistributeParallelForSimdDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
-    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for_simd,
-			      OMPD_distribute_parallel_for_simd, S);
-  }
+    EmitOMPDirectiveWithTeams(OMPD_teams_distribute_parallel_for_simd, OMPD_distribute_parallel_for_simd, S);
 }
 
-// Generate the instructions for '#pragma omp target teams distribute parallel
-// for' directive.
-void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForDirective(
-    const OMPTargetTeamsDistributeParallelForDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp target teams is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+// Generate the instructions for '#pragma omp target teams distribute parallel for' directive.
+void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForDirective(const OMPTargetTeamsDistributeParallelForDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
-    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for,
-			      OMPD_distribute_parallel_for, S);
-  }
+    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for, OMPD_distribute_parallel_for, S);
 }
 
-// Generate the instructions for '#pragma omp target teams distribute parallel
-// for simd' directive.
-void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(
-    const OMPTargetTeamsDistributeParallelForSimdDirective &S) {
-
-  if (CGM.getLangOpts().MPtoGPU) {
-      llvm_unreachable("(omp target teams is not supported for this target yet!");
-      CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
-      EmitStmt(CS->getCapturedStmt());
-  }
-  else {
+// Generate the instructions for '#pragma omp target teams distribute parallel for simd' directive.
+void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(const OMPTargetTeamsDistributeParallelForSimdDirective &S) {
     RunCleanupsScope ExecutedScope(*this);
-    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for_simd,
-			      OMPD_distribute_parallel_for_simd, S);
-  }
+    EmitOMPDirectiveWithTeams(OMPD_target_teams_distribute_parallel_for_simd, OMPD_distribute_parallel_for_simd, S);
 }
 
 
@@ -6772,8 +6726,7 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 	RealArgPointerValues.push_back(Arg);
 
 	llvm::Value *VP = Builder.CreateBitCast(Arg,CGM.VoidPtrTy);
-	unsigned VS =
-	  CGM.getDataLayout().getTypeSizeInBits(ArgTy->getElementType()) / 8;
+	unsigned VS = CGM.getDataLayout().getTypeSizeInBits(ArgTy->getElementType()) / 8;
 
 	llvm::Value *P = Builder.CreateConstInBoundsGEP1_32(RealArgPointers,idx);
 
