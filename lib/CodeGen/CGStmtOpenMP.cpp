@@ -1245,22 +1245,8 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     bool stripmine = (polymode == LangOptions::OPT_stripmine) || (polymode == LangOptions::OPT_all);
     bool verbose = CGM.getLangOpts().SchdDebug;
 
-    bool HasSimd = DKind == OMPD_parallel_for_simd ||
-                   DKind == OMPD_distribute_parallel_for_simd ||
-                   DKind == OMPD_teams_distribute_parallel_for_simd ||
-                   DKind == OMPD_target_teams_distribute_parallel_for_simd;
+    bool HasSimd = DKind == OMPD_parallel_for_simd;
     if (tile && HasSimd) vectorize = true;
-
-    llvm::Value *NumTeams = nullptr;
-    if (DKind == OMPD_teams_distribute_parallel_for ||
-        DKind == OMPD_teams_distribute_parallel_for_simd ||
-        DKind == OMPD_target_teams_distribute_parallel_for ||
-        DKind == OMPD_target_teams_distribute_parallel_for_simd ||
-        DKind == OMPD_target_teams_distribute_simd) {
-        llvm::errs () << CGM.OpenMPSupport.getNumTeams() << "\n";
-        NumTeams = CGM.OpenMPSupport.getNumTeams();
-    }
-
 
     // Start creating a unique filename that refers to scop function
     llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), true);
@@ -1297,14 +1283,16 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     ArrayRef<QualType> MapClauseQualTypes;
     ArrayRef<unsigned> MapClauseTypeValues;
     ArrayRef<unsigned> MapClausePositionValues;
+    ArrayRef<unsigned> MapClauseScopeValues;
 
     CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
                                 MapClauseSizeValues,
                                 MapClauseQualTypes,
                                 MapClauseTypeValues,
-                                MapClausePositionValues);
+                                MapClausePositionValues,
+                                MapClauseScopeValues);
 
-    // Dump necessary typedefs in scop file (and aux file)
+    // Dump necessary typedefs in scope file (and aux file)
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
                  E = MapClauseQualTypes.end();
@@ -1562,7 +1550,7 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
 
     // CLgen control whether we need to generate the default kernel code.
     // The polyhedral optimization returns workSizes = 0, meaning that
-    // the poly opt does not worked. In this case Gen default kernel.
+    // the optimization does not worked. In this case generate naive kernel.
     bool CLgen = true;
     if (naive || tile || vectorize || stripmine)
         if (workSizes[0][0] != 0)
@@ -1853,496 +1841,495 @@ void CodeGenFunction::EmitOMPParallelSectionsDirective(
 
 /// Generate instruction for OpenMP loop-like directives.
 void CodeGenFunction::EmitOMPDirectiveWithLoop(OpenMPDirectiveKind DKind,
-    OpenMPDirectiveKind SKind, const OMPExecutableDirective &S) {
+                                               OpenMPDirectiveKind SKind, const OMPExecutableDirective &S) {
 
-    // Are we generating code for Accelerators (e.g. GPU) via OpenCL?
+    // Are we generating code for Accelerators (e.g. GPU) through OpenCL?
     if (CGM.getLangOpts().MPtoGPU && insideTarget) {
         if (DKind == OMPD_parallel_for ||
             DKind == OMPD_parallel_for_simd) {
             EmitOMPtoOpenCLParallelFor(DKind, SKind, S);
             return;
-        }
-        else {
+        } else {
             DiagnosticsEngine &Diags = CGM.getDiags();
-            Diags.Report(S.getLocStart(),8) << "target directive" << "parallel for [simd]" ;
-         }
+            Diags.Report(S.getLocStart(), 8) << "target directive" << "parallel for [simd]";
+        }
     }
 
-  // Several Simd-specific vars are declared here.
-  // OMPD_distribute_parallel_for_simd is not included because it separates to
-  // OMPD_distribute and OMPD_parallel_for_simd directives intentionally and
-  // HasSimd is processed for OMPD_parallel_for_simd part.
-  bool HasSimd = DKind == OMPD_parallel_for_simd || DKind == OMPD_for_simd ||
-                 DKind == OMPD_distribute_simd ||
-                 DKind == OMPD_teams_distribute_simd ||
-                 DKind == OMPD_target_teams_distribute_simd;
-  CGPragmaOmpSimd SimdWrapper(&S);
-  llvm::Function *BodyFunction = 0;
-  bool SeparateLastIter = false;
-  LValue CapStruct;
+    // Several Simd-specific vars are declared here.
+    // OMPD_distribute_parallel_for_simd is not included because it separates to
+    // OMPD_distribute and OMPD_parallel_for_simd directives intentionally and
+    // HasSimd is processed for OMPD_parallel_for_simd part.
+    bool HasSimd = DKind == OMPD_parallel_for_simd || DKind == OMPD_for_simd ||
+                   DKind == OMPD_distribute_simd ||
+                   DKind == OMPD_teams_distribute_simd ||
+                   DKind == OMPD_target_teams_distribute_simd;
+    CGPragmaOmpSimd SimdWrapper(&S);
+    llvm::Function *BodyFunction = 0;
+    bool SeparateLastIter = false;
+    LValue CapStruct;
 
-  // Init list of private globals in the stack.
-  CGM.OpenMPSupport.startOpenMPRegion(false);
-  CGM.OpenMPSupport.setNoWait(false);
-  CGM.OpenMPSupport.setMergeable(true);
-  CGM.OpenMPSupport.setOrdered(false);
+    // Init list of private globals in the stack.
+    CGM.OpenMPSupport.startOpenMPRegion(false);
+    CGM.OpenMPSupport.setNoWait(false);
+    CGM.OpenMPSupport.setMergeable(true);
+    CGM.OpenMPSupport.setOrdered(false);
 
-  // CodeGen for clauses (task init).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
-      S.clauses().end(); I != E; ++I)
-    if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-      EmitInitOMPClause(*(*I), S);
+    // CodeGen for clauses (task init).
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
+            S.clauses().end(); I != E; ++I)
+        if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+            EmitInitOMPClause(*(*I), S);
 
-  // CodeGen for clauses (task init).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
-      S.clauses().end(); I != E; ++I)
-    if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-      EmitAfterInitOMPClause(*(*I), S);
+    // CodeGen for clauses (task init).
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
+            S.clauses().end(); I != E; ++I)
+        if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+            EmitAfterInitOMPClause(*(*I), S);
 
-  bool IsDistributeLoop = DKind == OMPD_distribute ||
-                          DKind == OMPD_distribute_simd ||
-                          DKind == OMPD_distribute_parallel_for ||
-                          DKind == OMPD_distribute_parallel_for_simd ||
-                          DKind == OMPD_teams_distribute_parallel_for ||
-                          DKind == OMPD_teams_distribute_parallel_for_simd ||
-                          DKind == OMPD_target_teams_distribute_parallel_for ||
-                          DKind == OMPD_target_teams_distribute_parallel_for_simd ||
-                          DKind == OMPD_teams_distribute ||
-                          DKind == OMPD_teams_distribute_simd ||
-                          DKind == OMPD_target_teams_distribute ||
-                          DKind == OMPD_target_teams_distribute_simd;
-  int Schedule = KMP_SCH_DEFAULT;
-  if (!IsDistributeLoop) {
-    bool Ordered = CGM.OpenMPSupport.getOrdered();
-    bool Merge = CGM.OpenMPSupport.getMergeable();
-    int Offset = 0;
-    if (Ordered && Merge)
-      Offset = SCH_ORD;
-    else if (!Ordered && !Merge)
-      Offset = SCH_NM;
-    else if (Ordered && !Merge)
-      Offset = SCH_NM_ORD;
-    Schedule += Offset;
-  } else {
-    Schedule = KMP_SCH_DISTRIBUTE_STATIC;
-  }
-  CGM.OpenMPSupport.setScheduleChunkSize(Schedule, 0);
+    bool IsDistributeLoop = DKind == OMPD_distribute ||
+                            DKind == OMPD_distribute_simd ||
+                            DKind == OMPD_distribute_parallel_for ||
+                            DKind == OMPD_distribute_parallel_for_simd ||
+                            DKind == OMPD_teams_distribute_parallel_for ||
+                            DKind == OMPD_teams_distribute_parallel_for_simd ||
+                            DKind == OMPD_target_teams_distribute_parallel_for ||
+                            DKind == OMPD_target_teams_distribute_parallel_for_simd ||
+                            DKind == OMPD_teams_distribute ||
+                            DKind == OMPD_teams_distribute_simd ||
+                            DKind == OMPD_target_teams_distribute ||
+                            DKind == OMPD_target_teams_distribute_simd;
+    int Schedule = KMP_SCH_DEFAULT;
+    if (!IsDistributeLoop) {
+        bool Ordered = CGM.OpenMPSupport.getOrdered();
+        bool Merge = CGM.OpenMPSupport.getMergeable();
+        int Offset = 0;
+        if (Ordered && Merge)
+            Offset = SCH_ORD;
+        else if (!Ordered && !Merge)
+            Offset = SCH_NM;
+        else if (Ordered && !Merge)
+            Offset = SCH_NM_ORD;
+        Schedule += Offset;
+    } else {
+        Schedule = KMP_SCH_DISTRIBUTE_STATIC;
+    }
+    CGM.OpenMPSupport.setScheduleChunkSize(Schedule, 0);
 
-  llvm::BasicBlock *PrecondEndBB = createBasicBlock("omp.loop.precond_end");
-  {
-    RunCleanupsScope ExecutedScope(*this);
-    // CodeGen for clauses (call start).
-    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                         E = S.clauses().end();
-         I != E; ++I)
-      if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-        EmitPreOMPClause(*(*I), S);
-
-    const Expr *ChunkSize;
-    CGM.OpenMPSupport.getScheduleChunkSize(Schedule, ChunkSize);
-    OpenMPDirectiveKind Kind = S.getDirectiveKind();
-    bool IsComplexParallelLoop =
-        Kind == OMPD_distribute_parallel_for ||
-        Kind == OMPD_distribute_parallel_for_simd ||
-        Kind == OMPD_teams_distribute_parallel_for ||
-        Kind == OMPD_teams_distribute_parallel_for_simd ||
-        Kind == OMPD_target_teams_distribute_parallel_for ||
-        Kind == OMPD_target_teams_distribute_parallel_for_simd;
-    bool IsInnerLoopGen = IsComplexParallelLoop && DKind != Kind;
-    bool IsStaticSchedule = Schedule == KMP_SCH_STATIC_CHUNKED ||
-                            Schedule == KMP_SCH_STATIC ||
-                            Schedule == KMP_SCH_DISTRIBUTE_STATIC_CHUNKED ||
-                            Schedule == KMP_SCH_DISTRIBUTE_STATIC;
-    // CodeGen for "omp for {Associated statement}".
+    llvm::BasicBlock *PrecondEndBB = createBasicBlock("omp.loop.precond_end");
     {
-      llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
-      llvm::Value *GTid =
-          OPENMPRTL_THREADNUM(S.getLocStart(), *this);
-      const Expr *IterVar = getNewIterVarFromLoopDirective(&S);
-      QualType QTy = IterVar->getType();
-      uint64_t TypeSize = 32;
-      if (getContext().getTypeSize(QTy) > TypeSize)
-        TypeSize = 64;
-      bool isSigned = true;
-      if (QTy->hasUnsignedIntegerRepresentation())
-        isSigned = false;
-      llvm::Type *VarTy = TypeSize == 32 ? Int32Ty : Int64Ty;
-      llvm::Value *LB = 0;
-      llvm::Value *UB = 0;
-      llvm::Value *GlobalUB = 0;
-      // Generate loop for inner 'for' directive
-      if (IsInnerLoopGen) {
-        LB = EmitScalarExpr(getLowerBoundFromLoopDirective(&S));
-        UB = EmitScalarExpr(getUpperBoundFromLoopDirective(&S));
-      } else {
-        LB = llvm::Constant::getNullValue(VarTy);
-        UB = EmitScalarExpr(getNewIterEndFromLoopDirective(&S));
-      }
-      GlobalUB = UB;
-#ifdef DEBUG
-      llvm::AllocaInst *DebugUB = CreateMemTemp(
-          getNewIterEndFromLoopDirective(&S)->getType(), "debug.ub");
-      Builder.CreateStore(UB, DebugUB);
-#endif
-      UB = Builder.CreateIntCast(UB, VarTy, isSigned);
-      llvm::Value *Chunk;
-      if (ChunkSize) {
-        Chunk = EmitScalarExpr(ChunkSize);
-        Chunk = Builder.CreateIntCast(Chunk, VarTy, true);
-      } else {
-        Chunk = llvm::Constant::getNullValue(VarTy);
-      }
-      llvm::BasicBlock *EndBB = createBasicBlock("omp.loop.end");
-      llvm::BasicBlock *OMPLoopBB = 0; // createBasicBlock("omp.loop.begin");
-      llvm::AllocaInst *PLast = CreateTempAlloca(Int32Ty, "last");
-      PLast->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(Int32Ty));
-      InitTempAlloca(PLast, IsStaticSchedule ? Builder.getInt32(1)
-                                             : Builder.getInt32(0));
-      llvm::AllocaInst *PLB = CreateTempAlloca(VarTy, "lb");
-      PLB->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
-      Builder.CreateStore(LB, PLB);
-      llvm::AllocaInst *PUB = CreateTempAlloca(VarTy, "ub");
-      PUB->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
-      Builder.CreateStore(UB, PUB);
-      llvm::AllocaInst *PSt = CreateTempAlloca(VarTy, "st");
-      PSt->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
-      InitTempAlloca(PSt, TypeSize == 32 ? Builder.getInt32(1)
-                                         : Builder.getInt64(1));
-      llvm::AllocaInst *Private = CreateMemTemp(QTy, ".idx.");
-      llvm::Type *IdxTy =
-          cast<llvm::PointerType>(Private->getType())->getElementType();
-      llvm::BasicBlock *MainBB;
-      llvm::BasicBlock *FiniBB = 0;
-
-      const Stmt *Body = S.getAssociatedStmt();
-      ArrayRef<Expr *> Arr = getCountersFromLoopDirective(&S);
-      if (const CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body))
-        Body = CS->getCapturedStmt();
-      const VarDecl *VD = cast<VarDecl>(cast<DeclRefExpr>(IterVar)->getDecl());
-      CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
-      for (unsigned I = 0; I < getCollapsedNumberFromLoopDirective(&S); ++I) {
-        RunCleanupsScope InitScope(*this);
-        const VarDecl *VD = cast<VarDecl>(cast<DeclRefExpr>(Arr[I])->getDecl());
-        bool SkippedContainers = false;
-        while (!SkippedContainers) {
-          if (const AttributedStmt *AS = dyn_cast_or_null<AttributedStmt>(Body))
-            Body = AS->getSubStmt();
-          else if (const CompoundStmt *CS =
-                       dyn_cast_or_null<CompoundStmt>(Body)) {
-            if (CS->size() != 1) {
-              SkippedContainers = true;
-            } else {
-              Body = CS->body_back();
-            }
-          } else
-            SkippedContainers = true;
-        }
-        const ForStmt *For = dyn_cast_or_null<ForStmt>(Body);
-        Body = For->getBody();
-        if (CGM.OpenMPSupport.getTopOpenMPPrivateVar(VD))
-          continue;
-        QualType QTy = Arr[I]->getType();
-        llvm::AllocaInst *Private =
-            CreateMemTemp(QTy, CGM.getMangledName(VD) + ".private.");
-        CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
-        llvm::BasicBlock *PrecondBB = createBasicBlock("omp.loop.precond");
-        if (isa<DeclStmt>(For->getInit()))
-          EmitAnyExprToMem(VD->getAnyInitializer(), Private,
-                           VD->getType().getQualifiers(),
-                           /*IsInitializer=*/true);
-        else
-          EmitStmt(For->getInit());
-        EmitBranchOnBoolExpr(For->getCond(), PrecondBB, PrecondEndBB, 0);
-        EmitBlock(PrecondBB);
-      }
-
-      if (IsStaticSchedule) {
-        llvm::Value *RealArgs[] = {
-            Loc,
-            GTid,
-            Builder.getInt32(Schedule),
-            PLast,
-            PLB,
-            PUB,
-            PSt,
-            TypeSize == 32 ? Builder.getInt32(1) : Builder.getInt64(1),
-            Chunk};
-        if (TypeSize == 32 && isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_4), RealArgs);
-        else if (TypeSize == 32 && !isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_4u), RealArgs);
-        else if (TypeSize == 64 && isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_8), RealArgs);
-        else
-          EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_8u), RealArgs);
-        OMPLoopBB = createBasicBlock("omp.loop.begin");
-        EmitBlock(OMPLoopBB);
-        LB = Builder.CreateLoad(PLB);
-        Builder.CreateStore(LB, Private);
-        UB = Builder.CreateLoad(PUB);
-        llvm::Value *Cond = Builder.CreateICmp(
-            isSigned ? llvm::CmpInst::ICMP_SLT : llvm::CmpInst::ICMP_ULT, UB,
-            GlobalUB);
-        UB = Builder.CreateSelect(Cond, UB, GlobalUB);
-        Builder.CreateStore(UB, PUB);
-        MainBB = createBasicBlock("omp.loop.main");
-        FiniBB = createBasicBlock("omp.loop.fini");
-      } else {
-        llvm::IntegerType *SchedTy =
-            llvm::TypeBuilder<sched_type, false>::get(getLLVMContext());
-        llvm::Value *RealArgs[] = {
-            Loc,
-            GTid,
-            llvm::ConstantInt::get(SchedTy, Schedule),
-            LB,
-            UB,
-            TypeSize == 32 ? Builder.getInt32(1) : Builder.getInt64(1),
-            Chunk};
-        // __kmpc_dispatch_init{4, 8}(&loc, gtid, sched_type, lb, ub, st,
-        // chunk);
-        if (TypeSize == 32 && isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_4), RealArgs);
-        else if (TypeSize == 32 && !isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_4u), RealArgs);
-        else if (TypeSize == 64 && isSigned)
-          EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_8), RealArgs);
-        else
-          EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_8u), RealArgs);
-        llvm::Value *RealArgsNext[] = {Loc, GTid, PLast, PLB, PUB, PSt};
-        OMPLoopBB = createBasicBlock("omp.loop.begin");
-        EmitBlock(OMPLoopBB);
-        llvm::Value *CallRes;
-        if (TypeSize == 32 && isSigned)
-          CallRes =
-              EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_4), RealArgsNext);
-        else if (TypeSize == 32 && !isSigned)
-          CallRes =
-              EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_4u), RealArgsNext);
-        else if (TypeSize == 64 && isSigned)
-          CallRes =
-              EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_8), RealArgsNext);
-        else
-          CallRes =
-              EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_8u), RealArgsNext);
-        llvm::BasicBlock *OMPInitBB = createBasicBlock("omp.loop.init");
-        llvm::SwitchInst *Switch = Builder.CreateSwitch(
-            Builder.CreateIntCast(CallRes, Int32Ty, false), EndBB, 1);
-        Switch->addCase(llvm::ConstantInt::get(Int32Ty, 1), OMPInitBB);
-        EmitBranch(OMPInitBB);
-        EmitBlock(OMPInitBB);
-        LB = Builder.CreateLoad(PLB);
-        UB = Builder.CreateLoad(PUB);
-        Builder.CreateStore(LB, Private);
-        MainBB = createBasicBlock("omp.loop.main");
-        FiniBB = createBasicBlock("omp.loop.fini");
-      }
-      if (HasSimd) {
-        // Update vectorizer width on the loop stack.
-        SeparateLastIter = SimdWrapper.emitSafelen(this);
-
-        if (SeparateLastIter) {
-          // Emit the following for the lastprivate vars update:
-          //   --UB;
-          // It is unclear if putting it under "if (*PLast)" will be
-          // more or less efficient, this needs to be investigated.
-          UB = Builder.CreateSub(UB, llvm::ConstantInt::get(UB->getType(), 1));
-          Builder.CreateStore(UB, PUB);
-        }
-
-        // Initialize the captured struct.
-        CapStruct = InitCapturedStruct(*SimdWrapper.getAssociatedStmt());
-      }
-
-      EmitBranch(MainBB);
-      EmitBlock(MainBB);
-
-      if (IsStaticSchedule) {
-        llvm::Value *Cond = Builder.CreateICmp(
-            isSigned ? llvm::CmpInst::ICMP_SLE : llvm::CmpInst::ICMP_ULE, LB,
-            GlobalUB);
-        llvm::BasicBlock *ContBB = createBasicBlock("omp.lb.le.global_ub.");
-        Builder.CreateCondBr(Cond, ContBB, EndBB);
-        EmitBlock(ContBB);
-      }
-
-      if (HasSimd) {
-        // Push current LoopInfo onto the LoopStack.
-        LoopStack.Push(MainBB);
-      }
-
-      {
-        RunCleanupsScope ThenScope(*this);
-        EmitStmt(getInitFromLoopDirective(&S));
-#ifdef DEBUG
+        RunCleanupsScope ExecutedScope(*this);
         // CodeGen for clauses (call start).
         for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                             E = S.clauses().end();
+                     E = S.clauses().end();
              I != E; ++I)
-          if (const OMPLastPrivateClause *Clause =
-                  dyn_cast_or_null<OMPLastPrivateClause>(*I)) {
-            for (OMPLastPrivateClause::varlist_const_iterator
-                     I1 = Clause->varlist_begin(),
-                     E1 = Clause->varlist_end();
-                 I1 != E1; ++I1) {
-              const VarDecl *VD =
-                  cast<VarDecl>(cast<DeclRefExpr>(*I1)->getDecl());
-              if (VD->getName() == "IDX")
-                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
-              else if (VD->getName() == "UB")
-                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, DebugUB);
-              else if (VD->getName() == "LUB")
-                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, PUB);
-              else if (VD->getName() == "LLB")
-                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, PLB);
-            }
-          }
-#endif
-        llvm::Value *Idx = Builder.CreateLoad(Private, ".idx.");
-        llvm::BasicBlock *UBLBCheckBB =
-            createBasicBlock("omp.lb_ub.check_pass");
-        UB = Builder.CreateLoad(PUB);
-        llvm::Value *UBLBCheck =
-            isSigned ? Builder.CreateICmpSLE(Idx, UB, "omp.idx.le.ub")
-                     : Builder.CreateICmpULE(Idx, UB, "omp.idx.le.ub");
-        // llvm::BasicBlock *PrevBB = Builder.GetInsertBlock();
-        Builder.CreateCondBr(UBLBCheck, UBLBCheckBB, FiniBB);
-        EmitBlock(UBLBCheckBB);
-        llvm::BasicBlock *ContBlock = createBasicBlock("omp.cont.block");
+            if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+                EmitPreOMPClause(*(*I), S);
 
-        BreakContinueStack.push_back(
-            BreakContinue(getJumpDestInCurrentScope(EndBB),
-                          getJumpDestInCurrentScope(ContBlock)));
-        if (HasSimd) {
-          RunCleanupsScope Scope(*this);
-          BodyFunction = EmitSimdFunction(SimdWrapper);
-          EmitSIMDForHelperCall(BodyFunction, CapStruct, Private, false);
-        } else {
-          RunCleanupsScope Scope(*this);
-          if (IsInnerLoopGen || !IsComplexParallelLoop) {
-            if (SKind == OMPD_for)
-              OMPCancelMap[OMPD_for] = getJumpDestInCurrentScope(EndBB);
-            EmitStmt(Body);
-            OMPCancelMap.erase(OMPD_for);
-          } else {
-            const Expr *LowerBound = getLowerBoundFromLoopDirective(&S);
-            const Expr *UpperBound = getUpperBoundFromLoopDirective(&S);
-            EmitStoreOfScalar(Builder.CreateLoad(PLB), EmitLValue(LowerBound));
-            EmitStoreOfScalar(Builder.CreateLoad(PUB), EmitLValue(UpperBound));
-            // Special codegen for distribute parallel for [simd] constructs
-            if (Kind == OMPD_distribute_parallel_for ||
+        const Expr *ChunkSize;
+        CGM.OpenMPSupport.getScheduleChunkSize(Schedule, ChunkSize);
+        OpenMPDirectiveKind Kind = S.getDirectiveKind();
+        bool IsComplexParallelLoop =
+                Kind == OMPD_distribute_parallel_for ||
+                Kind == OMPD_distribute_parallel_for_simd ||
                 Kind == OMPD_teams_distribute_parallel_for ||
-                Kind == OMPD_target_teams_distribute_parallel_for)
-              EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
-            else if (Kind == OMPD_distribute_parallel_for_simd ||
-                     Kind == OMPD_teams_distribute_parallel_for_simd ||
-                     Kind == OMPD_target_teams_distribute_parallel_for_simd)
-              EmitOMPDirectiveWithParallel(OMPD_parallel_for_simd,
-                                           OMPD_for_simd, S);
-          }
-        }
-        BreakContinueStack.pop_back();
-        EnsureInsertPoint();
-        EmitBranch(ContBlock);
-        EmitBlock(ContBlock);
-        Idx = Builder.CreateLoad(Private, ".idx.");
-        llvm::Value *NextIdx = Builder.CreateAdd(
-            Idx, llvm::ConstantInt::get(IdxTy, 1), ".next.idx.", false,
-            QTy->isSignedIntegerOrEnumerationType());
-        Builder.CreateStore(NextIdx, Private);
-        if (!IsStaticSchedule && CGM.OpenMPSupport.getOrdered()) {
-          // Emit _dispatch_fini for ordered loops
-          llvm::Value *RealArgsFini[] = {Loc, GTid};
-          if (TypeSize == 32 && isSigned)
-            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_4), RealArgsFini);
-          else if (TypeSize == 32 && !isSigned)
-            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_4u), RealArgsFini);
-          else if (TypeSize == 64 && isSigned)
-            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_8), RealArgsFini);
-          else
-            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_8u), RealArgsFini);
+                Kind == OMPD_teams_distribute_parallel_for_simd ||
+                Kind == OMPD_target_teams_distribute_parallel_for ||
+                Kind == OMPD_target_teams_distribute_parallel_for_simd;
+        bool IsInnerLoopGen = IsComplexParallelLoop && DKind != Kind;
+        bool IsStaticSchedule = Schedule == KMP_SCH_STATIC_CHUNKED ||
+                                Schedule == KMP_SCH_STATIC ||
+                                Schedule == KMP_SCH_DISTRIBUTE_STATIC_CHUNKED ||
+                                Schedule == KMP_SCH_DISTRIBUTE_STATIC;
+        // CodeGen for "omp for {Associated statement}".
+        {
+            llvm::Value *Loc = OPENMPRTL_LOC(S.getLocStart(), *this);
+            llvm::Value *GTid =
+                    OPENMPRTL_THREADNUM(S.getLocStart(), *this);
+            const Expr *IterVar = getNewIterVarFromLoopDirective(&S);
+            QualType QTy = IterVar->getType();
+            uint64_t TypeSize = 32;
+            if (getContext().getTypeSize(QTy) > TypeSize)
+                TypeSize = 64;
+            bool isSigned = true;
+            if (QTy->hasUnsignedIntegerRepresentation())
+                isSigned = false;
+            llvm::Type *VarTy = TypeSize == 32 ? Int32Ty : Int64Ty;
+            llvm::Value *LB = 0;
+            llvm::Value *UB = 0;
+            llvm::Value *GlobalUB = 0;
+            // Generate loop for inner 'for' directive
+            if (IsInnerLoopGen) {
+                LB = EmitScalarExpr(getLowerBoundFromLoopDirective(&S));
+                UB = EmitScalarExpr(getUpperBoundFromLoopDirective(&S));
+            } else {
+                LB = llvm::Constant::getNullValue(VarTy);
+                UB = EmitScalarExpr(getNewIterEndFromLoopDirective(&S));
+            }
+            GlobalUB = UB;
+#ifdef DEBUG
+            llvm::AllocaInst *DebugUB = CreateMemTemp(
+                    getNewIterEndFromLoopDirective(&S)->getType(), "debug.ub");
+            Builder.CreateStore(UB, DebugUB);
+#endif
+            UB = Builder.CreateIntCast(UB, VarTy, isSigned);
+            llvm::Value *Chunk;
+            if (ChunkSize) {
+                Chunk = EmitScalarExpr(ChunkSize);
+                Chunk = Builder.CreateIntCast(Chunk, VarTy, true);
+            } else {
+                Chunk = llvm::Constant::getNullValue(VarTy);
+            }
+            llvm::BasicBlock *EndBB = createBasicBlock("omp.loop.end");
+            llvm::BasicBlock *OMPLoopBB = 0; // createBasicBlock("omp.loop.begin");
+            llvm::AllocaInst *PLast = CreateTempAlloca(Int32Ty, "last");
+            PLast->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(Int32Ty));
+            InitTempAlloca(PLast, IsStaticSchedule ? Builder.getInt32(1)
+                                                   : Builder.getInt32(0));
+            llvm::AllocaInst *PLB = CreateTempAlloca(VarTy, "lb");
+            PLB->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
+            Builder.CreateStore(LB, PLB);
+            llvm::AllocaInst *PUB = CreateTempAlloca(VarTy, "ub");
+            PUB->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
+            Builder.CreateStore(UB, PUB);
+            llvm::AllocaInst *PSt = CreateTempAlloca(VarTy, "st");
+            PSt->setAlignment(CGM.getDataLayout().getPrefTypeAlignment(VarTy));
+            InitTempAlloca(PSt, TypeSize == 32 ? Builder.getInt32(1)
+                                               : Builder.getInt64(1));
+            llvm::AllocaInst *Private = CreateMemTemp(QTy, ".idx.");
+            llvm::Type *IdxTy =
+                    cast<llvm::PointerType>(Private->getType())->getElementType();
+            llvm::BasicBlock *MainBB;
+            llvm::BasicBlock *FiniBB = 0;
+
+            const Stmt *Body = S.getAssociatedStmt();
+            ArrayRef<Expr *> Arr = getCountersFromLoopDirective(&S);
+            if (const CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body))
+                Body = CS->getCapturedStmt();
+            const VarDecl *VD = cast<VarDecl>(cast<DeclRefExpr>(IterVar)->getDecl());
+            CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
+            for (unsigned I = 0; I < getCollapsedNumberFromLoopDirective(&S); ++I) {
+                RunCleanupsScope InitScope(*this);
+                const VarDecl *VD = cast<VarDecl>(cast<DeclRefExpr>(Arr[I])->getDecl());
+                bool SkippedContainers = false;
+                while (!SkippedContainers) {
+                    if (const AttributedStmt *AS = dyn_cast_or_null<AttributedStmt>(Body))
+                        Body = AS->getSubStmt();
+                    else if (const CompoundStmt *CS =
+                            dyn_cast_or_null<CompoundStmt>(Body)) {
+                        if (CS->size() != 1) {
+                            SkippedContainers = true;
+                        } else {
+                            Body = CS->body_back();
+                        }
+                    } else
+                        SkippedContainers = true;
+                }
+                const ForStmt *For = dyn_cast_or_null<ForStmt>(Body);
+                Body = For->getBody();
+                if (CGM.OpenMPSupport.getTopOpenMPPrivateVar(VD))
+                    continue;
+                QualType QTy = Arr[I]->getType();
+                llvm::AllocaInst *Private =
+                        CreateMemTemp(QTy, CGM.getMangledName(VD) + ".private.");
+                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
+                llvm::BasicBlock *PrecondBB = createBasicBlock("omp.loop.precond");
+                if (isa<DeclStmt>(For->getInit()))
+                    EmitAnyExprToMem(VD->getAnyInitializer(), Private,
+                                     VD->getType().getQualifiers(),
+                            /*IsInitializer=*/true);
+                else
+                    EmitStmt(For->getInit());
+                EmitBranchOnBoolExpr(For->getCond(), PrecondBB, PrecondEndBB, 0);
+                EmitBlock(PrecondBB);
+            }
+
+            if (IsStaticSchedule) {
+                llvm::Value *RealArgs[] = {
+                        Loc,
+                        GTid,
+                        Builder.getInt32(Schedule),
+                        PLast,
+                        PLB,
+                        PUB,
+                        PSt,
+                        TypeSize == 32 ? Builder.getInt32(1) : Builder.getInt64(1),
+                        Chunk};
+                if (TypeSize == 32 && isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_4), RealArgs);
+                else if (TypeSize == 32 && !isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_4u), RealArgs);
+                else if (TypeSize == 64 && isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_8), RealArgs);
+                else
+                    EmitRuntimeCall(OPENMPRTL_FUNC(for_static_init_8u), RealArgs);
+                OMPLoopBB = createBasicBlock("omp.loop.begin");
+                EmitBlock(OMPLoopBB);
+                LB = Builder.CreateLoad(PLB);
+                Builder.CreateStore(LB, Private);
+                UB = Builder.CreateLoad(PUB);
+                llvm::Value *Cond = Builder.CreateICmp(
+                        isSigned ? llvm::CmpInst::ICMP_SLT : llvm::CmpInst::ICMP_ULT, UB,
+                        GlobalUB);
+                UB = Builder.CreateSelect(Cond, UB, GlobalUB);
+                Builder.CreateStore(UB, PUB);
+                MainBB = createBasicBlock("omp.loop.main");
+                FiniBB = createBasicBlock("omp.loop.fini");
+            } else {
+                llvm::IntegerType *SchedTy =
+                        llvm::TypeBuilder<sched_type, false>::get(getLLVMContext());
+                llvm::Value *RealArgs[] = {
+                        Loc,
+                        GTid,
+                        llvm::ConstantInt::get(SchedTy, Schedule),
+                        LB,
+                        UB,
+                        TypeSize == 32 ? Builder.getInt32(1) : Builder.getInt64(1),
+                        Chunk};
+                // __kmpc_dispatch_init{4, 8}(&loc, gtid, sched_type, lb, ub, st,
+                // chunk);
+                if (TypeSize == 32 && isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_4), RealArgs);
+                else if (TypeSize == 32 && !isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_4u), RealArgs);
+                else if (TypeSize == 64 && isSigned)
+                    EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_8), RealArgs);
+                else
+                    EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_init_8u), RealArgs);
+                llvm::Value *RealArgsNext[] = {Loc, GTid, PLast, PLB, PUB, PSt};
+                OMPLoopBB = createBasicBlock("omp.loop.begin");
+                EmitBlock(OMPLoopBB);
+                llvm::Value *CallRes;
+                if (TypeSize == 32 && isSigned)
+                    CallRes =
+                            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_4), RealArgsNext);
+                else if (TypeSize == 32 && !isSigned)
+                    CallRes =
+                            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_4u), RealArgsNext);
+                else if (TypeSize == 64 && isSigned)
+                    CallRes =
+                            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_8), RealArgsNext);
+                else
+                    CallRes =
+                            EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_next_8u), RealArgsNext);
+                llvm::BasicBlock *OMPInitBB = createBasicBlock("omp.loop.init");
+                llvm::SwitchInst *Switch = Builder.CreateSwitch(
+                        Builder.CreateIntCast(CallRes, Int32Ty, false), EndBB, 1);
+                Switch->addCase(llvm::ConstantInt::get(Int32Ty, 1), OMPInitBB);
+                EmitBranch(OMPInitBB);
+                EmitBlock(OMPInitBB);
+                LB = Builder.CreateLoad(PLB);
+                UB = Builder.CreateLoad(PUB);
+                Builder.CreateStore(LB, Private);
+                MainBB = createBasicBlock("omp.loop.main");
+                FiniBB = createBasicBlock("omp.loop.fini");
+            }
+            if (HasSimd) {
+                // Update vectorizer width on the loop stack.
+                SeparateLastIter = SimdWrapper.emitSafelen(this);
+
+                if (SeparateLastIter) {
+                    // Emit the following for the lastprivate vars update:
+                    //   --UB;
+                    // It is unclear if putting it under "if (*PLast)" will be
+                    // more or less efficient, this needs to be investigated.
+                    UB = Builder.CreateSub(UB, llvm::ConstantInt::get(UB->getType(), 1));
+                    Builder.CreateStore(UB, PUB);
+                }
+
+                // Initialize the captured struct.
+                CapStruct = InitCapturedStruct(*SimdWrapper.getAssociatedStmt());
+            }
+
+            EmitBranch(MainBB);
+            EmitBlock(MainBB);
+
+            if (IsStaticSchedule) {
+                llvm::Value *Cond = Builder.CreateICmp(
+                        isSigned ? llvm::CmpInst::ICMP_SLE : llvm::CmpInst::ICMP_ULE, LB,
+                        GlobalUB);
+                llvm::BasicBlock *ContBB = createBasicBlock("omp.lb.le.global_ub.");
+                Builder.CreateCondBr(Cond, ContBB, EndBB);
+                EmitBlock(ContBB);
+            }
+
+            if (HasSimd) {
+                // Push current LoopInfo onto the LoopStack.
+                LoopStack.Push(MainBB);
+            }
+
+            {
+                RunCleanupsScope ThenScope(*this);
+                EmitStmt(getInitFromLoopDirective(&S));
+#ifdef DEBUG
+                // CodeGen for clauses (call start).
+                for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                             E = S.clauses().end();
+                     I != E; ++I)
+                    if (const OMPLastPrivateClause *Clause =
+                            dyn_cast_or_null<OMPLastPrivateClause>(*I)) {
+                        for (OMPLastPrivateClause::varlist_const_iterator
+                                     I1 = Clause->varlist_begin(),
+                                     E1 = Clause->varlist_end();
+                             I1 != E1; ++I1) {
+                            const VarDecl *VD =
+                                    cast<VarDecl>(cast<DeclRefExpr>(*I1)->getDecl());
+                            if (VD->getName() == "IDX")
+                                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, Private);
+                            else if (VD->getName() == "UB")
+                                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, DebugUB);
+                            else if (VD->getName() == "LUB")
+                                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, PUB);
+                            else if (VD->getName() == "LLB")
+                                CGM.OpenMPSupport.addOpenMPPrivateVar(VD, PLB);
+                        }
+                    }
+#endif
+                llvm::Value *Idx = Builder.CreateLoad(Private, ".idx.");
+                llvm::BasicBlock *UBLBCheckBB =
+                        createBasicBlock("omp.lb_ub.check_pass");
+                UB = Builder.CreateLoad(PUB);
+                llvm::Value *UBLBCheck =
+                        isSigned ? Builder.CreateICmpSLE(Idx, UB, "omp.idx.le.ub")
+                                 : Builder.CreateICmpULE(Idx, UB, "omp.idx.le.ub");
+                // llvm::BasicBlock *PrevBB = Builder.GetInsertBlock();
+                Builder.CreateCondBr(UBLBCheck, UBLBCheckBB, FiniBB);
+                EmitBlock(UBLBCheckBB);
+                llvm::BasicBlock *ContBlock = createBasicBlock("omp.cont.block");
+
+                BreakContinueStack.push_back(
+                        BreakContinue(getJumpDestInCurrentScope(EndBB),
+                                      getJumpDestInCurrentScope(ContBlock)));
+                if (HasSimd) {
+                    RunCleanupsScope Scope(*this);
+                    BodyFunction = EmitSimdFunction(SimdWrapper);
+                    EmitSIMDForHelperCall(BodyFunction, CapStruct, Private, false);
+                } else {
+                    RunCleanupsScope Scope(*this);
+                    if (IsInnerLoopGen || !IsComplexParallelLoop) {
+                        if (SKind == OMPD_for)
+                            OMPCancelMap[OMPD_for] = getJumpDestInCurrentScope(EndBB);
+                        EmitStmt(Body);
+                        OMPCancelMap.erase(OMPD_for);
+                    } else {
+                        const Expr *LowerBound = getLowerBoundFromLoopDirective(&S);
+                        const Expr *UpperBound = getUpperBoundFromLoopDirective(&S);
+                        EmitStoreOfScalar(Builder.CreateLoad(PLB), EmitLValue(LowerBound));
+                        EmitStoreOfScalar(Builder.CreateLoad(PUB), EmitLValue(UpperBound));
+                        // Special codegen for distribute parallel for [simd] constructs
+                        if (Kind == OMPD_distribute_parallel_for ||
+                            Kind == OMPD_teams_distribute_parallel_for ||
+                            Kind == OMPD_target_teams_distribute_parallel_for)
+                            EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
+                        else if (Kind == OMPD_distribute_parallel_for_simd ||
+                                 Kind == OMPD_teams_distribute_parallel_for_simd ||
+                                 Kind == OMPD_target_teams_distribute_parallel_for_simd)
+                            EmitOMPDirectiveWithParallel(OMPD_parallel_for_simd,
+                                                         OMPD_for_simd, S);
+                    }
+                }
+                BreakContinueStack.pop_back();
+                EnsureInsertPoint();
+                EmitBranch(ContBlock);
+                EmitBlock(ContBlock);
+                Idx = Builder.CreateLoad(Private, ".idx.");
+                llvm::Value *NextIdx = Builder.CreateAdd(
+                        Idx, llvm::ConstantInt::get(IdxTy, 1), ".next.idx.", false,
+                        QTy->isSignedIntegerOrEnumerationType());
+                Builder.CreateStore(NextIdx, Private);
+                if (!IsStaticSchedule && CGM.OpenMPSupport.getOrdered()) {
+                    // Emit _dispatch_fini for ordered loops
+                    llvm::Value *RealArgsFini[] = {Loc, GTid};
+                    if (TypeSize == 32 && isSigned)
+                        EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_4), RealArgsFini);
+                    else if (TypeSize == 32 && !isSigned)
+                        EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_4u), RealArgsFini);
+                    else if (TypeSize == 64 && isSigned)
+                        EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_8), RealArgsFini);
+                    else
+                        EmitRuntimeCall(OPENMPRTL_FUNC(dispatch_fini_8u), RealArgsFini);
+                }
+
+                //      for(llvm::SmallVector<const Expr *, 16>::const_iterator II =
+                // Incs.begin(),
+                //                                                              EE =
+                // Incs.end();
+                //          II != EE; ++II) {
+                //        EmitIgnoredExpr(*II);
+                //        EnsureInsertPoint();
+                //      }
+                EmitBranch(MainBB);
+                if (HasSimd) {
+                    LoopStack.Pop();
+                }
+                EmitBlock(FiniBB);
+                if (IsStaticSchedule && ChunkSize != 0) {
+                    llvm::Value *St = Builder.CreateLoad(PSt);
+                    LB = Builder.CreateLoad(PLB);
+                    LB = Builder.CreateAdd(LB, St);
+                    Builder.CreateStore(LB, PLB);
+                    UB = Builder.CreateLoad(PUB);
+                    UB = Builder.CreateAdd(UB, St);
+                    Builder.CreateStore(UB, PUB);
+                }
+                if (SeparateLastIter) {
+                    // Emit the following for the lastprivate vars update:
+                    //   call __simd_helper(cs, idx, 1)
+                    //
+                    EmitSIMDForHelperCall(BodyFunction, CapStruct, Private, true);
+                }
+                EmitBranch(!IsStaticSchedule || ChunkSize != 0 ? OMPLoopBB : EndBB);
+                // EmitStmt(getInitFromLoopDirective(&S));
+                // EnsureInsertPoint();
+                // UBLBCheck = isSigned ?
+                //                     Builder.CreateICmpSLE(NextIdx, UB,
+                // "omp.idx.le.ub")
+                // :
+                //                     Builder.CreateICmpULE(NextIdx, UB,
+                // "omp.idx.le.ub");
+                // PrevBB = Builder.GetInsertBlock();
+                // Builder.CreateCondBr(UBLBCheck, UBLBCheckBB, OMPLoopBB);
+            }
+            EmitBlock(EndBB, true);
+            if (IsStaticSchedule) {
+                llvm::Value *RealArgsFini[] = {Loc, GTid};
+                EmitRuntimeCall(OPENMPRTL_FUNC(for_static_fini), RealArgsFini);
+            }
+            CGM.OpenMPSupport.setLastIterVar(PLast);
         }
 
-        //      for(llvm::SmallVector<const Expr *, 16>::const_iterator II =
-        // Incs.begin(),
-        //                                                              EE =
-        // Incs.end();
-        //          II != EE; ++II) {
-        //        EmitIgnoredExpr(*II);
-        //        EnsureInsertPoint();
-        //      }
-        EmitBranch(MainBB);
-        if (HasSimd) {
-          LoopStack.Pop();
-        }
-        EmitBlock(FiniBB);
-        if (IsStaticSchedule && ChunkSize != 0) {
-          llvm::Value *St = Builder.CreateLoad(PSt);
-          LB = Builder.CreateLoad(PLB);
-          LB = Builder.CreateAdd(LB, St);
-          Builder.CreateStore(LB, PLB);
-          UB = Builder.CreateLoad(PUB);
-          UB = Builder.CreateAdd(UB, St);
-          Builder.CreateStore(UB, PUB);
-        }
-        if (SeparateLastIter) {
-          // Emit the following for the lastprivate vars update:
-          //   call __simd_helper(cs, idx, 1)
-          //
-          EmitSIMDForHelperCall(BodyFunction, CapStruct, Private, true);
-        }
-        EmitBranch(!IsStaticSchedule || ChunkSize != 0 ? OMPLoopBB : EndBB);
-        // EmitStmt(getInitFromLoopDirective(&S));
-        // EnsureInsertPoint();
-        // UBLBCheck = isSigned ?
-        //                     Builder.CreateICmpSLE(NextIdx, UB,
-        // "omp.idx.le.ub")
-        // :
-        //                     Builder.CreateICmpULE(NextIdx, UB,
-        // "omp.idx.le.ub");
-        // PrevBB = Builder.GetInsertBlock();
-        // Builder.CreateCondBr(UBLBCheck, UBLBCheckBB, OMPLoopBB);
-      }
-      EmitBlock(EndBB, true);
-      if (IsStaticSchedule) {
-        llvm::Value *RealArgsFini[] = {Loc, GTid};
-        EmitRuntimeCall(OPENMPRTL_FUNC(for_static_fini), RealArgsFini);
-      }
-      CGM.OpenMPSupport.setLastIterVar(PLast);
+        if (!IsDistributeLoop &&
+            (CGM.OpenMPSupport.hasLastPrivate() || !CGM.OpenMPSupport.getNoWait()))
+            EmitOMPCancelBarrier(S.getLocEnd(), KMP_IDENT_BARRIER_IMPL_FOR);
+        // CodeGen for clauses (call end).
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I)
+            if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+                EmitPostOMPClause(*(*I), S);
     }
 
-    if (!IsDistributeLoop &&
-        (CGM.OpenMPSupport.hasLastPrivate() || !CGM.OpenMPSupport.getNoWait()))
-      EmitOMPCancelBarrier(S.getLocEnd(), KMP_IDENT_BARRIER_IMPL_FOR);
-    // CodeGen for clauses (call end).
-    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
-                                         E = S.clauses().end();
-         I != E; ++I)
-      if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-        EmitPostOMPClause(*(*I), S);
-  }
+    // CodeGen for clauses (closing steps).
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
+            S.clauses().end(); I != E; ++I)
+        if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+            EmitCloseOMPClause(*(*I), S);
 
-  // CodeGen for clauses (closing steps).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
-      S.clauses().end(); I != E; ++I)
-    if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-      EmitCloseOMPClause(*(*I), S);
+    // CodeGen for clauses (task finalize).
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
+            S.clauses().end(); I != E; ++I)
+        if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
+            EmitFinalOMPClause(*(*I), S);
 
-  // CodeGen for clauses (task finalize).
-  for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E =
-      S.clauses().end(); I != E; ++I)
-    if (*I && isAllowedClauseForDirective(SKind, (*I)->getClauseKind()))
-      EmitFinalOMPClause(*(*I), S);
+    EnsureInsertPoint();
 
-  EnsureInsertPoint();
+    // Remove list of private globals from the stack.
+    CGM.OpenMPSupport.endOpenMPRegion();
 
-  // Remove list of private globals from the stack.
-  CGM.OpenMPSupport.endOpenMPRegion();
-
-  if (HasSimd) {
-    // Emit the final values of 'linear' variables.
-    SimdWrapper.emitLinearFinal(*this);
-  }
-  EmitBlock(PrecondEndBB);
+    if (HasSimd) {
+        // Emit the final values of 'linear' variables.
+        SimdWrapper.emitLinearFinal(*this);
+    }
+    EmitBlock(PrecondEndBB);
 }
 
 /// Generate an instructions for '#pragma omp for' directive.
@@ -6191,65 +6178,77 @@ void CodeGenFunction::EmitOMPTargetTeamsDistributeParallelForSimdDirective(const
 // Release Buffers of mapped locations
 //
 void CodeGenFunction::ReleaseBuffers() {
-  llvm::Value *Status = nullptr;
-  llvm::Value *Args[] = {Builder.getInt32(CGM.OpenMPSupport.getMapSize())};
-  Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffers(),Args);
+    llvm::Value *Status = nullptr;
+    llvm::Value *Args[] = {Builder.getInt32(CGM.OpenMPSupport.getMapSize())};
+    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffers(), Args);
+    //llvm::errs() << "cl_release_buffers " << CGM.OpenMPSupport.getMapSize() << "\n";
 }
 
 //
 // Release Buffers of mapped locations
 //
 void CodeGenFunction::ReleaseBuffers(int init, int count) {
-  int i;
-  for(i=(init+count-1); i>=init; i--) {
-    llvm::Value *Status = nullptr;
-    llvm::Value *Args[] = {Builder.getInt32(i)};
-    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Args);
-  }
+    for (int i = (init + count - 1); i >= init; i--) {
+        llvm::Value *Status = nullptr;
+        llvm::Value *Args[] = {Builder.getInt32(i)};
+        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Args);
+        //llvm::errs() << "cl_release_buffer " << i << "\n";
+    }
 }
 
 //
 // Emit RuntimeCalls to sync host and device at the end of MPRegion
 //
 void CodeGenFunction::EmitSyncMapClauses(const int VType) {
-  ArrayRef<llvm::Value*> MapClausePointerValues;
-  ArrayRef<llvm::Value*> MapClauseSizeValues;
-  ArrayRef<QualType> MapClauseQualTypes;
-  ArrayRef<unsigned> MapClauseTypeValues;
-  ArrayRef<unsigned> MapClausePositionValues;
+    ArrayRef<llvm::Value *> MapClausePointerValues;
+    ArrayRef<llvm::Value *> MapClauseSizeValues;
+    ArrayRef<QualType> MapClauseQualTypes;
+    ArrayRef<unsigned> MapClauseTypeValues;
+    ArrayRef<unsigned> MapClausePositionValues;
+    ArrayRef<unsigned> MapClauseScopeValues;
 
-  CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-			      MapClauseSizeValues,
-			      MapClauseQualTypes,
-			      MapClauseTypeValues,
-			      MapClausePositionValues);
+    CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+                                MapClauseSizeValues,
+                                MapClauseQualTypes,
+                                MapClauseTypeValues,
+                                MapClausePositionValues,
+                                MapClauseScopeValues);
 
-  llvm::Value *Status = nullptr;
-  for(unsigned i=0; i<MapClausePointerValues.size(); ++i) {
-    if (VType == OMP_TGT_MAPTYPE_TO &&
-	MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO) {
+    //llvm::errs() << "Enter EmitSyncMapClauses\n";
+    //CGM.OpenMPSupport.PrintAllStack();
 
-      llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0);	  
-      //get the position of location in target [data] map
-      llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
-      llvm::Value *Args[] = {MapClauseSizeValues[i],
-			     VMapPos,
-			     MapClausePointerValues[i]};
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(),Args);
+    llvm::Value *Status = nullptr;
+    for (unsigned i = 0; i < MapClausePointerValues.size(); ++i) {
+        if (VType == OMP_TGT_MAPTYPE_TO &&
+            MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TO &&
+            MapClauseScopeValues[i] == CGM.OpenMPSupport.curScope()) {
+
+            llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0);
+            //get the position of location in target [data] map
+            llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
+            //llvm::Value *VMapPos = Builder.getInt32(MapClausePositionValues[i]);
+            llvm::Value *Args[] = {MapClauseSizeValues[i],
+                                   VMapPos,
+                                   MapClausePointerValues[i]};
+            Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
+            //llvm::errs() << "cl_write_buffer " << *MapClausePointerValues[i] << ": " << "\n";
+        } else if (VType == OMP_TGT_MAPTYPE_FROM &&
+                   (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
+                    MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM) &&
+                   MapClauseScopeValues[i] == CGM.OpenMPSupport.curScope()) {
+
+            llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0);
+            //get the position of location in target [data] map
+            llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
+            //llvm::Value *VMapPos = Builder.getInt32(MapClausePositionValues[i]);
+            llvm::Value *Args[] = {MapClauseSizeValues[i],
+                                   VMapPos,
+                                   MapClausePointerValues[i]};
+            Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
+            //llvm::errs() << "cl_read_buffer " << *MapClausePointerValues[i] << "\n";
+        }
     }
-    else if (VType == OMP_TGT_MAPTYPE_FROM &&
-	     (MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_TOFROM ||
-	      MapClauseTypeValues[i] == OMP_TGT_MAPTYPE_FROM)) {
-
-      llvm::Value *operand = (cast<llvm::User>(MapClausePointerValues[i]))->getOperand(0); 
-      //get the position of location in target [data] map
-      llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, MapClauseSizeValues[i]));
-      llvm::Value *Args[] = {MapClauseSizeValues[i],
-			     VMapPos,
-			     MapClausePointerValues[i]};
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(),Args);
-    }
-  }
+    //llvm::errs() << "Leave EmitSyncMapClauses\n";
 }
 
 void CodeGenFunction::MapStmts(const Stmt *ST, llvm::Value * val) {
@@ -6275,14 +6274,19 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
   ArrayRef<QualType> MapClauseQualTypes;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
+    ArrayRef<unsigned> MapClauseScopeValues;
 
   CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-			      MapClauseSizeValues,
-			      MapClauseQualTypes,
-			      MapClauseTypeValues,
-			      MapClausePositionValues);
+                              MapClauseSizeValues,
+                              MapClauseQualTypes,
+                              MapClauseTypeValues,
+                              MapClausePositionValues,
+                              MapClauseScopeValues);
 
-  llvm::Value *Status = nullptr;
+    //llvm::errs() << "Enter EmitInheritedMap\n";
+    //CGM.OpenMPSupport.PrintAllStack();
+
+    llvm::Value *Status = nullptr;
 
   for(int i=init; i<(count+init); ++i) {
     llvm::Value *Args[] = {MapClauseSizeValues[i], MapClausePointerValues[i]};
@@ -6294,89 +6298,94 @@ void CodeGenFunction::EmitInheritedMap(int init, int count) {
       break;
     case OMP_TGT_MAPTYPE_TOFROM:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_write(), Args);
+            //llvm::errs() << "cl_offloading_read_write " << *MapClausePointerValues[i] << "\n";
       break;
     case OMP_TGT_MAPTYPE_TO:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_read_only(), Args);
+            //llvm::errs() << "cl_offloading_read_only " << *MapClausePointerValues[i] << "\n";
       break;
     case OMP_TGT_MAPTYPE_FROM:
-      Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_write_only(), Args); // gpuclang >= version 2.1
-      // Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_write_only(), SizeOnly); gpuclang <= 2.0
+        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_offloading_write_only(), Args);
+            //llvm::errs() << "cl_offloading_write_only " << *MapClausePointerValues[i] << "\n";
       break;
     case OMP_TGT_MAPTYPE_ALLOC:
       Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), SizeOnly);
+            //llvm::errs() << "cl_create_read_write " << *MapClausePointerValues[i] << "\n";
       break;
     }
   }
+    //llvm::errs() << "Leave EmitInherited\n";
+
 }
 
 //
 // Emit RuntimeCalls for Map Clauses in omp target map directive
 //
 void CodeGenFunction::EmitMapClausetoGPU(const bool DataDirective,
-					 const OMPMapClause &C,
-					 const OMPExecutableDirective &) {
+                                         const OMPMapClause &C,
+                                         const OMPExecutableDirective &) {
 
-  ArrayRef<const Expr*> RangeBegin = C.getCopyingStartAddresses();
-  ArrayRef<const Expr*> RangeEnd = C.getCopyingSizesEndAddresses();
+    ArrayRef<const Expr *> RangeBegin = C.getCopyingStartAddresses();
+    ArrayRef<const Expr *> RangeEnd = C.getCopyingSizesEndAddresses();
 
-  for (unsigned i=0; i<RangeBegin.size(); ++i) {
-    llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
-    llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
+    for (unsigned i = 0; i < RangeBegin.size(); ++i) {
+        llvm::Value *RB = EmitAnyExprToTemp(RangeBegin[i]).getScalarVal();
+        llvm::Value *RE = EmitAnyExprToTemp(RangeEnd[i]).getScalarVal();
 
-    // Subtract the two pointers to obtain the size
-    llvm::Value *Size = RE;
-    if (!isa<llvm::ConstantInt>(RE)) {
-      llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
-      llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
-      llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
-      Size = Builder.CreateSub(REI,RBI);
+        // Subtract the two pointers to obtain the size
+        llvm::Value *Size = RE;
+        if (!isa<llvm::ConstantInt>(RE)) {
+            llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
+            llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
+            llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
+            Size = Builder.CreateSub(REI, RBI);
+        }
+
+        // Get the pointer to the alloca instruction
+        llvm::Value *BC = RB->stripPointerCasts();
+        // Check if the stripped pointer is already a load instruction, otherwise must
+        llvm::Value *VLd = BC;
+        if (!isa<llvm::AllocaInst>(BC) && !isa<llvm::LoadInst>(BC)) {
+            if (!isa<llvm::GetElementPtrInst>(BC)) {
+                llvm::Value *Idxs[] = {Builder.getInt32(0), Builder.getInt32(0)};
+                VLd = Builder.CreateInBoundsGEP(BC, Idxs);
+            }
+        }
+
+        llvm::Value *VLoc = Builder.CreateBitCast(VLd, CGM.VoidPtrTy);
+        llvm::Value *VSize = Builder.CreateIntCast(Size, CGM.Int64Ty, false);
+
+        const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
+        MapStmts(ST, VLoc);
+
+        const Expr *E = RangeBegin[i];
+        if (isa<CastExpr>(E)) E = cast<CastExpr>(E)->getSubExprAsWritten();
+        QualType VQual = E->getType();
+
+        int VType;
+        switch (C.getKind()) {
+            default:
+                llvm_unreachable("(target [data] map) Unknown clause type!");
+                break;
+            case OMPC_MAP_unknown:
+            case OMPC_MAP_tofrom:
+                VType = OMP_TGT_MAPTYPE_TOFROM;
+                break;
+            case OMPC_MAP_to:
+                VType = OMP_TGT_MAPTYPE_TO;
+                break;
+            case OMPC_MAP_from:
+                VType = OMP_TGT_MAPTYPE_FROM;
+                break;
+            case OMPC_MAP_alloc:
+                VType = OMP_TGT_MAPTYPE_ALLOC;
+                break;
+        }
+        //llvm::errs() << "InsertMapPos " << i << ": " << *VLoc << "\n";
+        //Save the position of location in the [data] map clause
+        //This also define the buffer index (used to offloading)
+        CGM.OpenMPSupport.addMapPos(VLoc, VSize, VQual, VType, i, CGM.OpenMPSupport.curScope());
     }
-
-    // Get the pointer to the alloca instruction
-    llvm::Value *BC = RB->stripPointerCasts();
-    // Check if the stripped pointer is already a load instruction, otherwise must
-    llvm::Value *VLd = BC;
-    if( !isa<llvm::AllocaInst>(BC) && !isa<llvm::LoadInst>(BC) ) {
-      if (!isa<llvm::GetElementPtrInst>(BC)) {
-	llvm::Value *Idxs[] = {Builder.getInt32(0), Builder.getInt32(0)};
-	VLd = Builder.CreateInBoundsGEP(BC, Idxs);
-      }
-    }
-
-    llvm::Value *VLoc = Builder.CreateBitCast(VLd,CGM.VoidPtrTy);
-    llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
-
-    const Stmt *ST = dyn_cast<Stmt>(RangeBegin[i]);
-    MapStmts(ST, VLoc);
-
-    const Expr *E = RangeBegin[i];
-    if (isa<CastExpr>(E)) E = cast<CastExpr>(E)->getSubExprAsWritten();
-    QualType VQual = E->getType();
-	
-    int VType;
-    switch(C.getKind()){
-    default:
-      llvm_unreachable("(target [data] map) Unknown clause type!");
-      break;
-    case OMPC_MAP_unknown:
-    case OMPC_MAP_tofrom:
-      VType = OMP_TGT_MAPTYPE_TOFROM;
-      break;
-    case OMPC_MAP_to:
-      VType = OMP_TGT_MAPTYPE_TO;
-      break;
-    case OMPC_MAP_from:
-      VType =  OMP_TGT_MAPTYPE_FROM;
-      break;
-    case OMPC_MAP_alloc:
-      VType = OMP_TGT_MAPTYPE_ALLOC;
-      break;
-    }
-   
-    //Save the position of location in the [data] map clause
-    //This also define the buffer index (used to offloading)
-    CGM.OpenMPSupport.addMapPos(VLoc, VSize, VQual, VType, i);
-  }
 }
 
 //
@@ -6386,9 +6395,9 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 
     CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
-    // Are we generating code for GPU via OpenCL/SPIR?
+    // Are we generating code for Accelerators through OpenCL?
     if (CGM.getLangOpts().MPtoGPU) {
-
+        //llvm::errs() << "Enter EmitOMPTargetDirective\n";
         insideTarget = true;
         bool regionStarted = false;
         bool emptyTarget = false;
@@ -6467,10 +6476,16 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
                                 regionStarted = true;
                                 CGM.OpenMPSupport.startOpenMPRegion(true);
                             }
+
+                            //llvm::errs() << "EmitOmpTargetDirective - before InheritMap\n";
+                            //CGM.OpenMPSupport.PrintAllStack();
                             if (must_inherit) {
                                 CGM.OpenMPSupport.InheritMapPos();
                                 must_inherit = false;
                             }
+
+                            //llvm::errs() << "EmitOmpTargetDirective - after InheritMap\n";
+                            //CGM.OpenMPSupport.PrintAllStack();
                             init = CGM.OpenMPSupport.getMapSize();
                             EmitMapClausetoGPU(false, cast<OMPMapClause>(*(*I)), S);
                             end = CGM.OpenMPSupport.getMapSize();
@@ -6481,7 +6496,6 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
                     }
                 }
             }
-            //CGM.OpenMPSupport.PrintAllStack(); //Used for test purposes only
         }
 
         EmitStmt(CS->getCapturedStmt());
@@ -6505,13 +6519,13 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
             isTargetDataIf = false;
             EmitBlock(ContBlock, true);
         }
+        //llvm::errs() << "Leave EmitOMPTargetDirective\n";
         insideTarget = false;
         return;
     }
-  
-  // **************************************************
-  // Finish generating code for GPGPU (via OpenCL/SPIR)
-  // **************************************************
+
+    // Finish generating code for Accelerators through OpenCL
+    // ******************************************************
   
   // Are we generating code for a target?
   bool isTargetMode = CGM.getLangOpts().OpenMPTargetMode;
@@ -6810,89 +6824,90 @@ void CodeGenFunction::EmitOMPTargetDirective(const OMPTargetDirective &S) {
 //
 void CodeGenFunction::EmitOMPTargetDataDirective(const OMPTargetDataDirective &S) {
 
-  bool hasIfClause = false;
+    bool hasIfClause = false;
 
-  llvm::BasicBlock *ThenBlock = createBasicBlock("target.then");
-  llvm::BasicBlock *ElseBlock = createBasicBlock("target.else");
-  llvm::BasicBlock *ContBlock = createBasicBlock("target.end");
-	int init = 0, end = 0, first = -1, count = 0;
+    llvm::BasicBlock *ThenBlock = createBasicBlock("target.then");
+    llvm::BasicBlock *ElseBlock = createBasicBlock("target.else");
+    llvm::BasicBlock *ContBlock = createBasicBlock("target.end");
+    int init = 0, end = 0, first = -1, count = 0;
 
-  CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
+    CapturedStmt *CS = cast<CapturedStmt>(S.getAssociatedStmt());
 
-  // *************************************************
-  // Are we generating code for GPU (via OpenCL/SPIR)?
-  // *************************************************
-  if (CGM.getLangOpts().MPtoGPU) {
-    insideTarget = true;
-    CGM.OpenMPSupport.startOpenMPRegion(true);
+    // Are we generating code for Accelerators through OpenCL?
+    // ********************************************************
+    if (CGM.getLangOpts().MPtoGPU) {
+        //llvm::errs() << "Enter EmitOMPTargetDataDirective\n";
+        insideTarget = true;
+        CGM.OpenMPSupport.startOpenMPRegion(true);
 
-    //First, look for the if clause in the target directive
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_if) {
-	hasIfClause = true;
-	isTargetDataIf = true;
-	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
-	TargetDataIfRegion = 2;
-	EmitBlock(ElseBlock);
-	RunCleanupsScope ElseScope(*this);
-	EnsureInsertPoint();
-	EmitStmt(CS->getCapturedStmt());
-	EmitBranch(ContBlock);
-	TargetDataIfRegion = 1;
-	EmitBlock(ThenBlock);
-      }
+        //First, look for the if clause in the target directive
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I) {
+            OpenMPClauseKind ckind = ((*I)->getClauseKind());
+            if (ckind == OMPC_if) {
+                hasIfClause = true;
+                isTargetDataIf = true;
+                EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ElseBlock, 0);
+                TargetDataIfRegion = 2;
+                EmitBlock(ElseBlock);
+                RunCleanupsScope ElseScope(*this);
+                EnsureInsertPoint();
+                EmitStmt(CS->getCapturedStmt());
+                EmitBranch(ContBlock);
+                TargetDataIfRegion = 1;
+                EmitBlock(ThenBlock);
+            }
+        }
+
+        //Now, look for device clause in the target directive
+        //The device must be set before create the buffers
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I) {
+            OpenMPClauseKind ckind = ((*I)->getClauseKind());
+            if (ckind == OMPC_device) {
+                RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
+                llvm::Value *clid = Builder.CreateIntCast(Tmp.getScalarVal(), CGM.Int32Ty, false);
+                llvm::Value *func = CGM.getMPtoGPURuntime().Set_default_device();
+                EmitRuntimeCall(func, makeArrayRef(clid));
+                CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
+            }
+        }
+
+        //Finally, start again looking for map clauses
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I) {
+            OpenMPClauseKind ckind = ((*I)->getClauseKind());
+            if (ckind == OMPC_map) {
+                init = CGM.OpenMPSupport.getMapSize();
+                EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
+                end = CGM.OpenMPSupport.getMapSize();
+                EmitInheritedMap(init, end - init);
+                if (first == -1) first = init;
+                count += end - init;
+            }
+        }
+
+        EmitStmt(CS->getCapturedStmt());
+        EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM);
+
+        ReleaseBuffers(first, count);
+        if (hasIfClause) {
+            EmitBranch(ContBlock);
+            EmitBlock(ContBlock, true);
+        }
+
+        CGM.OpenMPSupport.endOpenMPRegion();
+        insideTarget = false;
+        //llvm::errs() << "Leave EmitOMPTargetDataDirective\n";
     }
- 
-    //Now, look for device clause in the target directive
-    //The device must be set before create the buffers
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_device) {
-	RValue Tmp = EmitAnyExprToTemp(cast<OMPDeviceClause>(*I)->getDevice());
-	llvm::Value* clid = Builder.CreateIntCast(Tmp.getScalarVal(),CGM.Int32Ty,false);
-	llvm::Value* func = CGM.getMPtoGPURuntime().Set_default_device(); 
-	EmitRuntimeCall(func, makeArrayRef(clid));
-	CGM.OpenMPSupport.setOffloadingDevice(Tmp.getScalarVal());
-      }
-    }
-
-    //Finally, start again looking for map clauses
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_map) {
-	init = CGM.OpenMPSupport.getMapSize();
-	EmitMapClausetoGPU(true, cast<OMPMapClause>(*(*I)), S);
-	end = CGM.OpenMPSupport.getMapSize();
-	EmitInheritedMap(init, end-init);
-	if(first == -1) first = init;
-	count += end - init;
-      }
-    }
-  
-    EmitStmt(CS->getCapturedStmt());
-    EmitSyncMapClauses(OMP_TGT_MAPTYPE_FROM); 
-
-	ReleaseBuffers(first, count);
-    if (hasIfClause) {
-      EmitBranch(ContBlock);
-      EmitBlock(ContBlock, true);
-    }
- 
-    CGM.OpenMPSupport.endOpenMPRegion();
-	insideTarget = false;
-  }
 }
 
 //
 // GetMapPosition compares the current operand (e.g., target update) with the
-// operands that are maped in <target [data] map> to find the offloading buffer
+// operands that are mapped in <target [data] map> to find the offloading buffer
 //
 unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
 					     const llvm::Value *CurSize) {
@@ -6902,12 +6917,14 @@ unsigned int CodeGenFunction::GetMapPosition(const llvm::Value *CurOperand,
   ArrayRef<QualType> MapClauseQualTypes;
   ArrayRef<unsigned> MapClauseTypeValues;
   ArrayRef<unsigned> MapClausePositionValues;
+    ArrayRef<unsigned> MapClauseScopeValues;
 
   CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
-			      MapClauseSizeValues,
-			      MapClauseQualTypes,
-			      MapClauseTypeValues,
-			      MapClausePositionValues);
+                              MapClauseSizeValues,
+                              MapClauseQualTypes,
+                              MapClauseTypeValues,
+                              MapClausePositionValues,
+                              MapClauseScopeValues);
 
   const llvm::Value *COper = CurOperand;
 
@@ -6951,83 +6968,78 @@ static void GetFromAddressAndSize (const OMPFromClause &C,
 // Generate the instructions for '#pragma omp target update' directive.
 //
 void CodeGenFunction::EmitOMPTargetUpdateDirective(
-    const OMPTargetUpdateDirective &S) {
+        const OMPTargetUpdateDirective &S) {
 
-  // *************************************************
-  // Are we generating code for GPU (via OpenCL/SPIR)?
-  // *************************************************
-  
-  if (CGM.getLangOpts().MPtoGPU) {
-    
-    bool hasIfClause = false;
-    llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
-    llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
+    // Are we generating code for Accelerators through OpenCL?
+    if (CGM.getLangOpts().MPtoGPU) {
 
-    //First, look for the if clause in the target update directive
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      OpenMPClauseKind ckind = ((*I)->getClauseKind());
-      if (ckind == OMPC_if) {
-	hasIfClause = true;
-	EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ContBlock, 0);
-	EmitBranch(ContBlock);
-	EmitBlock(ThenBlock);
-      }
+        bool hasIfClause = false;
+        llvm::BasicBlock *ThenBlock = createBasicBlock("omp.then");
+        llvm::BasicBlock *ContBlock = createBasicBlock("omp.end");
+
+        //First, look for the if clause in the target update directive
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I) {
+            OpenMPClauseKind ckind = ((*I)->getClauseKind());
+            if (ckind == OMPC_if) {
+                hasIfClause = true;
+                EmitBranchOnBoolExpr(cast<OMPIfClause>(*I)->getCondition(), ThenBlock, ContBlock, 0);
+                EmitBranch(ContBlock);
+                EmitBlock(ThenBlock);
+            }
+        }
+
+        //Now, start again looking for map clauses
+        for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                     E = S.clauses().end();
+             I != E; ++I) {
+
+            OpenMPClauseKind Ckind = (*I)->getClauseKind();
+            if (Ckind == OMPC_to || Ckind == OMPC_from) {
+                ArrayRef<const Expr *> RangeBegin;
+                ArrayRef<const Expr *> RangeEnd;
+                if (Ckind == OMPC_to) {
+                    GetToAddressAndSize(cast<OMPToClause>(*(*I)), RangeBegin, RangeEnd);
+                } else {
+                    GetFromAddressAndSize(cast<OMPFromClause>(*(*I)), RangeBegin, RangeEnd);
+                }
+                for (unsigned j = 0; j < RangeBegin.size(); ++j) {
+                    llvm::Value *RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
+                    llvm::Value *RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();
+                    // Subtract the two pointers to obtain the size
+                    llvm::Value *Size = RE;
+                    if (!isa<llvm::ConstantInt>(RE)) {
+                        llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
+                        llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
+                        llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
+                        Size = Builder.CreateSub(REI, RBI);
+                    }
+
+                    llvm::Value *VLoc = Builder.CreateBitCast(RB, CGM.VoidPtrTy);
+                    llvm::Value *VSize = Builder.CreateIntCast(Size, CGM.Int64Ty, false);
+                    llvm::Value *operand = (cast<llvm::CastInst>(VLoc))->getOperand(0);
+
+                    //get the position of location in target [data] map
+                    llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, VSize));
+
+                    llvm::Value *Args[] = {VSize, VMapPos, VLoc};
+                    llvm::Value *Status = nullptr;
+                    if (Ckind == OMPC_from) {
+                        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
+                        //llvm::errs() << "cl_read_buffer " << *VLoc << "\n";
+                    } else {
+                        Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
+                        //llvm::errs() << "cl_write_buffer " << *VLoc << "\n";
+                    }
+                }
+            }
+        }
+        if (hasIfClause) {
+            EmitBranch(ContBlock);
+            EmitBlock(ContBlock, true);
+        }
     }
-
-    //Now, start again looking for map clauses
-    for (ArrayRef<OMPClause *>::iterator I  = S.clauses().begin(),
-	                                 E  = S.clauses().end();
-                                 	 I != E; ++I) {
-      
-      OpenMPClauseKind Ckind = (*I)->getClauseKind();
-      if (Ckind == OMPC_to  || Ckind == OMPC_from) {
-	ArrayRef<const Expr*> RangeBegin;
-	ArrayRef<const Expr*> RangeEnd;
-	if (Ckind == OMPC_to) {
-	  GetToAddressAndSize(cast<OMPToClause>(*(*I)), RangeBegin, RangeEnd);
-	}
-	else {
-	  GetFromAddressAndSize(cast<OMPFromClause>(*(*I)), RangeBegin, RangeEnd);
-	}
-	for (unsigned j=0; j<RangeBegin.size(); ++j) {
-	  llvm::Value * RB = EmitAnyExprToTemp(RangeBegin[j]).getScalarVal();
-	  llvm::Value * RE = EmitAnyExprToTemp(RangeEnd[j]).getScalarVal();
-	  // Subtract the two pointers to obtain the size
-	  llvm::Value *Size = RE;
-	  if (!isa<llvm::ConstantInt>(RE)) {
-	    llvm::Type *LongTy = ConvertType(CGM.getContext().LongTy);
-	    llvm::Value *RBI = Builder.CreatePtrToInt(RB, LongTy);
-	    llvm::Value *REI = Builder.CreatePtrToInt(RE, LongTy);
-	    Size = Builder.CreateSub(REI,RBI);
-	  }
-
-	  llvm::Value *VLoc = Builder.CreateBitCast(RB,CGM.VoidPtrTy);
-	  llvm::Value *VSize = Builder.CreateIntCast(Size,CGM.Int64Ty, false);
-	  llvm::Value *operand = (cast<llvm::CastInst>(VLoc))->getOperand(0);
-	  
-	  //get the position of location in target [data] map
-	  llvm::Value *VMapPos = Builder.getInt32(GetMapPosition(operand, VSize));
-	  	  
-	  llvm::Value *Args[] = {VSize, VMapPos, VLoc};
-	  llvm::Value *Status = nullptr;
-	  if (Ckind == OMPC_from) {
-	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Args);
-	  }
-	  else {
-	    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_write_buffer(), Args);
-	  }	    
-	}
-      }
-    }
-    
-    if (hasIfClause) {
-      EmitBranch(ContBlock);
-      EmitBlock(ContBlock, true);
-    }
-    
-  }
 }
 
 // Generate the instructions for '#pragma omp target teams' directive.

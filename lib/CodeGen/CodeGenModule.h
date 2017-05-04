@@ -1203,6 +1203,7 @@ public:
       llvm::SmallVector<QualType,16> MapQualTypes;
       llvm::SmallVector<unsigned,16> MapTypes;
       llvm::SmallVector<unsigned,16> MapPositions;
+        llvm::SmallVector<unsigned, 16> MapScopes;
       llvm::SmallVector<llvm::Value*,16> KernelVars;
       llvm::SmallVector<QualType, 16> KernelTypes;
       llvm::SmallVector<llvm::Value*,16> LocalVars;
@@ -1219,6 +1220,8 @@ public:
     CodeGenModule &CGM;
     llvm::Type *KMPDependInfoType;
     unsigned KMPDependInfoTypeAlign;
+      // scope level of OpenMP Regions
+      unsigned int Scope = 0;
   public:
     OpenMPSupportStackTy(CodeGenModule &CGM)
       : OpenMPThreadPrivate(), OpenMPStack(), CGM(CGM), KMPDependInfoType(0) { }
@@ -1262,10 +1265,17 @@ public:
     void startOpenMPRegion(bool NewTask) {
       OpenMPStack.push_back(OMPStackElemTy(CGM));
       OpenMPStack.back().NewTask = NewTask;
-      //llvm::errs() << ">> Call to startOpenMPRegion\n";
-
+        Scope++;
+        //llvm::errs() << ">> StartOpenMPRegion. Scope = " << Scope << "\n";
     }
-    bool isNewTask() { return OpenMPStack.back().NewTask; };
+
+      bool isNewTask() {
+          return OpenMPStack.back().NewTask;
+      }
+
+      unsigned int curScope() {
+          return Scope;
+      }
     void endOpenMPRegion();
     void addOpenMPPrivateVar(const VarDecl *VD, llvm::Value *Addr) {
       assert(!OpenMPStack.empty() &&
@@ -1282,7 +1292,10 @@ public:
              "OpenMP private variables region is not started.");
       OpenMPStack[OpenMPStack.size() - 2].PrivateVars[VD] = 0;
     }
-    void setIfDest(llvm::BasicBlock *EndBB) {OpenMPStack.back().IfEnd = EndBB;}
+
+      void setIfDest(llvm::BasicBlock *EndBB) {
+          OpenMPStack.back().IfEnd = EndBB;
+      }
     llvm::BasicBlock *takeIfDest() {
       llvm::BasicBlock *BB = OpenMPStack.back().IfEnd;
       OpenMPStack.back().IfEnd = 0;
@@ -1354,16 +1367,18 @@ public:
 		    unsigned MapType);
 
     void getMapPos(ArrayRef<llvm::Value*> &MapPointers,
-		   ArrayRef<llvm::Value*> &MapSizes,
-		   ArrayRef<QualType> &MapQualTypes,
-		   ArrayRef<unsigned> &MapTypes,
-		   ArrayRef<unsigned> &MapPositions);
+                   ArrayRef<llvm::Value*> &MapSizes,
+                   ArrayRef<QualType> &MapQualTypes,
+                   ArrayRef<unsigned> &MapTypes,
+                   ArrayRef<unsigned> &MapPositions,
+                   ArrayRef<unsigned> &MapScopes);
 
     void addMapPos(llvm::Value *MapPointer,
-		   llvm::Value *MapSize,
-		   QualType MapQualType,
-		   unsigned MapType,
-		   unsigned MapPosition);
+                   llvm::Value *MapSize,
+                   QualType MapQualType,
+                   unsigned MapType,
+                   unsigned MapPosition,
+                   unsigned MapScope);
 
     int getMapSize() { return OpenMPStack.back().MapPointers.size(); }
 

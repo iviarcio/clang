@@ -3513,7 +3513,8 @@ void CodeGenModule::OpenMPSupportStackTy::endOpenMPRegion() {
          "OpenMP private variables region is not started.");
   assert(!OpenMPStack.back().IfEnd && "If not closed.");
   OpenMPStack.pop_back();
-  //llvm::errs() << ">> Call to endOpenMPRegion\n";
+    Scope--;
+    //llvm::errs() << ">> EndOpenMPRegion. Scope = " <<  Scope << "\n";
 }
 
 void CodeGenModule::OpenMPSupportStackTy::registerReductionVar(
@@ -3894,27 +3895,31 @@ void CodeGenModule::OpenMPSupportStackTy::addMapData(llvm::Value *MapPointer,
 }
 
 void CodeGenModule::OpenMPSupportStackTy::getMapPos(ArrayRef<llvm::Value*> &MapPointers,
-						    ArrayRef<llvm::Value*> &MapSizes,
-						    ArrayRef<QualType> &MapQualTypes,
-						    ArrayRef<unsigned> &MapTypes,
-						    ArrayRef<unsigned> &MapPositions){
+                                                    ArrayRef<llvm::Value*> &MapSizes,
+                                                    ArrayRef<QualType> &MapQualTypes,
+                                                    ArrayRef<unsigned> &MapTypes,
+                                                    ArrayRef<unsigned> &MapPositions,
+                                                    ArrayRef<unsigned> &MapScopes) {
   MapPointers = OpenMPStack.back().MapPointers;
   MapSizes = OpenMPStack.back().MapSizes;
   MapQualTypes = OpenMPStack.back().MapQualTypes;
   MapTypes = OpenMPStack.back().MapTypes;
   MapPositions = OpenMPStack.back().MapPositions;
+    MapScopes = OpenMPStack.back().MapScopes;
 }
 
 void CodeGenModule::OpenMPSupportStackTy::addMapPos(llvm::Value *MapPointer,
-						    llvm::Value *MapSize,
-						    QualType MapQualType,
-						    unsigned MapType,
-						    unsigned MapPosition){
+                                                    llvm::Value *MapSize,
+                                                    QualType MapQualType,
+                                                    unsigned MapType,
+                                                    unsigned MapPosition,
+                                                    unsigned MapScope) {
   OpenMPStack.back().MapPointers.push_back(MapPointer);
   OpenMPStack.back().MapSizes.push_back(MapSize);
   OpenMPStack.back().MapQualTypes.push_back(MapQualType);
   OpenMPStack.back().MapTypes.push_back(MapType);
   OpenMPStack.back().MapPositions.push_back(MapPosition);
+    OpenMPStack.back().MapScopes.push_back(MapScope);
 }
 
 bool CodeGenModule::OpenMPSupportStackTy::isKernelVar(llvm::Value *KernelVar) {
@@ -3965,6 +3970,7 @@ void CodeGenModule::OpenMPSupportStackTy::InheritMapPos() {
       OpenMPStack.back().MapQualTypes.push_back(IS->MapQualTypes[i]);
       OpenMPStack.back().MapTypes.push_back(IS->MapTypes[i]);
       OpenMPStack.back().MapPositions.push_back(IS->MapPositions[i]);
+        OpenMPStack.back().MapScopes.push_back(IS->MapScopes[i]);
       i++;
     }
   }
