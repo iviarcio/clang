@@ -7005,7 +7005,7 @@ def err_omp_private_incomplete_type : Error<
 def err_omp_firstprivate_incomplete_type : Error<
   "a firstprivate variable with incomplete type %0">;
 def err_omp_reduction_incomplete_type : Error<
-  "a reduction variable with incomplete type %0">;
+  "a reduction or scan variable with incomplete type %0">;
 def err_omp_lastprivate_incomplete_type : Error<
   "a lastprivate variable with incomplete type %0">;
 def err_omp_linear_incomplete_type : Error<
@@ -7044,11 +7044,11 @@ def err_omp_required_access : Error<
 def err_omp_clause_not_arithmetic_type_arg : Error<
   "arguments of OpenMP clause '%0'%select{| for 'min' and 'max'}1 must be of %select{scalar|arithmetic}1 type">;
 def err_omp_clause_floating_type_arg : Error<
-  "arguments of OpenMP clause 'reduction' with bitwise operators cannot be of floating type">;
+  "arguments of OpenMP clause 'reduction' or 'scan' with bitwise operators cannot be of floating type">;
 def err_omp_clause_array_type_arg : Error<
   "arguments of OpenMP clause '%0' cannot be of array type">;
 def err_omp_reduction_ref_type_arg : Error<
-  "argument of OpenMP clause 'reduction' must reference the same object in all threads">;
+  "argument of OpenMP clause 'reduction' or 'scan' must reference the same object in all threads">;
 def err_omp_wrong_dsa : Error<
   "%0 variable cannot be %1">;
 def err_omp_at_most_one_uniform_or_linear : Error<

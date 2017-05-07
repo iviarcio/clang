@@ -1286,7 +1286,7 @@ Decl *Parser::ParseOpenMPDeclareReduction(
 ///    clause:
 ///       if-clause | num_threads-clause | default-clause | proc_bind-clause |
 ///       private-clause | firstprivate-clause | shared-clause |
-///       copyin-clause | reduction-clause | lastprivate-clause |
+///       copyin-clause | reduction-clause | scan-clause | lastprivate-clause |
 ///       schedule-clause | collapse-clause | ordered-clause | nowait-clause |
 ///       copyprivate-clause | flush-clause | safelen-clause | linear-clause |
 ///       aligned-clause | simdlen-clause | num_teams-clause |
@@ -1399,6 +1399,7 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_copyin:
   case OMPC_copyprivate:
   case OMPC_reduction:
+  case OMPC_scan:
   case OMPC_depend:
   case OMPC_linear:
   case OMPC_aligned:
@@ -1406,7 +1407,7 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_map:
   case OMPC_to:
   case OMPC_from:
-    Clause = ParseOpenMPVarListClause(CKind);
+      Clause = ParseOpenMPVarListClause(CKind);
     break;
   case OMPC_flush:
   case OMPC_unknown:
@@ -1588,8 +1589,8 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPClauseKind Kind) {
 }
 
 /// \brief Parsing of OpenMP clause 'private', 'firstprivate',
-/// 'lastprivate', 'shared', 'copyin', 'reduction', 'flush',
-/// 'linear', 'aligned' or 'depend'.
+/// 'lastprivate', 'shared', 'copyin', 'reduction', 'scan',
+/// 'flush', 'linear', 'aligned' or 'depend'.
 ///
 ///    private-clause:
 ///       'private' '(' list ')'
@@ -1611,6 +1612,9 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPClauseKind Kind) {
 ///
 ///    reduction-clause:
 ///       'reduction' '(' reduction-identifier ':' list ')'
+///
+///    scan-clause:
+///       'scan' '(' scan-identifier ':' list ')'
 ///
 ///    depend-clause:
 ///       'depend' '(' dependence-type ':' list ')'
@@ -1691,60 +1695,105 @@ OMPClause *Parser::ParseOpenMPVarListClause(OpenMPClauseKind Kind) {
       Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
     else
       ConsumeAnyToken();
+  } else if (Kind == OMPC_scan) {
+      // Parsing "scan-identifier ':'" for scan clause.
+      Op = Tok.isAnnotation()
+           ? (unsigned) OMPC_SCAN_unknown
+           : getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok));
+      switch (Op) {
+          case OMPC_SCAN_add:
+          case OMPC_SCAN_mult:
+          case OMPC_SCAN_sub:
+          case OMPC_SCAN_bitand:
+          case OMPC_SCAN_bitor:
+          case OMPC_SCAN_bitxor:
+          case OMPC_SCAN_and:
+          case OMPC_SCAN_or:
+          case OMPC_SCAN_min:
+          case OMPC_SCAN_max:
+              OpName.setIdentifier(
+                      &Actions.Context.Idents.get(getOpenMPSimpleClauseTypeName(Kind, Op)),
+                      Tok.getLocation());
+              if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end)) {
+                  ConsumeAnyToken();
+              }
+              break;
+          case OMPC_SCAN_unknown: {
+              if (getLangOpts().CPlusPlus) {
+                  ParseOptionalCXXScopeSpecifier(SS, ParsedType(), false);
+              }
+              SourceLocation TemplateKWLoc;
+              if (!ParseUnqualifiedId(SS, false, false, false, ParsedType(),
+                                      TemplateKWLoc, OpName)) {
+                  Op = OMPC_SCAN_custom;
+              }
+              break;
+          }
+          case OMPC_SCAN_custom:
+              llvm_unreachable("'custom' scan kind cannot be generated directly.");
+          case NUM_OPENMP_SCAN_OPERATORS:
+              llvm_unreachable("unexpected scan kind.");
+      }
+
+      if (Tok.isNot(tok::colon))
+          Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
+      else
+          ConsumeAnyToken();
   } else if (Kind == OMPC_depend) {
-    // Parsing "dependence-type ':'" for depend clause.
-    Op = Tok.isAnnotation()
-             ? (unsigned)OMPC_DEPEND_unknown
-             : getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok));
-    switch (Op) {
-    case OMPC_DEPEND_in:
-    case OMPC_DEPEND_out:
-    case OMPC_DEPEND_inout:
-      break;
-    case OMPC_DEPEND_unknown:
-      Diag(Tok, diag::err_omp_unknown_dependence_type);
-      break;
-    case NUM_OPENMP_DEPENDENCE_TYPE:
-      llvm_unreachable("unexpected dependence type.");
-    }
+      // Parsing "dependence-type ':'" for depend clause.
+      Op = Tok.isAnnotation()
+           ? (unsigned)OMPC_DEPEND_unknown
+           : getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok));
+      switch (Op) {
+          case OMPC_DEPEND_in:
+          case OMPC_DEPEND_out:
+          case OMPC_DEPEND_inout:
+              break;
+          case OMPC_DEPEND_unknown:
+              Diag(Tok, diag::err_omp_unknown_dependence_type);
+              break;
+          case NUM_OPENMP_DEPENDENCE_TYPE:
+              llvm_unreachable("unexpected dependence type.");
+      }
 
-    if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end)) {
-      ConsumeAnyToken();
-      if (Tok.isNot(tok::colon))
-        Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
-      else
-        ConsumeAnyToken();
-    }
+      if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end)) {
+          ConsumeAnyToken();
+          if (Tok.isNot(tok::colon))
+              Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
+          else
+              ConsumeAnyToken();
+      }
   } else if (Kind == OMPC_map) {
-    // Parsing "map-kind ':'" for map clause.
-    Op = Tok.isAnnotation()
-             ? (unsigned)OMPC_MAP_unknown
-             : getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok));
-    switch (Op) {
-    case OMPC_MAP_alloc:
-    case OMPC_MAP_to:
-    case OMPC_MAP_from:
-    case OMPC_MAP_tofrom:
-    case OMPC_MAP_unknown:
-      break;
-    case NUM_OPENMP_MAP_KIND:
-      llvm_unreachable("unexpected mapping_kind.");
-    }
+      // Parsing "map-kind ':'" for map clause.
+      Op = Tok.isAnnotation()
+           ? (unsigned)OMPC_MAP_unknown
+           : getOpenMPSimpleClauseType(Kind, PP.getSpelling(Tok));
+      switch (Op) {
+          case OMPC_MAP_alloc:
+          case OMPC_MAP_to:
+          case OMPC_MAP_from:
+          case OMPC_MAP_tofrom:
+          case OMPC_MAP_unknown:
+              break;
+          case NUM_OPENMP_MAP_KIND:
+              llvm_unreachable("unexpected mapping_kind.");
+      }
 
-    if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end) &&
-        Op != OMPC_MAP_unknown) {
-      ConsumeAnyToken();
-      if (Tok.isNot(tok::colon))
-        Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
-      else
-        ConsumeAnyToken();
-    } else {
-      Op = OMPC_MAP_tofrom;
-    }
+      if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::annot_pragma_openmp_end) &&
+          Op != OMPC_MAP_unknown) {
+          ConsumeAnyToken();
+          if (Tok.isNot(tok::colon))
+              Diag(Tok, diag::err_omp_expected_colon) << getOpenMPClauseName(Kind);
+          else
+              ConsumeAnyToken();
+      } else {
+          Op = OMPC_MAP_tofrom;
+      }
   }
 
   SmallVector<Expr *, 4> Vars;
   bool IsComma = (Kind != OMPC_reduction || Op != OMPC_REDUCTION_unknown) &&
+                 (Kind != OMPC_scan || Op != OMPC_SCAN_unknown) &&
                  (Kind != OMPC_depend || Op != OMPC_DEPEND_unknown) &&
                  (Kind != OMPC_map || Op != OMPC_MAP_unknown);
   bool MayHaveTail = (Kind == OMPC_linear) || (Kind == OMPC_aligned);
@@ -1807,6 +1856,7 @@ OMPClause *Parser::ParseOpenMPVarListClause(OpenMPClauseKind Kind) {
 
   if (Vars.empty() ||
       (Kind == OMPC_reduction && Op == OMPC_REDUCTION_unknown) ||
+      (Kind == OMPC_scan && Op == OMPC_SCAN_unknown) ||
       (Kind == OMPC_depend && Op == OMPC_DEPEND_unknown) ||
       (Kind == OMPC_map && Op == OMPC_MAP_unknown))
     return 0;

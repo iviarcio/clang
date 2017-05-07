@@ -1725,6 +1725,9 @@ OMPClause *OMPClauseReader::readClause() {
   case OMPC_reduction:
     C = OMPReductionClause::CreateEmpty(Context, Record[Idx++]);
     break;
+      case OMPC_scan:
+          C = OMPScanClause::CreateEmpty(Context, Record[Idx++]);
+          break;
   case OMPC_ordered:
     C = new (Context) OMPOrderedClause();
     break;
@@ -2035,6 +2038,45 @@ void OMPClauseReader::VisitOMPReductionClause(OMPReductionClause *C) {
     Inits.push_back(Reader.ReadSubExpr());
   }
   C->setDefaultInits(Inits);
+}
+
+void OMPClauseReader::VisitOMPScanClause(OMPScanClause *C) {
+    C->setOperator(
+            static_cast<OpenMPScanClauseOperator>(Record[Idx++]));
+    NestedNameSpecifierLoc NNSL =
+            Reader.ReadNestedNameSpecifierLoc(this->MFile, Record, Idx);
+    DeclarationNameInfo DNI;
+    Reader.ReadDeclarationNameInfo(this->MFile, DNI, Record, Idx);
+    C->setOpName(NNSL, DNI);
+    unsigned NumVars = C->varlist_size();
+    SmallVector<Expr *, 16> Vars;
+    Vars.reserve(NumVars);
+    for (unsigned i = 0; i != NumVars; ++i) {
+        Vars.push_back(Reader.ReadSubExpr());
+    }
+    C->setVars(Vars);
+    SmallVector<Expr *, 16> OpExprs;
+    OpExprs.reserve(NumVars);
+    for (unsigned i = 0; i != NumVars; ++i) {
+        OpExprs.push_back(Reader.ReadSubExpr());
+    }
+    C->setOpExprs(OpExprs);
+    OpExprs.clear();
+    for (unsigned i = 0; i != NumVars; ++i) {
+        OpExprs.push_back(Reader.ReadSubExpr());
+    }
+    C->setHelperParameters1st(OpExprs);
+    OpExprs.clear();
+    for (unsigned i = 0; i != NumVars; ++i) {
+        OpExprs.push_back(Reader.ReadSubExpr());
+    }
+    C->setHelperParameters2nd(OpExprs);
+    SmallVector<Expr *, 16> Inits;
+    Inits.reserve(NumVars);
+    for (unsigned i = 0; i != NumVars; ++i) {
+        Inits.push_back(Reader.ReadSubExpr());
+    }
+    C->setDefaultInits(Inits);
 }
 
 void OMPClauseReader::VisitOMPOrderedClause(OMPOrderedClause *C) { }

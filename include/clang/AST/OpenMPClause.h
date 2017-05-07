@@ -1176,6 +1176,169 @@ public:
   }
 };
 
+/// \brief This represents clause 'scan' in the '#pragma omp ...'
+/// directives.
+///
+/// \code
+/// #pragma omp parallel scan(+ : v)
+/// \endcode
+/// In this example directive '#pragma omp parallel' has clause 'scan'
+/// with operator '+' and variable 'v'.
+///
+    class OMPScanClause : public OMPVarListClause<OMPScanClause> {
+        friend class OMPClauseReader;
+
+        friend class OMPClauseWriter;
+
+        /// \brief An operator for the 'scan' clause.
+        OpenMPScanClauseOperator Operator;
+        /// \brief Nested name specifier for C++.
+        NestedNameSpecifierLoc Spec;
+        /// \brief Name of custom operator.
+        DeclarationNameInfo OperatorName;
+
+        /// \brief Set operator for the clause.
+        ///
+        /// \param Op Operator for the clause.
+        ///
+        void setOperator(OpenMPScanClauseOperator Op) { Operator = Op; }
+
+        /// \brief Set operator name for the clause.
+        ///
+        /// \param S Nested name specifier.
+        /// \param Op Operator name for the clause.
+        ///
+        void setOpName(NestedNameSpecifierLoc S, DeclarationNameInfo OpName) {
+            Spec = S;
+            OperatorName = OpName;
+        }
+
+        /// \brief Build clause with number of variables \a N and an operator \a Op.
+        ///
+        /// \param StartLoc Starting location of the clause.
+        /// \param EndLoc Ending location of the clause.
+        /// \param N Number of the variables in the clause.
+        /// \param Op Scan operator.
+        /// \param OpLoc Location of the operator.
+        ///
+        OMPScanClause(SourceLocation StartLoc, SourceLocation EndLoc, unsigned N,
+                      OpenMPScanClauseOperator Op,
+                      NestedNameSpecifierLoc Spec, DeclarationNameInfo OpName)
+                : OMPVarListClause<OMPScanClause>(OMPC_scan, StartLoc, EndLoc,
+                                                  N),
+                  Operator(Op), Spec(Spec), OperatorName(OpName) {}
+
+        /// \brief Build an empty clause.
+        ///
+        /// \param N Number of variables.
+        ///
+        explicit OMPScanClause(unsigned N)
+                : OMPVarListClause<OMPScanClause>(OMPC_scan, SourceLocation(),
+                                                  SourceLocation(), N),
+                  Operator(OMPC_SCAN_unknown), Spec(), OperatorName() {}
+
+        /// \brief Sets the list of generated expresssions.
+        void setOpExprs(ArrayRef<Expr *> OpExprs);
+
+        /// \brief Sets the list of 1st helper parameters.
+        void setHelperParameters1st(ArrayRef<Expr *> HelperParams);
+
+        /// \brief Sets the list of 1st helper parameters.
+        void setHelperParameters2nd(ArrayRef<Expr *> HelperParams);
+
+        /// \brief Return the list of all generated expressions.
+        llvm::MutableArrayRef<Expr *> getOpExprs() {
+            return llvm::MutableArrayRef<Expr *>(varlist_end(), numberOfVariables());
+        }
+
+        /// \brief Return the list of 1st helper parameters.
+        llvm::MutableArrayRef<Expr *> getHelperParameters1st() {
+            return llvm::MutableArrayRef<Expr *>(getOpExprs().end(),
+                                                 numberOfVariables());
+        }
+
+        /// \brief Return the list of 2nd helper parameters.
+        llvm::MutableArrayRef<Expr *> getHelperParameters2nd() {
+            return llvm::MutableArrayRef<Expr *>(getHelperParameters1st().end(),
+                                                 numberOfVariables());
+        }
+
+        /// \brief Sets the list of generated default inits.
+        void setDefaultInits(ArrayRef<Expr *> DefaultInits);
+
+        /// \brief Return the list of all generated expressions.
+        llvm::MutableArrayRef<Expr *> getDefaultInits() {
+            return llvm::MutableArrayRef<Expr *>(getHelperParameters2nd().end(),
+                                                 numberOfVariables());
+        }
+
+    public:
+        /// \brief Creates clause with a list of variables \a VL and an operator
+        /// \a Op.
+        ///
+        /// \param C AST context.
+        /// \brief StartLoc Starting location of the clause.
+        /// \brief EndLoc Ending location of the clause.
+        /// \param VL List of references to the variables.
+        /// \param Op Scan operator.
+        /// \param S nested name specifier.
+        /// \param OpName Scan identifier.
+        ///
+        static OMPScanClause *
+        Create(const ASTContext &C, SourceLocation StartLoc, SourceLocation EndLoc,
+               ArrayRef<Expr *> VL, ArrayRef<Expr *> OpExprs,
+               ArrayRef<Expr *> HelperParams1, ArrayRef<Expr *> HelperParams2,
+               ArrayRef<Expr *> DefaultInits, OpenMPScanClauseOperator Op,
+               NestedNameSpecifierLoc S, DeclarationNameInfo OpName);
+
+        /// \brief Creates an empty clause with the place for \a N variables.
+        ///
+        /// \param C AST context.
+        /// \param N The number of variables.
+        ///
+        static OMPScanClause *CreateEmpty(const ASTContext &C, unsigned N);
+
+        /// \brief Fetches operator for the clause.
+        OpenMPScanClauseOperator getOperator() const { return Operator; }
+
+        /// \brief Fetches nested name specifier for the clause.
+        NestedNameSpecifierLoc getSpec() const { return Spec; }
+
+        /// \brief Fetches operator name for the clause.
+        DeclarationNameInfo getOpName() const { return OperatorName; }
+
+        static bool classof(const OMPClause *T) {
+            return T->getClauseKind() == OMPC_scan;
+        }
+
+        /// \brief Return the list of all generated expressions.
+        ArrayRef<const Expr *> getOpExprs() const {
+            return llvm::makeArrayRef(getVars().end(), numberOfVariables());
+        }
+
+        /// \brief Return the list of 1st helper parameters.
+        ArrayRef<const Expr *> getHelperParameters1st() const {
+            return llvm::makeArrayRef(getOpExprs().end(), numberOfVariables());
+        }
+
+        /// \brief Return the list of 2nd helper parameters.
+        ArrayRef<const Expr *> getHelperParameters2nd() const {
+            return llvm::makeArrayRef(getHelperParameters1st().end(),
+                                      numberOfVariables());
+        }
+
+        /// \brief Return the list of all default initializations.
+        ArrayRef<const Expr *> getDefaultInits() const {
+            return llvm::makeArrayRef(getHelperParameters2nd().end(),
+                                      numberOfVariables());
+        }
+
+        StmtRange children() {
+            return StmtRange(reinterpret_cast<Stmt **>(varlist_begin()),
+                             reinterpret_cast<Stmt **>(getDefaultInits().end()));
+        }
+    };
+
 /// \brief This represents clause 'map' in the '#pragma omp ...'
 /// directives.
 ///

@@ -1518,7 +1518,22 @@ public:
                                                 SS, OpName);
   }
 
-  /// \brief Build a new OpenMP 'depend' clause.
+        /// \brief Build a new OpenMP 'scan' clause.
+        ///
+        /// By default, performs semantic analysis to build the new statement.
+        /// Subclasses may override this routine to provide different behavior.
+        OMPClause *RebuildOMPScanClause(ArrayRef<Expr *> VarList,
+                                        SourceLocation StartLoc,
+                                        SourceLocation EndLoc,
+                                        OpenMPScanClauseOperator Op,
+                                        CXXScopeSpec &SS,
+                                        DeclarationNameInfo OpName) {
+            return getSema().ActOnOpenMPScanClause(VarList,
+                                                   StartLoc, EndLoc, Op,
+                                                   SS, OpName);
+        }
+
+        /// \brief Build a new OpenMP 'depend' clause.
   ///
   /// By default, performs semantic analysis to build the new statement.
   /// Subclasses may override this routine to provide different behavior.
@@ -1766,7 +1781,23 @@ public:
         ReductionId);
   }
 
-  /// \brief Build a new OpenMP 'linear' clause.
+        /// \brief Build a new OpenMP 'scan' clause.
+        ///
+        /// By default, performs semantic analysis to build the new statement.
+        /// Subclasses may override this routine to provide different behavior.
+        OMPClause *RebuildOMPScanClause(ArrayRef<Expr *> VarList,
+                                        SourceLocation StartLoc,
+                                        SourceLocation LParenLoc,
+                                        SourceLocation ColonLoc,
+                                        SourceLocation EndLoc,
+                                        CXXScopeSpec &ScanIdScopeSpec,
+                                        const DeclarationNameInfo &ScanId) {
+            return getSema().ActOnOpenMPScanClause(
+                    VarList, StartLoc, LParenLoc, ColonLoc, EndLoc, ScanIdScopeSpec,
+                    ScanId);
+        }
+
+        /// \brief Build a new OpenMP 'linear' clause.
   ///
   /// By default, performs semantic analysis to build the new OpenMP clause.
   /// Subclasses may override this routine to provide different behavior.
@@ -7434,6 +7465,27 @@ TreeTransform<Derived>::TransformOMPReductionClause(OMPReductionClause *C) {
   return getDerived().RebuildOMPReductionClause(
       Vars, C->getLocStart(), C->getLocEnd(), C->getOperator(), SS, DNI);
 }
+
+    template<typename Derived>
+    OMPClause *
+    TreeTransform<Derived>::TransformOMPScanClause(OMPScanClause *C) {
+        llvm::SmallVector<Expr *, 16> Vars;
+        Vars.reserve(C->varlist_size());
+        for (OMPScanClause::varlist_iterator I = C->varlist_begin(),
+                     E = C->varlist_end();
+             I != E; ++I) {
+            ExprResult EVar = getDerived().TransformExpr(cast<Expr>(*I));
+            if (EVar.isInvalid())
+                return 0;
+            Vars.push_back(EVar.get());
+        }
+        CXXScopeSpec SS;
+        SS.Adopt(C->getSpec());
+        DeclarationNameInfo DNI =
+                getDerived().TransformDeclarationNameInfo(C->getOpName());
+        return getDerived().RebuildOMPScanClause(
+                Vars, C->getLocStart(), C->getLocEnd(), C->getOperator(), SS, DNI);
+    }
 
 template <typename Derived>
 OMPClause *

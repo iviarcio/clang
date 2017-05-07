@@ -947,9 +947,9 @@ void CodeGenFunction::EmitOMPParallelDirective(const OMPParallelDirective &S) {
   EmitOMPDirectiveWithParallel(OMPD_parallel, OMPD_unknown, S);
 }
 
-//
-// Get the Variable Name inside the Value argument
-//
+///
+/// Get the Variable Name inside the Value argument
+///
 llvm::StringRef getVarNameAsString (llvm::Value *FV) {
   llvm::Value *LV = FV;
   if (isa<llvm::CastInst>(LV)) LV = cast<llvm::CastInst>(LV)->getOperand(0);
@@ -958,9 +958,9 @@ llvm::StringRef getVarNameAsString (llvm::Value *FV) {
   return LV->getName(); 
 }
 
-//
-// Get the Variable Type inside the Value argument
-//
+///
+/// Get the Variable Type inside the Value argument
+///
 llvm::Type* getVarType (llvm::Value *FV) {
   llvm::Type *LTy;
   if (isa<llvm::AllocaInst>(FV))
@@ -973,9 +973,9 @@ llvm::Type* getVarType (llvm::Value *FV) {
   return LTy;
 }
 
-//    
-// Recursively transverse the body of the for loop looking for uses or assigns.
-//
+///
+/// Recursively transverse the body of the for loop looking for uses or assigns.
+///
 void CodeGenFunction::HandleStmts(Stmt *ST, llvm::raw_fd_ostream &FOS, int &num_args, bool CLgen) {
   llvm::Value *Status = nullptr;  
 
@@ -1216,6 +1216,36 @@ unsigned CodeGenFunction::GetNumNestedLoops(const OMPExecutableDirective &S) {
 }
 
 ///
+/// Recursively try to find the declaration context for the first declaration on AST
+///
+DeclContext *declCTX = nullptr;
+bool finishCheck = false;
+
+void checkDeclRefExpr(Stmt *body) {
+    bool checkChild = true;
+
+    if (!finishCheck) {
+        if (isa<DeclRefExpr>(body->IgnoreImplicit()) && declCTX == nullptr) {
+            DeclRefExpr *declExprA = cast<DeclRefExpr>(body->IgnoreImplicit());
+            if (isa<VarDecl>(declExprA->getDecl())) {
+                Decl *declA = cast<Decl>(declExprA->getDecl());
+                declCTX = declA->getDeclContext();
+                if (declCTX != nullptr) {
+                    finishCheck = true;
+                    return;
+                }
+            }
+        }
+        if (checkChild) {
+            for (auto cd = (body->IgnoreImplicit())->child_begin(); cd != (body->IgnoreImplicit())->child_end(); cd++) {
+                if (*cd != NULL) checkDeclRefExpr(*cd);
+            }
+        }
+    }
+    return;
+}
+
+///
 /// Generate an instructions for '#pragma omp parallel for' directive. 
 ///
 void CodeGenFunction::EmitOMPParallelForDirective(
@@ -1223,6 +1253,9 @@ void CodeGenFunction::EmitOMPParallelForDirective(
     EmitOMPDirectiveWithParallel(OMPD_parallel_for, OMPD_for, S);
 }
 
+///
+/// Generate code for '#pragma omp parallel for [simd]' for Accelerators
+///
 void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
         OpenMPDirectiveKind DKind, ArrayRef<OpenMPDirectiveKind> SKinds,
         const OMPExecutableDirective &S) {
@@ -1235,7 +1268,21 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
         return;
     }
 
-    // =========================================================
+    // Verify if reduction or scan clause is present
+    // and switch to specific codegen function
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(),
+                 E = S.clauses().end();
+         I != E; ++I) {
+        OpenMPClauseKind ckind = ((*I)->getClauseKind());
+        if (ckind == OMPC_reduction) {
+            EmitOMPDirectiveWithReduction(DKind, SKinds, S);
+            return;
+        } else if (ckind == OMPC_scan) {
+            EmitOMPDirectiveWithScan(DKind, SKinds, S);
+            return;
+        }
+    }
+
     // Preparing data to Polyhedral extraction & parallelization
     // =========================================================
     LangOptions::PolyhedralOptions polymode = CGM.getLangOpts().getOptPoly();
@@ -1264,7 +1311,6 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     // Add the basic c header files.
     CLOS << "#include <stdlib.h>\n";
     CLOS << "#include <stdint.h>\n";
-    CLOS << "#include <stdbool.h>\n";
     CLOS << "#include <math.h>\n\n";
 
     //use of type 'double' requires cl_khr_fp64 extension to be enabled
@@ -1292,7 +1338,7 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
                                 MapClausePositionValues,
                                 MapClauseScopeValues);
 
-    // Dump necessary typedefs in scope file (and aux file)
+    // Dump necessary typedefs in scope file (and also in aux file)
     deftypes.clear();
     for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
                  E = MapClauseQualTypes.end();
@@ -1400,7 +1446,7 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     }
 
     // Traverse the Body looking for all scalar variables declared out of
-    // "for" scope and generate value reference to pass to "foo" function
+    // for scope and generate value reference to pass to kernel function
     Stmt *Body = S.getAssociatedStmt();
     if (CapturedStmt *CS = dyn_cast_or_null<CapturedStmt>(Body)) {
         Body = CS->getCapturedStmt();
@@ -1471,7 +1517,7 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
                 OMPScheduleClause *C = cast<OMPScheduleClause>(*I);
                 OpenMPScheduleClauseKind ScheduleKind = C->getScheduleKind();
                 if (ScheduleKind == OMPC_SCHEDULE_static ||
-                    ScheduleKind == OMPC_SCHEDULE_dynamic) {
+                        ScheduleKind == OMPC_SCHEDULE_dynamic) {
                     hasScheduleStatic = ScheduleKind == OMPC_SCHEDULE_static;
                     Expr *CSExpr = C->getChunkSize();
                     if (CSExpr) {
@@ -1732,8 +1778,8 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     // Generate the spir-code ?
     llvm::Triple Tgt = CGM.getLangOpts().OMPtoGPUTriple;
     if (Tgt.getArch() == llvm::Triple::spir ||
-        Tgt.getArch() == llvm::Triple::spir64 ||
-        Tgt.getArch() == llvm::Triple::spirv) {
+            Tgt.getArch() == llvm::Triple::spir64 ||
+            Tgt.getArch() == llvm::Triple::spirv) {
 
         std::string tgtStr;
         if (Tgt.getArch() == llvm::Triple::spirv) {
@@ -1744,9 +1790,9 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
         }
 
         const std::string bcArg = "clang-3.5 -cc1 -x cl -cl-std=CL1.2 -fno-builtin -emit-llvm-bc -triple " +
-                                  tgtStr +
-                                  " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
-                                  AuxName + " " + clName;
+                tgtStr +
+                " -include $LLVM_INCLUDE_PATH/llvm/SpirTools/opencl_spir.h -ffp-contract=off -o " +
+                AuxName + " " + clName;
         std::system(bcArg.c_str());
 
         const std::string encodeStr = "spir-encoder " + AuxName + " " + FileName + ".bc";
@@ -1824,6 +1870,242 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
                                  Builder.CreateIntCast(nCores[2], CGM.Int64Ty, false),
                                  Builder.getInt32(CollapseNum)};
         Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_kernel(), WGSize);
+    }
+}
+
+/// Generate an instructions for '#pragma omp parallel for [sim] reduction' directive
+void CodeGenFunction::EmitOMPDirectiveWithReduction(OpenMPDirectiveKind DKind,
+                                                    ArrayRef<OpenMPDirectiveKind> SKinds,
+                                                    const OMPExecutableDirective &S) {
+
+    llvm::errs() << "Reduction Clause code for Accelerators are under construction!\n";
+
+}
+
+/// Generate an instructions for '#pragma omp parallel for [sim] scan' directive
+void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
+                                               ArrayRef<OpenMPDirectiveKind> SKinds,
+                                               const OMPExecutableDirective &S) {
+
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E = S.clauses().end(); I != E; ++I) {
+        OpenMPClauseKind ckind = ((*I)->getClauseKind());
+        if (ckind == OMPC_scan) {
+
+            Stmt *Body = S.getAssociatedStmt()->IgnoreContainers(true);
+            checkDeclRefExpr(Body);
+            OMPVarListClause<OMPScanClause> *list = cast<OMPVarListClause<OMPScanClause> >(
+                    cast<OMPScanClause>(*I));
+            for (auto l = list->varlist_begin(); l != list->varlist_end(); l++) {
+                DeclRefExpr *scanVar = cast<DeclRefExpr>(*l);
+                QualType qt = getContext().IntTy;
+                llvm::Type *TT1 = ConvertType(qt);
+                llvm::Value *T1 = CreateTempAlloca(TT1, "nthreads");
+
+                llvm::Type *BB1 = ConvertType(qt);
+                llvm::Value *B1 = CreateTempAlloca(BB1, "nblocks");
+
+                llvm::Type *BT1 = ConvertType(qt);
+                llvm::Value *BT = CreateTempAlloca(BT1, "bytesthreads");
+
+                llvm::Type *BBL1 = ConvertType(qt);
+                llvm::Value *BB = CreateTempAlloca(BBL1, "bytesblocks");
+
+                ArrayRef<llvm::Value *> MapClausePointerValues;
+                ArrayRef<llvm::Value *> MapClauseSizeValues;
+                ArrayRef<QualType> MapClauseQualTypes;
+                ArrayRef<unsigned> MapClauseTypeValues;
+                ArrayRef<unsigned> MapClausePositionValues;
+                ArrayRef<unsigned> MapClauseScopeValues;
+
+                CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+                                            MapClauseSizeValues,
+                                            MapClauseQualTypes,
+                                            MapClauseTypeValues,
+                                            MapClausePositionValues,
+                                            MapClauseScopeValues);
+
+                /* TODO: Find the correct map index for the scan location */
+                int idxScan = 0;
+                QualType Q = MapClauseQualTypes[idxScan];
+                const Type *ty = Q.getTypePtr();
+                if (ty->isPointerType() || ty->isReferenceType()) {
+                    Q = ty->getPointeeType();
+                }
+                while (Q.getTypePtr()->isArrayType()) {
+                    Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+                }
+                if (!dumpedDefType(&Q)) {
+                    std::string defty = Q.getAsString();
+                    Q = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
+                    while (Q.getTypePtr()->isArrayType()) {
+                        Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+                    }
+                }
+
+                llvm::Type *tR = ConvertType(Q);
+                llvm::AllocaInst *vR = Builder.CreateAlloca(tR, NULL);
+                vR->setUsedWithInAlloca(true);
+                llvm::Value *Bytes = Builder.getInt32(vR->getAllocatedType()->getPrimitiveSizeInBits() / 8);
+                llvm::Value *KArg[] = {T1, B1, BT, BB, MapClauseSizeValues[idxScan], Bytes};
+                llvm::Value *size = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
+
+                /*Fetch the scan variable type and its operator */
+                const std::string scanVarType = scanVar->getType().getAsString();
+                const std::string operatorName = cast<OMPScanClause>(*I)->getOpName().getAsString();
+
+                // Create the unique filename that refers to kernel file
+                llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), true);
+                const std::string FileNameScan = CGM.OpenMPSupport.getTempName();
+                const std::string clNameScan = FileNameScan;
+
+                // Get the include file name, if any
+                const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
+                std::string includeContents = "";
+
+                //use of type 'double' requires cl_khr_fp64 extension to be enabled
+                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+                std::ifstream incFile(incName.c_str());
+                if (incFile) {
+                    std::stringstream incBuffer;
+                    incBuffer << incFile.rdbuf();
+                    includeContents = incBuffer.str();
+                    CLOS << includeContents << "\n\n";
+                    incFile.close();
+                }
+
+                // Dump necessary typedefs in kernel file
+                deftypes.clear();
+                for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
+                             E = MapClauseQualTypes.end();
+                     T != E; ++T) {
+                    QualType Q = (*T);
+                    if (!Q.isCanonical()) {
+                        const Type *ty = Q.getTypePtr();
+                        if (ty->isPointerType() || ty->isReferenceType()) {
+                            Q = ty->getPointeeType();
+                        }
+
+                        while (Q.getTypePtr()->isArrayType()) {
+                            Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+                        }
+
+                        if (!dumpedDefType(&Q)) {
+                            std::string defty = Q.getAsString();
+                            QualType B = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
+
+                            while (B.getTypePtr()->isArrayType()) {
+                                B = dyn_cast<ArrayType>(B.getTypePtr())->getElementType();
+                            }
+
+                            ty = B.getTypePtr();
+                            if (isa<RecordType>(ty)) {
+                                const RecordType *RT = dyn_cast<RecordType>(ty);
+                                RecordDecl *RD = RT->getDecl()->getDefinition();
+                                // Need to check if RecordDecl was already dumped?
+                                RD->print(CLOS);
+                                CLOS << ";\n";
+                            }
+
+                            if (B.isCanonical() && B.getAsString().compare(defty) != 0) {
+                                CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
+                            }
+                        }
+                    }
+                }
+
+                CLOS << "\n#define _operation_ " << operatorName;
+                CLOS << "\n#define _dataType_ " << scanVarType.substr(0, scanVarType.find_last_of(' ')) << "\n";
+                CLOS.close();
+
+                llvm::Value *Status = nullptr;
+                std::string KernelName = "scan";
+
+                llvm::Value *FileStrScan = Builder.CreateGlobalStringPtr(clNameScan);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStrScan);
+
+                /*Create First Kernel*/
+                llvm::Value *FunctionKernel = Builder.CreateGlobalStringPtr(KernelName);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel);
+
+                //Add 2 arrays
+                llvm::Value *LB = Builder.CreateLoad(B1);
+                llvm::Value *LT = Builder.CreateLoad(T1);
+
+                //llvm::Value *BytesT = Builder.CreateLoad(BT);
+                llvm::Value *BytesB = Builder.CreateLoad(BB);
+
+                llvm::Value *Size[] = {Builder.CreateIntCast(BytesB, CGM.Int64Ty, false)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Size);
+
+                //Generate code for calling the 1st kernel
+                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(0)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+                llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args2);
+                llvm::Value *BVScan = Builder.CreateBitCast(T1, CGM.VoidPtrTy);
+                llvm::Value *CArgScan[] = {Builder.getInt32(2), Builder.getInt32(
+                        (dyn_cast<llvm::AllocaInst>(T1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan);
+
+                llvm::Value *GroupSize[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(0),
+                                            Builder.CreateIntCast(LT, CGM.Int32Ty, false),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize);
+
+                //Generate code for calling the 2nd kernel
+                llvm::Value *Args3[] = {Builder.getInt32(0), Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args3);
+                llvm::Value *Args4[] = {Builder.getInt32(1), Builder.getInt32(2)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args4);
+
+                llvm::Value *BVScan2 = Builder.CreateBitCast(B1, CGM.VoidPtrTy);
+                llvm::Value *CArgScan2[] = {Builder.getInt32(2), Builder.getInt32(
+                        (dyn_cast<llvm::AllocaInst>(B1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan2};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan2);
+
+                llvm::Value *GroupSize2[] = {Builder.getInt32(1),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.CreateIntCast(LB, CGM.Int32Ty, false),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize2);
+
+                //Generate code for calling the 3th Kernel
+                KernelName = "fix";
+                llvm::Value *FunctionKernel2 = Builder.CreateGlobalStringPtr(KernelName);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel2);
+                llvm::Value *Args5[] = {Builder.getInt32(0), Builder.getInt32(0)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args5);
+                llvm::Value *Args6[] = {Builder.getInt32(1), Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args6);
+
+                llvm::Value *GroupSize3[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.CreateIntCast(LT, CGM.Int32Ty, false),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize3);
+
+                llvm::Value *A[] = {Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A);
+                llvm::Value *A2[] = {Builder.getInt32(2)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A2);
+
+                const std::string generator =
+                        "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan;
+                std::system(generator.c_str());
+            }
+        }
+        return;
     }
 }
 

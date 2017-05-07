@@ -61,7 +61,9 @@ namespace {
   typedef int32_t(_cl_execute_tiled_kernel)(int32_t wsize0, int32_t wsize1, int32_t wsize2, int32_t block0, int32_t block1, int32_t block2, int32_t dim);
   typedef void(_cl_release_buffers)(int32_t upper);
   typedef void(_cl_release_buffer)(int32_t index);
-  typedef int32_t(_cl_get_threads_blocks)(int32_t* threads, int32_t* blocks, int32_t size);
+
+    typedef int32_t(_cl_get_threads_blocks)(int32_t *threads, int32_t *blocks, int32_t *bytesthreads,
+                                            int32_t *bytesblocks, int64_t size, int32_t bytes);
 }
 
 namespace clang {

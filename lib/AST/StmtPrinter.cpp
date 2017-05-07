@@ -728,6 +728,28 @@ void OMPClausePrinter::VisitOMPReductionClause(OMPReductionClause *Node) {
   }
 }
 
+    void OMPClausePrinter::VisitOMPScanClause(OMPScanClause *Node) {
+        if (!Node->varlist_empty()) {
+            OS << "scan(";
+            if (Node->getOperator() == OMPC_SCAN_custom) {
+                if (NestedNameSpecifier *Qual = Node->getSpec().getNestedNameSpecifier())
+                    Qual->print(OS, Policy);
+                OS << Node->getOpName();
+            } else {
+                OS << getOpenMPSimpleClauseTypeName(OMPC_scan, Node->getOperator());
+            }
+            OS << ':';
+
+            for (OMPScanClause::varlist_iterator I = Node->varlist_begin(),
+                         E = Node->varlist_end();
+                 I != E; ++I) {
+                OS << (I == Node->varlist_begin() ? ' ' : ',')
+                   << *cast<NamedDecl>(cast<DeclRefExpr>(*I)->getDecl());
+            }
+            OS << ")";
+        }
+    }
+
 void OMPClausePrinter::VisitOMPLastPrivateClause(OMPLastPrivateClause *Node) {
   if (!Node->varlist_empty()) {
     OS << "lastprivate";

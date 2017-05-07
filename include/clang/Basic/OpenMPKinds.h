@@ -67,7 +67,18 @@ enum OpenMPReductionClauseOperator {
   NUM_OPENMP_REDUCTION_OPERATORS
 };
 
-/// \brief OpenMP dependence types for 'depend' clause.
+/// \brief OpenMP operators for 'scan' clause.
+    enum OpenMPScanClauseOperator {
+        OMPC_SCAN_unknown = 0,
+#define OPENMP_SCAN_OPERATOR(Name, Symbol) \
+  OMPC_SCAN_##Name,
+
+#include "clang/Basic/OpenMPKinds.def"
+
+        NUM_OPENMP_SCAN_OPERATORS
+    };
+
+    /// \brief OpenMP dependence types for 'depend' clause.
 enum OpenMPDependClauseType {
   OMPC_DEPEND_unknown = 0,
 #define OPENMP_DEPENDENCE_TYPE(Name, Type) \

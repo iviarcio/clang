@@ -1845,6 +1845,33 @@ void OMPClauseWriter::VisitOMPReductionClause(OMPReductionClause *C) {
     Writer.AddStmt(*I);
 }
 
+void OMPClauseWriter::VisitOMPScanClause(OMPScanClause *C) {
+    Record.push_back(C->varlist_size());
+    Record.push_back(C->getOperator());
+    Writer.AddNestedNameSpecifierLoc(C->getSpec(), Record);
+    Writer.AddDeclarationNameInfo(C->getOpName(), Record);
+    for (OMPScanClause::varlist_iterator I = C->varlist_begin(),
+                 E = C->varlist_end();
+         I != E; ++I)
+        Writer.AddStmt(*I);
+    for (ArrayRef<Expr *>::iterator I = C->getOpExprs().begin(),
+                 E = C->getOpExprs().end();
+         I != E; ++I)
+        Writer.AddStmt(*I);
+    for (ArrayRef<Expr *>::iterator I = C->getHelperParameters1st().begin(),
+                 E = C->getHelperParameters1st().end();
+         I != E; ++I)
+        Writer.AddStmt(*I);
+    for (ArrayRef<Expr *>::iterator I = C->getHelperParameters2nd().begin(),
+                 E = C->getHelperParameters2nd().end();
+         I != E; ++I)
+        Writer.AddStmt(*I);
+    for (ArrayRef<Expr *>::iterator I = C->getDefaultInits().begin(),
+                 E = C->getDefaultInits().end();
+         I != E; ++I)
+        Writer.AddStmt(*I);
+}
+
 void OMPClauseWriter::VisitOMPOrderedClause(OMPOrderedClause *C) { }
 
 void OMPClauseWriter::VisitOMPNowaitClause(OMPNowaitClause *C) { }

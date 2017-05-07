@@ -1403,26 +1403,27 @@ void _cl_profile(const char* str, cl_event event) {
   printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
 }
 
-
 //
 // Return the threads & blocks used to allocate auxiliary buffers
 // and the adequate size of the vector to scan
 //
-int _cl_get_threads_blocks (int* threads, int* blocks, int size) {
-  
-  int n = (int) sqrt(size-1);
+int _cl_get_threads_blocks(int *threads, int *blocks, int *bytesthreads, int *bytesblocks, uint64_t size, int bytes) {
+    size /= bytes;
+    int n = (int) sqrt(size - 1);
   int t = 1;
-  for (int i = 0 ; i <= 10 ; i++) {
+    for (int i = 0; i <= 10; i++) {
     if (_block_sizes[i] >= n) {
       t = _block_sizes[i];
       break;
     }
   }
-  
+
   int r = size / t;
   n = r * t;
   if (size % t != 0) n += t;
   *threads = t;
-  *blocks = n/t;
-  return n;
+    *blocks = n / t;
+    *bytesthreads = (*threads) * bytes;
+    *bytesblocks = (*blocks) * bytes;
+    return n * bytes;
 }

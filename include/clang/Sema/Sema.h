@@ -7785,6 +7785,14 @@ public:
                                         OpenMPReductionClauseOperator Op,
                                         CXXScopeSpec &SS,
                                         DeclarationNameInfo OpName);
+
+    /// \brief Called on well-formed 'scan' clause.
+    OMPClause *ActOnOpenMPScanClause(ArrayRef<Expr *> VarList,
+                                     SourceLocation StartLoc,
+                                     SourceLocation EndLoc,
+                                     OpenMPScanClauseOperator Op,
+                                     CXXScopeSpec &SS,
+                                     DeclarationNameInfo OpName);
   /// \brief Called on well-formed 'map' clause.
   OMPClause *ActOnOpenMPMapClause(ArrayRef<Expr *> VarList,
                                   SourceLocation StartLoc,

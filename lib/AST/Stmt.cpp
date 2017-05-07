@@ -101,6 +101,26 @@ Stmt *Stmt::IgnoreImplicit() {
   return s;
 }
 
+/// \brief Skip no-op (attributed, compound) container stmts and skip captured
+/// stmt at the top, if \a IgnoreCaptured is true.
+Stmt *Stmt::IgnoreContainers(bool IgnoreCaptured) {
+    Stmt *S = this;
+    if (IgnoreCaptured)
+        if (auto CapS = dyn_cast_or_null<CapturedStmt>(S))
+            S = CapS->getCapturedStmt();
+    while (true) {
+        if (auto AS = dyn_cast_or_null<AttributedStmt>(S))
+            S = AS->getSubStmt();
+        else if (auto CS = dyn_cast_or_null<CompoundStmt>(S)) {
+            if (CS->size() != 1)
+                break;
+            S = CS->body_back();
+        } else
+            break;
+    }
+    return S;
+}
+
 /// \brief Strip off all label-like statements.
 ///
 /// This will strip off label statements, case statements, attributed
@@ -1280,6 +1300,61 @@ void OMPReductionClause::setDefaultInits(ArrayRef<Expr *> DefaultInits) {
          "Number of inits is not the same as the preallocated buffer");
   std::copy(DefaultInits.begin(), DefaultInits.end(),
             getHelperParameters2nd().end());
+}
+
+OMPScanClause *OMPScanClause::Create(
+        const ASTContext &C, SourceLocation StartLoc, SourceLocation EndLoc,
+        ArrayRef<Expr *> VL, ArrayRef<Expr *> OpExprs,
+        ArrayRef<Expr *> HelperParams1, ArrayRef<Expr *> HelperParams2,
+        ArrayRef<Expr *> DefaultInits, OpenMPScanClauseOperator Op,
+        NestedNameSpecifierLoc S, DeclarationNameInfo OpName) {
+    assert(VL.size() == OpExprs.size() &&
+           "Number of expressions is not the same as number of variables!");
+    void *Mem = C.Allocate(llvm::RoundUpToAlignment(sizeof(OMPScanClause),
+                                                    llvm::alignOf<Expr *>()) +
+                           5 * sizeof(Expr *) * VL.size());
+    OMPScanClause *Clause =
+            new(Mem) OMPScanClause(StartLoc, EndLoc, VL.size(), Op, S, OpName);
+    Clause->setVars(VL);
+    Clause->setOpExprs(OpExprs);
+    Clause->setHelperParameters1st(HelperParams1);
+    Clause->setHelperParameters2nd(HelperParams2);
+    Clause->setDefaultInits(DefaultInits);
+    return Clause;
+}
+
+OMPScanClause *OMPScanClause::CreateEmpty(const ASTContext &C,
+                                          unsigned N) {
+    void *Mem = C.Allocate(llvm::RoundUpToAlignment(sizeof(OMPScanClause),
+                                                    llvm::alignOf<Expr *>()) +
+                           5 * sizeof(Expr *) * N);
+    return new(Mem) OMPScanClause(N);
+}
+
+void OMPScanClause::setOpExprs(ArrayRef<Expr *> OpExprs) {
+    assert(OpExprs.size() == numberOfVariables() &&
+           "Number of expressions is not the same as the number of variables.");
+    std::copy(OpExprs.begin(), OpExprs.end(), varlist_end());
+}
+
+void OMPScanClause::setHelperParameters1st(ArrayRef<Expr *> HelperParams) {
+    assert(HelperParams.size() == numberOfVariables() &&
+           "Number of expressions is not the same as the number of variables.");
+    std::copy(HelperParams.begin(), HelperParams.end(), getOpExprs().end());
+}
+
+void OMPScanClause::setHelperParameters2nd(ArrayRef<Expr *> HelperParams) {
+    assert(HelperParams.size() == numberOfVariables() &&
+           "Number of expressions is not the same as the number of variables.");
+    std::copy(HelperParams.begin(), HelperParams.end(),
+              getHelperParameters1st().end());
+}
+
+void OMPScanClause::setDefaultInits(ArrayRef<Expr *> DefaultInits) {
+    assert(DefaultInits.size() == varlist_size() &&
+           "Number of inits is not the same as the preallocated buffer");
+    std::copy(DefaultInits.begin(), DefaultInits.end(),
+              getHelperParameters2nd().end());
 }
 
 void

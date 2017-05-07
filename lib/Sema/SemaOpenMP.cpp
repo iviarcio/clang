@@ -5040,6 +5040,12 @@ OMPClause *Sema::ActOnOpenMPVarListClause(
         static_cast<OpenMPReductionClauseOperator>(Op), SS,
         GetNameFromUnqualifiedId(OpName));
     break;
+      case OMPC_scan:
+          Res = ActOnOpenMPScanClause(
+                  VarList, StartLoc, EndLoc,
+                  static_cast<OpenMPScanClauseOperator>(Op), SS,
+                  GetNameFromUnqualifiedId(OpName));
+          break;
   case OMPC_flush:
     Res = ActOnOpenMPFlushClause(VarList, StartLoc, EndLoc);
     break;
@@ -6240,6 +6246,7 @@ public:
           Stack->hasDSA(VD, OMPC_firstprivate, OMPD_unknown, PrevRef) ||
           Stack->hasDSA(VD, OMPC_lastprivate, OMPD_unknown, PrevRef) ||
           Stack->hasDSA(VD, OMPC_reduction, OMPD_unknown, PrevRef) ||
+          Stack->hasDSA(VD, OMPC_scan, OMPD_unknown, PrevRef) ||
           Stack->hasDSA(VD, OMPC_linear, OMPD_unknown, PrevRef))
         return true;
       return false;
@@ -6763,6 +6770,362 @@ OMPClause *Sema::ActOnOpenMPReductionClause(ArrayRef<Expr *> VarList,
   return OMPReductionClause::Create(
       Context, StartLoc, EndLoc, Vars, OpExprs, HelperParams1, HelperParams2,
       DefaultInits, Op, SS.getWithLocInContext(Context), OpName);
+}
+
+OMPClause *Sema::ActOnOpenMPScanClause(ArrayRef<Expr *> VarList,
+                                       SourceLocation StartLoc,
+                                       SourceLocation EndLoc,
+                                       OpenMPScanClauseOperator Op,
+                                       CXXScopeSpec &SS,
+                                       DeclarationNameInfo OpName) {
+    BinaryOperatorKind NewOp = BO_Assign;
+    switch (Op) {
+        case OMPC_SCAN_add:
+            NewOp = BO_AddAssign;
+            break;
+        case OMPC_SCAN_mult:
+            NewOp = BO_MulAssign;
+            break;
+        case OMPC_SCAN_sub:
+            NewOp = BO_SubAssign;
+            break;
+        case OMPC_SCAN_bitand:
+            NewOp = BO_AndAssign;
+            break;
+        case OMPC_SCAN_bitor:
+            NewOp = BO_OrAssign;
+            break;
+        case OMPC_SCAN_bitxor:
+            NewOp = BO_XorAssign;
+            break;
+        case OMPC_SCAN_and:
+            NewOp = BO_LAnd;
+            break;
+        case OMPC_SCAN_or:
+            NewOp = BO_LOr;
+            break;
+        case OMPC_SCAN_min:
+            NewOp = BO_LT;
+            break;
+        case OMPC_SCAN_max:
+            NewOp = BO_GT;
+            break;
+        default:
+            break;
+    }
+    SmallVector<Expr *, 4> Vars;
+    SmallVector<Expr *, 4> DefaultInits;
+    SmallVector<Expr *, 4> OpExprs;
+    SmallVector<Expr *, 4> HelperParams1;
+    SmallVector<Expr *, 4> HelperParams2;
+    for (ArrayRef<Expr *>::iterator I = VarList.begin(), E = VarList.end();
+         I != E; ++I) {
+        assert(*I && "Null expr in omp scan");
+//        if (isa<DependentScopeDeclRefExpr>(*I)) {
+        // It will be analyzed later.
+        Vars.push_back(*I);
+        DefaultInits.push_back(0);
+        OpExprs.push_back(0);
+        HelperParams1.push_back(0);
+        HelperParams2.push_back(0);
+        continue;
+//        }
+
+/*
+        SourceLocation ELoc = (*I)->getExprLoc();
+        // OpenMP [2.1, C/C++]
+        //  A list item is a variable name.
+        // OpenMP  [2.9.3.3, Restrictions, p.1]
+        //  A variable that is part of another variable (as an array or
+        //  structure element) cannot appear in a private clause.
+        DeclRefExpr *DE = dyn_cast_or_null<DeclRefExpr>(*I);
+        if (!DE || !isa<VarDecl>(DE->getDecl())) {
+            Diag(ELoc, diag::err_omp_expected_var_name) << (*I)->getSourceRange();
+            continue;
+        }
+        Decl *D = DE->getDecl();
+        VarDecl *VD = cast<VarDecl>(D);
+
+        QualType Type = VD->getType();
+        if (Type->isDependentType() || Type->isInstantiationDependentType()) {
+            // It will be analyzed later.
+            Vars.push_back(*I);
+            DefaultInits.push_back(0);
+            OpExprs.push_back(0);
+            HelperParams1.push_back(0);
+            HelperParams2.push_back(0);
+            continue;
+        }
+
+        // OpenMP [2.9.3.6, Restrictions, C/C++, p.4]
+        //  If a list-item is a reference type then it must bind to the same object
+        //  for all threads of the team.
+
+    if (Type.getCanonicalType()->isReferenceType() && VD->hasInit()) {
+      DSARefChecker Check(DSAStack);
+      if (Check.Visit(VD->getInit())) {
+        Diag(ELoc, diag::err_omp_reduction_ref_type_arg)
+                << getOpenMPClauseName(OMPC_scan);
+        bool IsDecl = VD->isThisDeclarationADefinition(Context) ==
+                      VarDecl::DeclarationOnly;
+        Diag(VD->getLocation(),
+             IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+                << VD;
+        continue;
+      }
+    }
+
+        // OpenMP [2.9.3.6, Restrictions, C/C++, p.2]
+        if (RequireCompleteType(ELoc, Type,
+                                diag::err_omp_reduction_incomplete_type))
+            continue;
+
+        Type = Type.getNonReferenceType().getCanonicalType();
+
+        // OpenMP [2.9.3.6, Restrictions, C/C++, p.3]
+        //  A list item that appears in a scan clause must not be
+        //  const-qualified.
+        if (Type.isConstant(Context)) {
+            Diag(ELoc, diag::err_omp_const_variable)
+                    << getOpenMPClauseName(OMPC_scan);
+            bool IsDecl =
+                    VD->isThisDeclarationADefinition(Context) == VarDecl::DeclarationOnly;
+            Diag(VD->getLocation(),
+                 IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+                    << VD;
+            continue;
+        }
+
+        // OpenMP [2.9.3.6, Restrictions, C/C++, p.1]
+        //  The type of a list item that appears in a scan clause must be valid
+        //  for the scan operator. For max or min scan in C/C++ must be an
+        //  arithmetic type.
+
+    if ((Op == OMPC_SCAN_min || Op == OMPC_SCAN_max) &&
+         !Type->isArithmeticType() && !Type->isDependentType()) {
+      Diag(ELoc, diag::err_omp_clause_not_arithmetic_type_arg)
+              << getOpenMPClauseName(OMPC_scan);
+      bool IsDecl =
+              VD->isThisDeclarationADefinition(Context) == VarDecl::DeclarationOnly;
+      Diag(VD->getLocation(),
+           IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+              << VD;
+      continue;
+    }
+
+        // OpenMP [2.9.1.1, Data-sharing Attribute Rules for Variables Referenced
+        // in a Construct]
+        //  Variables with the predetermined data-sharing attributes may not be
+        //  listed in data-sharing attributes clauses, except for the cases
+        //  listed below. For these exceptions only, listing a predetermined
+        //  variable in a data-sharing attribute clause is allowed and overrides
+        //  the variable's predetermined data-sharing attributes.
+        // OpenMP [2.9.3.6, Restrictions, p.3]
+        //  Any number of scan clauses can be specified on the directive,
+        //  but a list item can appear only once in the scan clauses for that
+        //  directive.
+        DeclRefExpr *PrevRef;
+        OpenMPClauseKind Kind = DSAStack->getTopDSA(VD, PrevRef);
+        if (Kind == OMPC_scan) {
+            Diag(ELoc, diag::err_omp_once_referenced)
+                    << getOpenMPClauseName(OMPC_scan);
+            if (PrevRef) {
+                Diag(PrevRef->getExprLoc(), diag::note_omp_referenced);
+            }
+        } else if (Kind != OMPC_unknown) {
+            Diag(ELoc, diag::err_omp_wrong_dsa)
+                    << getOpenMPClauseName(Kind) << getOpenMPClauseName(OMPC_scan);
+            if (PrevRef) {
+                Diag(PrevRef->getExprLoc(), diag::note_omp_explicit_dsa)
+                        << getOpenMPClauseName(Kind);
+            } else {
+                Diag(VD->getLocation(), diag::note_omp_predetermined_dsa)
+                        << getOpenMPClauseName(Kind);
+            }
+            continue;
+        }
+
+        // OpenMP [2.9.3.6, Restrictions, p.1]
+        //  A list item that appears in a scan clause of a worksharing
+        //  construct must be shared in the parallel regions to which any of the
+        //  worksharing regions arising from the worksharing construct bind.
+        OpenMPDirectiveKind DKind;
+        OpenMPDirectiveKind CurrDir = DSAStack->getCurrentDirective();
+        Kind = DSAStack->getImplicitDSA(VD, DKind, PrevRef);
+        if ((Kind != OMPC_shared && Kind != OMPC_unknown &&
+             DKind != OMPD_unknown) &&
+            (CurrDir == OMPD_for || CurrDir == OMPD_sections ||
+             CurrDir == OMPD_for_simd)) {
+            if (Kind == OMPC_unknown) {
+                Diag(ELoc, diag::err_omp_required_access)
+                        << getOpenMPClauseName(OMPC_scan)
+                        << getOpenMPClauseName(OMPC_shared);
+            } else if (DKind == OMPD_unknown) {
+                Diag(ELoc, diag::err_omp_wrong_dsa)
+                        << getOpenMPClauseName(Kind) << getOpenMPClauseName(OMPC_scan);
+            } else {
+                Diag(ELoc, diag::err_omp_dsa_with_directives)
+                        << getOpenMPClauseName(Kind) << getOpenMPDirectiveName(DKind)
+                        << getOpenMPClauseName(OMPC_scan)
+                        << getOpenMPDirectiveName(CurrDir);
+            }
+            if (PrevRef) {
+                Diag(PrevRef->getExprLoc(), diag::note_omp_explicit_dsa)
+                        << getOpenMPClauseName(Kind);
+            }
+            continue;
+        }
+
+        if ((Op == OMPC_SCAN_bitor || Op == OMPC_SCAN_bitand ||
+             Op == OMPC_SCAN_bitxor) &&
+            Type->isFloatingType()) {
+            Diag(ELoc, diag::err_omp_clause_floating_type_arg);
+            bool IsDecl = VD->isThisDeclarationADefinition(Context) ==
+                          VarDecl::DeclarationOnly;
+            Diag(VD->getLocation(),
+                 IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+                    << VD;
+            continue;
+        }
+
+        QualType PtrQTy = Context.getPointerType(DE->getType());
+        TypeSourceInfo *TI =
+                Context.getTrivialTypeSourceInfo(PtrQTy, SourceLocation());
+        IdentifierInfo *Id1 = &Context.Idents.get(".ptr1.");
+        VarDecl *Parameter1 = VarDecl::Create(
+                Context, Context.getTranslationUnitDecl(), SourceLocation(),
+                SourceLocation(), Id1, PtrQTy, TI, SC_Static);
+        Parameter1->setImplicit();
+        Parameter1->addAttr(new(Context)
+                                    UnusedAttr(SourceLocation(), Context, 0));
+        IdentifierInfo *Id2 = &Context.Idents.get(".ptr2.");
+        VarDecl *Parameter2 = VarDecl::Create(
+                Context, Context.getTranslationUnitDecl(), SourceLocation(),
+                SourceLocation(), Id2, PtrQTy, TI, SC_Static);
+        Parameter2->setImplicit();
+        Parameter2->addAttr(new(Context)
+                                    UnusedAttr(SourceLocation(), Context, 0));
+        Context.getTranslationUnitDecl()->addHiddenDecl(Parameter1);
+        Context.getTranslationUnitDecl()->addHiddenDecl(Parameter2);
+        ExprResult PtrDE1 =
+                BuildDeclRefExpr(Parameter1, PtrQTy, VK_LValue, SourceLocation());
+        ExprResult PtrDE2 =
+                BuildDeclRefExpr(Parameter2, PtrQTy, VK_LValue, SourceLocation());
+        Expr *PtrDE1Expr = PtrDE1.get();
+        Expr *PtrDE2Expr = PtrDE2.get();
+        ExprResult DE1 = DefaultLvalueConversion(PtrDE1Expr);
+        ExprResult DE2 = DefaultLvalueConversion(PtrDE2Expr);
+        DE1 = CreateBuiltinUnaryOp(ELoc, UO_Deref, DE1.get());
+        DE2 = CreateBuiltinUnaryOp(ELoc, UO_Deref, DE2.get());
+        if (NewOp == BO_SubAssign) {
+            NewOp = BO_AddAssign;
+        }
+        ExprResult Res;
+
+        Res = BuildBinOp(DSAStack->getCurScope(), ELoc, NewOp,
+                                    DE1.get(), DE2.get());
+        llvm::errs() << "Act2\n";
+        if (Res.isInvalid())
+            continue;
+
+        CXXRecordDecl *RD = Type->getAsCXXRecordDecl();
+        if (RD) {
+            CXXConstructorDecl *CD = LookupDefaultConstructor(RD);
+            PartialDiagnostic PD =
+                    PartialDiagnostic(PartialDiagnostic::NullDiagnostic());
+            if (!CD ||
+                CheckConstructorAccess(ELoc, CD,
+                                       InitializedEntity::InitializeTemporary(Type),
+                                       CD->getAccess(), PD) == AR_inaccessible ||
+                CD->isDeleted()) {
+                Diag(ELoc, diag::err_omp_required_method)
+                        << getOpenMPClauseName(OMPC_scan) << 0;
+                bool IsDecl = VD->isThisDeclarationADefinition(Context) ==
+                              VarDecl::DeclarationOnly;
+                Diag(VD->getLocation(),
+                     IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+                        << VD;
+                Diag(RD->getLocation(), diag::note_previous_decl) << RD;
+                continue;
+            }
+            MarkFunctionReferenced(ELoc, CD);
+            DiagnoseUseOfDecl(CD, ELoc);
+            CXXDestructorDecl *DD = RD->getDestructor();
+            if (DD && (CheckDestructorAccess(ELoc, DD, PD) == AR_inaccessible ||
+                       DD->isDeleted())) {
+                Diag(ELoc, diag::err_omp_required_method)
+                        << getOpenMPClauseName(OMPC_scan) << 4;
+                bool IsDecl = VD->isThisDeclarationADefinition(Context) ==
+                              VarDecl::DeclarationOnly;
+                Diag(VD->getLocation(),
+                     IsDecl ? diag::note_previous_decl : diag::note_defined_here)
+                        << VD;
+                Diag(RD->getLocation(), diag::note_previous_decl) << RD;
+                continue;
+                llvm::errs() << "Act14\n";
+
+            } else if (DD) {
+                MarkFunctionReferenced(ELoc, DD);
+                DiagnoseUseOfDecl(DD, ELoc);
+            }
+        }
+        llvm::errs() << "Act4\n";
+        if (NewOp == BO_LAnd || NewOp == BO_LOr) {
+            Res = BuildBinOp(DSAStack->getCurScope(), ELoc, BO_Assign, DE1.get(),
+                             Res.get());
+            llvm::errs() << "Act5\n";
+        } else if (NewOp == BO_LT || NewOp == BO_GT) {
+            Res = ActOnConditionalOp(ELoc, ELoc, Res.get(), DE1.get(), DE2.get());
+            llvm::errs() << "Act6\n";
+            if (Res.isInvalid())
+                continue;
+            Res = BuildBinOp(DSAStack->getCurScope(), ELoc, BO_Assign, DE1.get(),
+                             Res.get());
+            llvm::errs() << "Act7\n";
+        }
+        if (Res.isInvalid())
+            continue;
+        Res = IgnoredValueConversions(Res.get());
+        llvm::errs() << "Act8\n";
+
+        Type = Type.getUnqualifiedType();
+        if (RD) {
+            IdentifierInfo *Id = &Context.Idents.get(".firstprivate.");
+            TypeSourceInfo *TI1 = Context.getTrivialTypeSourceInfo(Type, ELoc);
+            VarDecl *PseudoVar = VarDecl::Create(
+                    Context, Context.getTranslationUnitDecl(), SourceLocation(),
+                    SourceLocation(), Id, Type, TI1, SC_Static);
+            PseudoVar->setImplicit();
+            PseudoVar->addAttr(new(Context)
+                                       UnusedAttr(SourceLocation(), Context, 0));
+            InitializedEntity Entity =
+                    InitializedEntity::InitializeVariable(PseudoVar);
+            InitializationKind InitKind = InitializationKind::CreateDefault(ELoc);
+            InitializationSequence InitSeq(*this, Entity, InitKind, MultiExprArg());
+            ExprResult CPRes =
+                    InitSeq.Perform(*this, Entity, InitKind, MultiExprArg());
+            if (CPRes.isInvalid())
+                continue;
+            DefaultInits.push_back(ActOnFinishFullExpr(CPRes.get()).get());
+            llvm::errs() << "Act9\n";
+        } else {
+            DefaultInits.push_back(0);
+        }
+        Vars.push_back(DE);
+        OpExprs.push_back(ActOnFinishFullExpr(Res.get()).get());
+        HelperParams1.push_back(PtrDE1Expr);
+        HelperParams2.push_back(PtrDE2Expr);
+        DSAStack->addDSA(VD, DE, OMPC_scan);
+        llvm::errs() << "Act10\n";
+*/
+    }
+
+    if (Vars.empty())
+        return 0;
+
+    return OMPScanClause::Create(
+            Context, StartLoc, EndLoc, Vars, OpExprs, HelperParams1, HelperParams2,
+            DefaultInits, Op, SS.getWithLocInContext(Context), OpName);
 }
 
 namespace {

@@ -2301,10 +2301,21 @@ public:
   void EmitOMPBarrier(SourceLocation L, unsigned Flags);
   void EmitOMPCancelBarrier(SourceLocation L, unsigned Flags,
                             bool IgnoreResult = false);
-  void EmitOMPtoOpenCLParallelFor(
-        OpenMPDirectiveKind DKind,
-        ArrayRef<OpenMPDirectiveKind> SKinds,
-        const OMPExecutableDirective &S);
+
+    void EmitOMPtoOpenCLParallelFor(
+            OpenMPDirectiveKind DKind,
+            ArrayRef<OpenMPDirectiveKind> SKinds,
+            const OMPExecutableDirective &S);
+
+    void EmitOMPDirectiveWithScan(
+            OpenMPDirectiveKind DKind,
+            ArrayRef<OpenMPDirectiveKind> SKinds,
+            const OMPExecutableDirective &S);
+
+    void EmitOMPDirectiveWithReduction(
+            OpenMPDirectiveKind DKind,
+            ArrayRef<OpenMPDirectiveKind> SKinds,
+            const OMPExecutableDirective &S);
 
   //===--------------------------------------------------------------------===//
   //                         LValue Expression Emission

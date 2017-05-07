@@ -52,6 +52,24 @@ namespace llvm {
                                params, false);
     }
   };
+
+    template<typename R, typename A1, typename A2, typename A3, typename A4,
+            typename A5, typename A6, bool cross>
+    class TypeBuilder<R(A1, A2, A3, A4, A5, A6), cross> {
+    public:
+        static FunctionType *get(LLVMContext &Context) {
+            Type *params[] = {
+                    TypeBuilder<A1, cross>::get(Context),
+                    TypeBuilder<A2, cross>::get(Context),
+                    TypeBuilder<A3, cross>::get(Context),
+                    TypeBuilder<A4, cross>::get(Context),
+                    TypeBuilder<A5, cross>::get(Context),
+                    TypeBuilder<A6, cross>::get(Context),
+            };
+            return FunctionType::get(TypeBuilder<R, cross>::get(Context),
+                                     params, false);
+        }
+    };
 }  // namespace llvm
 
 using namespace clang;
@@ -235,14 +253,15 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_release_buffer");
     break;
   }
-  case MPtoGPURTL_cl_get_threads_blocks: {
-    // Build cl_uint _cl_get_threads_blocks();
-    llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int32Ty};
-    llvm::FunctionType *FnTy =
-      llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
-    RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_get_threads_blocks");
-    break;
-  }
+      case MPtoGPURTL_cl_get_threads_blocks: {
+          // Build cl_uint _cl_get_threads_blocks();
+          llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty, CGM.Int32Ty};
+          //llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty};
+          llvm::FunctionType *FnTy =
+                  llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
+          RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_get_threads_blocks");
+          break;
+      }
     
   }
   return RTLFn;
