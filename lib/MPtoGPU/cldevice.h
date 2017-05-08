@@ -120,7 +120,7 @@ void _cl_release_buffers (int upper);
 
 void _cl_profile(const char* str, cl_event event);
 
-int _cl_get_threads_blocks(int *threads, int *blocks, int *bytesthreads, int *bytesblocks, uint64_t size, int bytes);
+void _cl_get_threads_blocks(int *threads, int *blocks, int *bytesthreads, int *bytesblocks, uint64_t size, int bytes);
 
 #ifdef __cplusplus
   }

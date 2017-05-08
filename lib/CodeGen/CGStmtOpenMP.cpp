@@ -1942,28 +1942,29 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                     }
                 }
 
+                llvm::Value *Status = nullptr;
                 llvm::Type *tR = ConvertType(Q);
                 llvm::AllocaInst *vR = Builder.CreateAlloca(tR, NULL);
                 vR->setUsedWithInAlloca(true);
                 llvm::Value *Bytes = Builder.getInt32(vR->getAllocatedType()->getPrimitiveSizeInBits() / 8);
                 llvm::Value *KArg[] = {T1, B1, BT, BB, MapClauseSizeValues[idxScan], Bytes};
-                llvm::Value *size = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
 
                 /*Fetch the scan variable type and its operator */
                 const std::string scanVarType = scanVar->getType().getAsString();
                 const std::string operatorName = cast<OMPScanClause>(*I)->getOpName().getAsString();
 
-                // Create the unique filename that refers to kernel file
+                /* Create the unique filename that refers to kernel file */
                 llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), true);
                 const std::string FileNameScan = CGM.OpenMPSupport.getTempName();
                 const std::string clNameScan = FileNameScan;
 
-                // Get the include file name, if any
+                /* use of type 'double' requires cl_khr_fp64 extension to be enabled */
+                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+
+                /* Get the include file name, if any */
                 const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
                 std::string includeContents = "";
-
-                //use of type 'double' requires cl_khr_fp64 extension to be enabled
-                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
                 std::ifstream incFile(incName.c_str());
                 if (incFile) {
                     std::stringstream incBuffer;
@@ -1973,7 +1974,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                     incFile.close();
                 }
 
-                // Dump necessary typedefs in kernel file
+                /* Dump necessary typedefs in kernel file */
                 deftypes.clear();
                 for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
                              E = MapClauseQualTypes.end();
@@ -2017,28 +2018,24 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 CLOS << "\n#define _dataType_ " << scanVarType.substr(0, scanVarType.find_last_of(' ')) << "\n";
                 CLOS.close();
 
-                llvm::Value *Status = nullptr;
-                std::string KernelName = "scan";
-
+                /* Compile the kernel file */
                 llvm::Value *FileStrScan = Builder.CreateGlobalStringPtr(clNameScan);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStrScan);
 
-                /*Create First Kernel*/
+                /*Create the first Kernel*/
+                std::string KernelName = "scan";
                 llvm::Value *FunctionKernel = Builder.CreateGlobalStringPtr(KernelName);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel);
 
-                //Add 2 arrays
+                /* Add the temporary arrays */
                 llvm::Value *LB = Builder.CreateLoad(B1);
                 llvm::Value *LT = Builder.CreateLoad(T1);
-
-                //llvm::Value *BytesT = Builder.CreateLoad(BT);
                 llvm::Value *BytesB = Builder.CreateLoad(BB);
-
                 llvm::Value *Size[] = {Builder.CreateIntCast(BytesB, CGM.Int64Ty, false)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Size);
 
-                //Generate code for calling the 1st kernel
+                /* Generate code for calling the 1st kernel */
                 llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(0)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
                 llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(1)};
@@ -2057,7 +2054,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                                             Builder.getInt32(1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize);
 
-                //Generate code for calling the 2nd kernel
+                /* Generate code for calling the 2nd kernel */
                 llvm::Value *Args3[] = {Builder.getInt32(0), Builder.getInt32(1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args3);
                 llvm::Value *Args4[] = {Builder.getInt32(1), Builder.getInt32(2)};
@@ -2077,7 +2074,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                                              Builder.getInt32(1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize2);
 
-                //Generate code for calling the 3th Kernel
+                /* Generate code for calling the 3th Kernel */
                 KernelName = "fix";
                 llvm::Value *FunctionKernel2 = Builder.CreateGlobalStringPtr(KernelName);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel2);
@@ -2100,8 +2097,8 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 llvm::Value *A2[] = {Builder.getInt32(2)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A2);
 
-                const std::string generator =
-                        "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan;
+                /* Generate the kernel file */
+                const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan;
                 std::system(generator.c_str());
             }
         }
