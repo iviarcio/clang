@@ -1983,7 +1983,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                     if (includeContents.find(operatorName) != std::string::npos)
                         templateId = " 2";
 
-                /* Dump necessary typedefs in kernel file */
+                /* Dump necessary typedefs in kernel file
                 deftypes.clear();
                 for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
                              E = MapClauseQualTypes.end();
@@ -2022,6 +2022,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                         }
                     }
                 }
+                */
 
                 CLOS << "\n#define _operation_ " << operatorName;
                 CLOS << "\n#define _dataType_ " << scanVarType.substr(0, scanVarType.find_last_of(' ')) << "\n";
