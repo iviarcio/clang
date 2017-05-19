@@ -249,8 +249,10 @@ void CodeGenModule::EmitOMPDeclareTarget(const OMPDeclareTargetDecl *D) {
         continue;
     if (getLangOpts().MPtoGPU) {
         I->print(INOS, PrintingPolicy(getContext().getLangOpts()), 0);
-    }
-    EmitTopLevelDecl(*I);
+        INOS << ";\n";
+        /* TODO: Include user typedefs in OpenMPSupport::deftypes */
+        /* see CGStmtOpenMP.cpp, line 61 */
+    } else EmitTopLevelDecl(*I);
   }
 
   INOS.close();

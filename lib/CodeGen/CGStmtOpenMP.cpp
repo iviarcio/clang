@@ -57,6 +57,7 @@ bool isTargetDataIf = false;
 int TargetDataIfRegion = 0;
 bool insideTarget = false;
 
+/* TODO: move it to  OpenMPSupport */
 llvm::SmallVector<QualType, 16> deftypes;  
 static bool dumpedDefType(const QualType* T) {
   for (ArrayRef<QualType>::iterator I  = deftypes.begin(),
@@ -1221,6 +1222,7 @@ unsigned CodeGenFunction::GetNumNestedLoops(const OMPExecutableDirective &S) {
 DeclContext *declCTX = nullptr;
 bool finishCheck = false;
 
+/* TODO: remove it! */
 void checkDeclRefExpr(Stmt *body) {
     bool checkChild = true;
 
@@ -1892,7 +1894,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
         if (ckind == OMPC_scan) {
 
             Stmt *Body = S.getAssociatedStmt()->IgnoreContainers(true);
-            checkDeclRefExpr(Body);
+            // checkDeclRefExpr(Body);
             OMPVarListClause<OMPScanClause> *list = cast<OMPVarListClause<OMPScanClause> >(
                     cast<OMPScanClause>(*I));
             for (auto l = list->varlist_begin(); l != list->varlist_end(); l++) {
@@ -1926,6 +1928,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
 
                 /* TODO: Find the correct map index for the scan location */
                 int idxScan = 0;
+
                 QualType Q = MapClauseQualTypes[idxScan];
                 const Type *ty = Q.getTypePtr();
                 if (ty->isPointerType() || ty->isReferenceType()) {
@@ -1960,7 +1963,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 const std::string clNameScan = FileNameScan;
 
                 /* use of type 'double' requires cl_khr_fp64 extension to be enabled */
-                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n\n";
 
                 /* Get the include file name, if any */
                 const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
@@ -1970,9 +1973,15 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                     std::stringstream incBuffer;
                     incBuffer << incFile.rdbuf();
                     includeContents = incBuffer.str();
-                    CLOS << includeContents << "\n\n";
+                    CLOS << includeContents << "\n";
                     incFile.close();
                 }
+
+                /* Fix it! Check if operatorName is a user-defined function!! */
+                std::string templateId = " 1";
+                if (operatorName.length() > 1)
+                    if (includeContents.find(operatorName) != std::string::npos)
+                        templateId = " 2";
 
                 /* Dump necessary typedefs in kernel file */
                 deftypes.clear();
@@ -2035,10 +2044,15 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Size);
 
+                /* set the indexes for auxiliary buffers */
+                int idxAux1 = (int) MapClausePointerValues.size();
+                int idxAux2 = idxAux1 + 1;
+
                 /* Generate code for calling the 1st kernel */
-                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(0)};
+                /* TODO: check if this is correct for two input buffers? */
+                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(idxScan)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
-                llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(1)};
+                llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(idxAux1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args2);
                 llvm::Value *BVScan = Builder.CreateBitCast(T1, CGM.VoidPtrTy);
                 llvm::Value *CArgScan[] = {Builder.getInt32(2), Builder.getInt32(
@@ -2055,9 +2069,10 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize);
 
                 /* Generate code for calling the 2nd kernel */
-                llvm::Value *Args3[] = {Builder.getInt32(0), Builder.getInt32(1)};
+                /* TODO: check if this is correct for two input buffers? */
+                llvm::Value *Args3[] = {Builder.getInt32(0), Builder.getInt32(idxAux1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args3);
-                llvm::Value *Args4[] = {Builder.getInt32(1), Builder.getInt32(2)};
+                llvm::Value *Args4[] = {Builder.getInt32(1), Builder.getInt32(idxAux2)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args4);
 
                 llvm::Value *BVScan2 = Builder.CreateBitCast(B1, CGM.VoidPtrTy);
@@ -2075,12 +2090,13 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize2);
 
                 /* Generate code for calling the 3th Kernel */
+                /* TODO: check if this is correct for two input buffers? */
                 KernelName = "fix";
                 llvm::Value *FunctionKernel2 = Builder.CreateGlobalStringPtr(KernelName);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel2);
-                llvm::Value *Args5[] = {Builder.getInt32(0), Builder.getInt32(0)};
+                llvm::Value *Args5[] = {Builder.getInt32(0), Builder.getInt32(idxScan)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args5);
-                llvm::Value *Args6[] = {Builder.getInt32(1), Builder.getInt32(1)};
+                llvm::Value *Args6[] = {Builder.getInt32(1), Builder.getInt32(idxAux1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args6);
 
                 llvm::Value *GroupSize3[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
@@ -2092,13 +2108,13 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                                              Builder.getInt32(1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize3);
 
-                llvm::Value *A[] = {Builder.getInt32(1)};
-                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A);
-                llvm::Value *A2[] = {Builder.getInt32(2)};
+                llvm::Value *A2[] = {Builder.getInt32(idxAux2)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A2);
+                llvm::Value *A1[] = {Builder.getInt32(idxAux1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A1);
 
                 /* Generate the kernel file */
-                const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan;
+                const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan + templateId;
                 std::system(generator.c_str());
             }
         }
