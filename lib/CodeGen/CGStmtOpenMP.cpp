@@ -1983,48 +1983,6 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                     if (includeContents.find(operatorName) != std::string::npos)
                         templateId = " 2";
 
-                /* Dump necessary typedefs in kernel file
-                deftypes.clear();
-                for (ArrayRef<QualType>::iterator T = MapClauseQualTypes.begin(),
-                             E = MapClauseQualTypes.end();
-                     T != E; ++T) {
-                    QualType Q = (*T);
-                    if (!Q.isCanonical()) {
-                        const Type *ty = Q.getTypePtr();
-                        if (ty->isPointerType() || ty->isReferenceType()) {
-                            Q = ty->getPointeeType();
-                        }
-
-                        while (Q.getTypePtr()->isArrayType()) {
-                            Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
-                        }
-
-                        if (!dumpedDefType(&Q)) {
-                            std::string defty = Q.getAsString();
-                            QualType B = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
-
-                            while (B.getTypePtr()->isArrayType()) {
-                                B = dyn_cast<ArrayType>(B.getTypePtr())->getElementType();
-                            }
-
-                            ty = B.getTypePtr();
-                            if (isa<RecordType>(ty)) {
-                                const RecordType *RT = dyn_cast<RecordType>(ty);
-                                RecordDecl *RD = RT->getDecl()->getDefinition();
-                                // Need to check if RecordDecl was already dumped?
-                                RD->print(CLOS);
-                                CLOS << ";\n";
-                            }
-
-                            if (B.isCanonical() && B.getAsString().compare(defty) != 0) {
-                                CLOS << "typedef " << B.getAsString() << " " << defty << ";\n";
-                            }
-                        }
-                    }
-                }
-                */
-
-                CLOS << "\n#define _operation_ " << operatorName;
                 CLOS << "\n#define _dataType_ " << scanVarType.substr(0, scanVarType.find_last_of(' ')) << "\n";
                 CLOS.close();
 
@@ -2115,7 +2073,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A1);
 
                 /* Generate the kernel file */
-                const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan + templateId;
+                const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan + templateId + " " + operatorName;
                 std::system(generator.c_str());
             }
         }
