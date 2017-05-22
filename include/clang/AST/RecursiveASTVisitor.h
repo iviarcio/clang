@@ -1440,6 +1440,16 @@ DEF_TRAVERSE_DECL(OMPDeclareReductionDecl, {
     }
   })
 
+    DEF_TRAVERSE_DECL(OMPDeclareScanDecl, {
+        for (OMPDeclareScanDecl::datalist_iterator I = D->datalist_begin(),
+                     E = D->datalist_end();
+             I != E; ++I) {
+            TRY_TO(TraverseType(I->QTy));
+            TRY_TO(TraverseStmt(I->CombinerFunction));
+            TRY_TO(TraverseStmt(I->InitFunction));
+        }
+    })
+
 DEF_TRAVERSE_DECL(OMPDeclareTargetDecl, { })
 
 // A helper method for TemplateDecl's children.

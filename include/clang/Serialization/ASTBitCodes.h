@@ -1076,6 +1076,8 @@ namespace clang {
       DECL_OMP_THREADPRIVATE,
       /// \brief An OMPDeclareReductionDecl record.
       DECL_OMP_DECLAREREDUCTION,
+        /// \brief An OMPDeclareScanDecl record.
+                DECL_OMP_DECLARESCAN,
       /// \brief An OMPDeclareSimdDecl record.
       DECL_OMP_DECLARESIMD,
       /// \brief An OMPDeclareTargetDecl record.

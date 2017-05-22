@@ -5229,6 +5229,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
         case Decl::Import:
         case Decl::OMPThreadPrivate:
         case Decl::OMPDeclareReduction:
+        case Decl::OMPDeclareScan:
         case Decl::OMPDeclareSimd:
         case Decl::OMPDeclareTarget:
             return C;

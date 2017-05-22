@@ -2449,7 +2449,6 @@ Decl *TemplateDeclInstantiator::TouchOMPDeclareSimdDecl(
   return TD;
 }
 
-
 Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
                                      OMPDeclareReductionDecl *D) {
   if (D->isInvalidDecl()) return D;
@@ -2552,8 +2551,109 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
   return NewDR;
 }
 
-Decl *
-TemplateDeclInstantiator::VisitOMPDeclareTargetDecl(OMPDeclareTargetDecl *D) {
+Decl *TemplateDeclInstantiator::VisitOMPDeclareScanDecl(
+        OMPDeclareScanDecl *D) {
+    if (D->isInvalidDecl()) return D;
+    SmallVector<QualType, 16> Types;
+    SmallVector<SourceRange, 16> TyRanges;
+    bool IsValid = true;
+    for (ArrayRef<OMPDeclareScanDecl::ScanData>::iterator
+                 I = D->datalist_begin(),
+                 E = D->datalist_end();
+         I != E; ++I) {
+        if (I->QTy.isNull()) {
+            Types.push_back(QualType());
+            TyRanges.push_back(SourceRange());
+            IsValid = false;
+            continue;
+        }
+        QualType ResQTy = SemaRef.SubstType(I->QTy, TemplateArgs,
+                                            D->getLocation(), DeclarationName());
+        if (!ResQTy.isNull() &&
+            SemaRef.IsOMPDeclareScanTypeAllowed(I->TyRange, ResQTy,
+                                                Types, TyRanges)) {
+            Types.push_back(ResQTy);
+            TyRanges.push_back(I->TyRange);
+        } else {
+            Types.push_back(QualType());
+            TyRanges.push_back(SourceRange());
+            IsValid = false;
+        }
+    }
+    if (!IsValid) return 0;
+
+    SmallVector<Expr *, 16> Combiners;
+    SmallVector<Expr *, 16> Inits;
+    Decl *NewDR;
+    {
+        Sema::OMPDeclareScanRAII RAII(SemaRef, 0, Owner,
+                                      D->getLocation(), D->getDeclName(),
+                                      D->datalist_size(), D->getAccess());
+        NewDR = RAII.getDecl();
+        DeclContext *NewOwner = cast<DeclContext>(NewDR);
+        SemaRef.OMPInstantiatedDecls.clear();
+
+        LocalInstantiationScope Scope(SemaRef);
+        Scope.InstantiatedLocal(D, NewDR);
+        for (DeclContext::decl_iterator I = D->decls_begin(), E = D->decls_end();
+             I != E; ++I) {
+            if ((*I)->getDeclContext() != D) continue;
+            if ((*I)->isInvalidDecl()) {
+                RAII.getDecl()->setInvalidDecl();
+                continue;
+            }
+            Decl *NewD = SemaRef.SubstDecl(*I, NewOwner, TemplateArgs);
+            if (!NewD || NewD->isInvalidDecl()) {
+                NewDR->setInvalidDecl();
+                return NewDR;
+            }
+            if (FunctionDecl *FD = cast<FunctionDecl>(NewD)) {
+                if ((*I)->hasBody()) {
+                    SemaRef.InstantiateFunctionDefinition(SourceLocation(),
+                                                          FD, false, true);
+                } else {
+                    Sema::ContextRAII S(SemaRef, FD);
+                    // Only init function may have just a declaration.
+                    ParmVarDecl *ParLHS = FD->getParamDecl(0);
+                    // The first parameter is a pointer.
+                    QualType QTy = (ParLHS->getType())->getPointeeType();
+                    VarDecl *OmpPriv =
+                            VarDecl::Create(SemaRef.Context, FD, SourceLocation(),
+                                            SourceLocation(),
+                                            &SemaRef.Context.Idents.get("omp_priv_inst"),
+                                            QTy, SemaRef.Context.getTrivialTypeSourceInfo(QTy),
+                                            SC_Auto);
+                    FD->addDecl(OmpPriv);
+                    SemaRef.CreateDefaultDeclareScanInitFunctionBody(FD, OmpPriv,
+                                                                     ParLHS);
+                }
+            }
+            NewOwner->addDecl(NewD);
+            SemaRef.OMPInstantiatedDecls[*I] = NewD;
+        }
+
+        SmallVectorImpl<QualType>::iterator IT = Types.begin();
+        for (ArrayRef<OMPDeclareScanDecl::ScanData>::iterator
+                     I = D->datalist_begin(),
+                     E = D->datalist_end();
+             I != E; ++I, ++IT) {
+            if (!IT->isNull()) {
+                Combiners.push_back(SemaRef.SubstExpr(I->CombinerFunction,
+                                                      TemplateArgs).get());
+                Inits.push_back(SemaRef.SubstExpr(I->InitFunction, TemplateArgs).get());
+            }
+        }
+
+        SemaRef.OMPInstantiatedDecls.clear();
+    }
+
+    SemaRef.CompleteOMPDeclareScanDecl(
+            cast<OMPDeclareScanDecl>(NewDR),
+            Types, TyRanges, Combiners, Inits);
+    return NewDR;
+}
+
+Decl *TemplateDeclInstantiator::VisitOMPDeclareTargetDecl(OMPDeclareTargetDecl *D) {
   llvm_unreachable("OpenMP declare target cannot be instantiated");
 }
 

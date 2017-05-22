@@ -1131,19 +1131,21 @@ public:
   }
 
   /// \brief Emit a code for threadprivate variables.
-  ///
   void EmitOMPThreadPrivate(const OMPThreadPrivateDecl *D);
+
   /// \brief Emit a code for threadprivate variable.
-  ///
   void EmitOMPThreadPrivate(const VarDecl *VD, const Expr *TPE);
-  /// \brief Emit a code for declare reduction variables.
-  ///
+
+    /// \brief Emit a code for declare reduction variables.
   void EmitOMPDeclareReduction(const OMPDeclareReductionDecl *D);
+
+    /// \brief Emit a code for declare scan variables.
+    void EmitOMPDeclareScan(const OMPDeclareScanDecl *D);
+
   /// \brief Emit vector variants and metadata for 'omp declare simd'.
-  ///
   void EmitOMPDeclareSimd(const OMPDeclareSimdDecl *D);
-  /// \brief Emit declare target decls.
-  ///
+
+    /// \brief Emit declare target decls.
   void EmitOMPDeclareTarget(const OMPDeclareTargetDecl *D);
 
   class OpenMPSupportStackTy {

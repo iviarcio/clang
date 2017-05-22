@@ -63,6 +63,8 @@ static const DeclContext *getEffectiveDeclContext(const Decl *D) {
     return getEffectiveDeclContext(CD);
   if (auto *RD = dyn_cast<OMPDeclareReductionDecl>(DC))
     return getEffectiveDeclContext(RD);
+        if (auto *RD = dyn_cast<OMPDeclareScanDecl>(DC))
+            return getEffectiveDeclContext(RD);
 
   return DC;
 }

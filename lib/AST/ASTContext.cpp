@@ -7895,8 +7895,11 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
     // We never need to emit an uninstantiated function template.
     if (FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate)
       return false;
-  } else if (isa<OMPThreadPrivateDecl>(D) || isa<OMPDeclareSimdDecl>(D) ||
-             isa<OMPDeclareReductionDecl>(D) || isa<OMPDeclareTargetDecl>(D))
+  } else if (isa<OMPThreadPrivateDecl>(D) ||
+             isa<OMPDeclareSimdDecl>(D) ||
+             isa<OMPDeclareReductionDecl>(D) ||
+             isa<OMPDeclareScanDecl>(D) ||
+             isa<OMPDeclareTargetDecl>(D))
     return true;
   else
     return false;

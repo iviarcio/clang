@@ -1567,6 +1567,12 @@ public:
   static bool FindOMPDeclareReductionMember(const CXXBaseSpecifier *Specifier,
                                             CXXBasePath &Path, void *Name);
 
+    /// This callback can be used with \c lookupInBases() to find members
+    /// of the given name within a C++ class hierarchy. The user data pointer
+    /// is an opaque \c DeclarationName pointer.
+    static bool FindOMPDeclareScanMember(const CXXBaseSpecifier *Specifier,
+                                         CXXBasePath &Path, void *Name);
+
   /// \brief Retrieve the final overriders for each virtual member
   /// function in the class hierarchy where this class is the
   /// most-derived class in the class hierarchy.

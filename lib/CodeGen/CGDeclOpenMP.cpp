@@ -134,6 +134,19 @@ void CodeGenModule::EmitOMPDeclareReduction(const OMPDeclareReductionDecl *D) {
   }
 }
 
+void CodeGenModule::EmitOMPDeclareScan(const OMPDeclareScanDecl *D) {
+    for (OMPDeclareScanDecl::datalist_const_iterator I = D->datalist_begin(),
+                 E = D->datalist_end();
+         I != E; ++I) {
+        if (!I->CombinerFunction || !I->InitFunction)
+            continue;
+        Decl *D = cast<DeclRefExpr>(I->CombinerFunction)->getDecl();
+        EmitGlobal(cast<FunctionDecl>(D));
+        D = cast<DeclRefExpr>(I->InitFunction)->getDecl();
+        EmitGlobal(cast<FunctionDecl>(D));
+    }
+}
+
 void CodeGenModule::EmitOMPDeclareSimd(const OMPDeclareSimdDecl *D) {
   // 1) Emit function, extract FunctionDecl, Function, CGFunctionInfo.
   // 2) Prepare input (Groups) for metadata generation.

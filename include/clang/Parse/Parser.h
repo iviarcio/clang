@@ -2357,24 +2357,28 @@ private:
   /// \param Kind Kind of the directive.
   /// \param [out] VarList List of referenced variables.
   /// \param AllowScopeSpecifier true, if the variables can have fully
-  /// qualified names.
-  ///
+  /// qualified names
   bool ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
                                 SmallVectorImpl<Expr *> &VarList,
                                 bool AllowScopeSpecifier);
-  /// \param [out] Inits List of inits.
-  ///
+
+    /// \param [out] Inits List of inits
   Decl *ParseOpenMPDeclareReduction(SmallVectorImpl<QualType> &Types,
                                     SmallVectorImpl<SourceRange> &TyRanges,
                                     SmallVectorImpl<Expr *> &Combiners,
                                     SmallVectorImpl<Expr *> &Inits,
                                     AccessSpecifier AS);
 
+    Decl *ParseOpenMPDeclareScan(SmallVectorImpl<QualType> &Types,
+                                 SmallVectorImpl<SourceRange> &TyRanges,
+                                 SmallVectorImpl<Expr *> &Combiners,
+                                 SmallVectorImpl<Expr *> &Inits,
+                                 AccessSpecifier AS);
+
   /// \brief Parses declarative or executable directive.
   ///
   /// \param StandAloneAllowed true if allowed stand-alone directives,
   /// false - otherwise
-  ///
   StmtResult ParseOpenMPDeclarativeOrExecutableDirective(
                                                 bool StandAloneAllowed);
 

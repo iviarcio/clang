@@ -1453,6 +1453,9 @@ bool NamedDecl::declarationReplaces(NamedDecl *OldD) const {
   if (isa<OMPDeclareReductionDecl>(this))
     return false;
 
+    if (isa<OMPDeclareScanDecl>(this))
+        return false;
+
   // FIXME: Is this correct if one of the decls comes from an inline namespace?
   if (isa<ObjCInterfaceDecl>(this) && isa<ObjCCompatibleAliasDecl>(OldD))
     return true;

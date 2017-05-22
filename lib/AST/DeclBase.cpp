@@ -569,7 +569,10 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case OMPDeclareReduction:
       return IDNS_OMPDeclareReduction;
 
-    // Never have names.
+      case OMPDeclareScan:
+          return IDNS_OMPDeclareScan;
+
+          // Never have names.
     case Friend:
     case FriendTemplate:
     case AccessSpec:
@@ -894,9 +897,10 @@ DeclContext *DeclContext::getPrimaryContext() {
   case Decl::Block:
   case Decl::Captured:
   case Decl::OMPDeclareReduction:
+  case Decl::OMPDeclareScan:
   case Decl::OMPDeclareTarget:
-    // There is only one DeclContext for these entities.
-    return this;
+      // There is only one DeclContext for these entities.
+      return this;
 
   case Decl::Namespace:
     // The original namespace is our primary context.

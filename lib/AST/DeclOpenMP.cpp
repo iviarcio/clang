@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 /// \file
 /// \brief This file implements OMPThreadPrivateDecl, OMPDeclareReduction,
-/// OMPDeclareTarget classes.
+/// OMPDeclareScan, OMPDeclareTarget classes.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -183,6 +183,61 @@ void OMPDeclareReductionDecl::setData(
   for (unsigned i = 0; i < NumTypes; ++i)
     Data[i] = RD[i];
   // std::copy(RD.begin(), RD.end(), Data);
+}
+
+//===----------------------------------------------------------------------===//
+// OMPDeclareScanDecl Implementation.
+//===----------------------------------------------------------------------===//
+
+void OMPDeclareScanDecl::anchor() {}
+
+unsigned OMPDeclareScanDecl::getFirstElementOffset() {
+    unsigned Size = sizeof(OMPDeclareScanDecl);
+    // Realign
+    Size = llvm::RoundUpToAlignment(
+            Size, llvm::alignOf<OMPDeclareScanDecl::ScanData>());
+    return Size;
+}
+
+OMPDeclareScanDecl *OMPDeclareScanDecl::Create(ASTContext &C,
+                                               DeclContext *DC,
+                                               SourceLocation L,
+                                               DeclarationName Name,
+                                               unsigned N) {
+    unsigned Size = getFirstElementOffset() +
+                    N * sizeof(OMPDeclareScanDecl::ScanData);
+
+    OMPDeclareScanDecl *D =
+            new(C, DC, Size - sizeof(OMPDeclareScanDecl))
+                    OMPDeclareScanDecl(OMPDeclareScan, DC, L, Name);
+    D->NumTypes = N;
+    return D;
+}
+
+OMPDeclareScanDecl *
+OMPDeclareScanDecl::CreateDeserialized(ASTContext &C, unsigned ID,
+                                       unsigned N) {
+    unsigned Size = getFirstElementOffset() +
+                    N * sizeof(OMPDeclareScanDecl::ScanData);
+
+    OMPDeclareScanDecl *D =
+            new(C, ID, Size - sizeof(OMPDeclareScanDecl))
+                    OMPDeclareScanDecl(OMPDeclareScan, 0, SourceLocation(),
+                                       DeclarationName());
+    D->NumTypes = N;
+    return D;
+}
+
+void OMPDeclareScanDecl::setData(
+        ArrayRef<OMPDeclareScanDecl::ScanData> RD) {
+    assert(RD.size() == NumTypes &&
+           "Number of inits is not the same as the preallocated buffer");
+    unsigned Size = getFirstElementOffset();
+    OMPDeclareScanDecl::ScanData *Data =
+            reinterpret_cast<OMPDeclareScanDecl::ScanData *>(
+                    reinterpret_cast<char *>(this) + Size);
+    for (unsigned i = 0; i < NumTypes; ++i)
+        Data[i] = RD[i];
 }
 
 //===----------------------------------------------------------------------===//

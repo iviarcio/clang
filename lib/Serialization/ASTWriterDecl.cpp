@@ -131,6 +131,8 @@ namespace clang {
     void VisitObjCPropertyImplDecl(ObjCPropertyImplDecl *D);
     void VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D);
     void VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D);
+
+      void VisitOMPDeclareScanDecl(OMPDeclareScanDecl *D);
     void VisitOMPDeclareSimdDecl(OMPDeclareSimdDecl *D);
     void VisitOMPDeclareTargetDecl(OMPDeclareTargetDecl *D);
 
@@ -1465,6 +1467,21 @@ void ASTDeclWriter::VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D) {
   Code = serialization::DECL_OMP_DECLAREREDUCTION;
 }
 
+void ASTDeclWriter::VisitOMPDeclareScanDecl(OMPDeclareScanDecl *D) {
+    Record.push_back(D->datalist_size());
+    VisitDecl(D);
+    Writer.AddDeclarationName(D->getDeclName(), Record);
+    for (OMPDeclareScanDecl::datalist_iterator I = D->datalist_begin(),
+                 E = D->datalist_end();
+         I != E; ++I) {
+        Writer.AddTypeRef(I->QTy, Record);
+        Writer.AddSourceRange(I->TyRange, Record);
+        Writer.AddStmt(I->CombinerFunction);
+        Writer.AddStmt(I->InitFunction);
+    }
+    Code = serialization::DECL_OMP_DECLARESCAN;
+}
+
 void ASTDeclWriter::VisitOMPDeclareSimdDecl(OMPDeclareSimdDecl *D) {
   Record.push_back(D->simd_variants_size());
   Record.push_back(D->clauses_size());
@@ -1876,7 +1893,7 @@ static bool isRequiredDecl(const Decl *D, ASTContext &Context) {
   if (isa<FileScopeAsmDecl>(D) || isa<ObjCImplDecl>(D) ||
       isa<OMPThreadPrivateDecl>(D) || isa<OMPDeclareSimdDecl>(D) ||
       isa<OMPDeclareTargetDecl>(D) || isa<OMPDeclareReductionDecl>(D) ||
-      isa<ImportDecl>(D))
+      isa<OMPDeclareScanDecl>(D) || isa<ImportDecl>(D))
     return true;
 
   return Context.DeclMustBeEmitted(D);

@@ -1066,9 +1066,106 @@ Sema::OMPDeclareReductionRAII::OMPDeclareReductionRAII(
     : S(S), D(InitDeclareReduction(CS, DC, Loc, DN, NumTypes, AS)),
       SavedContext(S, D) {}
 
-FunctionDecl *
-Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
-    Sema &S, SourceLocation Loc, DeclarationName Name, QualType QTy) {
+OMPDeclareScanDecl *Sema::OMPDeclareScanRAII::InitDeclareScan(
+        Scope *CS, DeclContext *DC, SourceLocation Loc, DeclarationName Name,
+        unsigned NumTypes, AccessSpecifier AS) {
+    OMPDeclareScanDecl *D =
+            OMPDeclareScanDecl::Create(S.Context, DC, Loc, Name, NumTypes);
+    if (CS)
+        S.PushOnScopeChains(D, CS);
+    else
+        DC->addDecl(D);
+    D->setAccess(AS);
+    return D;
+}
+
+Decl *Sema::OMPDeclareScanRAII::getDecl() { return D; }
+
+Sema::OMPDeclareScanRAII::OMPDeclareScanRAII(
+        Sema &S, Scope *CS, DeclContext *DC, SourceLocation Loc, DeclarationName DN,
+        unsigned NumTypes, AccessSpecifier AS)
+        : S(S), D(InitDeclareScan(CS, DC, Loc, DN, NumTypes, AS)),
+          SavedContext(S, D) {}
+
+FunctionDecl *Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
+        Sema &S, SourceLocation Loc, DeclarationName Name, QualType QTy) {
+    QualType PtrQTy = S.Context.getPointerType(QTy);
+    QualType Args[] = {PtrQTy, PtrQTy};
+    FunctionProtoType::ExtProtoInfo EPI;
+    QualType FuncType = S.Context.getFunctionType(S.Context.VoidTy, Args, EPI);
+    TypeSourceInfo *TI = S.Context.getTrivialTypeSourceInfo(FuncType);
+    FunctionTypeLoc FTL = TI->getTypeLoc().getAs<FunctionTypeLoc>();
+    FunctionDecl *FD =
+            FunctionDecl::Create(S.Context, S.CurContext, Loc, Loc, Name, FuncType,
+                                 TI, SC_PrivateExtern, false, false);
+    FD->setImplicit();
+    S.CurContext->addDecl(FD);
+    if (S.CurContext->isDependentContext()) {
+        DeclContext *DC = S.CurContext->getParent();
+        TemplateParameterList *TPL = 0;
+        if (ClassTemplatePartialSpecializationDecl *CTPSD =
+                dyn_cast<ClassTemplatePartialSpecializationDecl>(DC)) {
+            TPL = CTPSD->getTemplateParameters();
+        } else if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(DC)) {
+            TPL = RD->getDescribedClassTemplate()
+                    ->getCanonicalDecl()
+                    ->getTemplateParameters();
+        } else if (FunctionDecl *RD = dyn_cast<FunctionDecl>(DC)) {
+            TPL = RD->getDescribedFunctionTemplate()
+                    ->getCanonicalDecl()
+                    ->getTemplateParameters();
+        }
+        FunctionTemplateDecl *FTD = FunctionTemplateDecl::Create(
+                S.Context, S.CurContext, Loc, Name, TPL, FD);
+        FD->setDescribedFunctionTemplate(FTD);
+    }
+    ParLHS = ParmVarDecl::Create(S.Context, FD, Loc, Loc, 0, PtrQTy,
+                                 S.Context.getTrivialTypeSourceInfo(PtrQTy),
+                                 SC_None, 0);
+    ParLHS->setScopeInfo(0, 0);
+    ParRHS = ParmVarDecl::Create(S.Context, FD, Loc, Loc, 0, PtrQTy,
+                                 S.Context.getTrivialTypeSourceInfo(PtrQTy),
+                                 SC_None, 0);
+    ParRHS->setScopeInfo(0, 1);
+    ParmVarDecl *Params[] = {ParLHS, ParRHS};
+    FD->setParams(Params);
+    FTL.setParam(0, ParLHS);
+    FTL.setParam(1, ParRHS);
+    OmpIn =
+            VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_in"),
+                            QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+    OmpOut =
+            VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_out"),
+                            QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+    S.AddKnownFunctionAttributes(FD);
+    if (S.CurScope) {
+        S.PushFunctionScope();
+        S.PushDeclContext(S.CurScope, FD);
+        S.PushOnScopeChains(OmpOut, S.CurScope);
+        S.PushOnScopeChains(OmpIn, S.CurScope);
+        S.PushExpressionEvaluationContext(PotentiallyEvaluated);
+    } else {
+        S.CurContext = FD;
+        FD->addDecl(OmpIn);
+        FD->addDecl(OmpOut);
+    }
+    ExprResult LHS =
+            S.BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, Loc);
+    ExprResult RHS =
+            S.BuildDeclRefExpr(ParRHS, ParRHS->getType(), VK_LValue, Loc);
+    LHS = S.DefaultLvalueConversion(LHS.get());
+    RHS = S.DefaultLvalueConversion(RHS.get());
+    LHS = S.CreateBuiltinUnaryOp(Loc, UO_Deref, LHS.get());
+    RHS = S.CreateBuiltinUnaryOp(Loc, UO_Deref, RHS.get());
+    LHS = S.ActOnFinishFullExpr(LHS.get());
+    RHS = S.ActOnFinishFullExpr(RHS.get());
+    S.AddInitializerToDecl(OmpOut, LHS.get(), true, false);
+    S.AddInitializerToDecl(OmpIn, RHS.get(), true, false);
+    return FD;
+}
+
+FunctionDecl *Sema::OMPDeclareScanFunctionScope::ActOnOMPDeclareScanFunction(
+        Sema &S, SourceLocation Loc, DeclarationName Name, QualType QTy) {
   QualType PtrQTy = S.Context.getPointerType(QTy);
   QualType Args[] = {PtrQTy, PtrQTy};
   FunctionProtoType::ExtProtoInfo EPI;
@@ -1076,8 +1173,8 @@ Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
   TypeSourceInfo *TI = S.Context.getTrivialTypeSourceInfo(FuncType);
   FunctionTypeLoc FTL = TI->getTypeLoc().getAs<FunctionTypeLoc>();
   FunctionDecl *FD =
-      FunctionDecl::Create(S.Context, S.CurContext, Loc, Loc, Name, FuncType,
-                           TI, SC_PrivateExtern, false, false);
+          FunctionDecl::Create(S.Context, S.CurContext, Loc, Loc, Name, FuncType,
+                               TI, SC_PrivateExtern, false, false);
   FD->setImplicit();
   S.CurContext->addDecl(FD);
   if (S.CurContext->isDependentContext()) {
@@ -1088,15 +1185,15 @@ Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
       TPL = CTPSD->getTemplateParameters();
     } else if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(DC)) {
       TPL = RD->getDescribedClassTemplate()
-                ->getCanonicalDecl()
-                ->getTemplateParameters();
+              ->getCanonicalDecl()
+              ->getTemplateParameters();
     } else if (FunctionDecl *RD = dyn_cast<FunctionDecl>(DC)) {
       TPL = RD->getDescribedFunctionTemplate()
-                ->getCanonicalDecl()
-                ->getTemplateParameters();
+              ->getCanonicalDecl()
+              ->getTemplateParameters();
     }
     FunctionTemplateDecl *FTD = FunctionTemplateDecl::Create(
-        S.Context, S.CurContext, Loc, Name, TPL, FD);
+            S.Context, S.CurContext, Loc, Name, TPL, FD);
     FD->setDescribedFunctionTemplate(FTD);
   }
   ParLHS = ParmVarDecl::Create(S.Context, FD, Loc, Loc, 0, PtrQTy,
@@ -1112,11 +1209,11 @@ Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
   FTL.setParam(0, ParLHS);
   FTL.setParam(1, ParRHS);
   OmpIn =
-      VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_in"),
-                      QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+          VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_in"),
+                          QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
   OmpOut =
-      VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_out"),
-                      QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+          VarDecl::Create(S.Context, FD, Loc, Loc, &S.Context.Idents.get("omp_out"),
+                          QTy, S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
   S.AddKnownFunctionAttributes(FD);
   if (S.CurScope) {
     S.PushFunctionScope();
@@ -1130,9 +1227,9 @@ Sema::OMPDeclareReductionFunctionScope::ActOnOMPDeclareReductionFunction(
     FD->addDecl(OmpOut);
   }
   ExprResult LHS =
-      S.BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, Loc);
+          S.BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, Loc);
   ExprResult RHS =
-      S.BuildDeclRefExpr(ParRHS, ParRHS->getType(), VK_LValue, Loc);
+          S.BuildDeclRefExpr(ParRHS, ParRHS->getType(), VK_LValue, Loc);
   LHS = S.DefaultLvalueConversion(LHS.get());
   RHS = S.DefaultLvalueConversion(RHS.get());
   LHS = S.CreateBuiltinUnaryOp(Loc, UO_Deref, LHS.get());
@@ -1176,10 +1273,48 @@ void Sema::OMPDeclareReductionFunctionScope::setBody(Expr *E) {
   }
 }
 
+void Sema::OMPDeclareScanFunctionScope::setBody(Expr *E) {
+    if (!E) {
+        FD->setBody(S.ActOnNullStmt(SourceLocation()).get());
+        FD->setInvalidDecl();
+        return;
+    }
+    StmtResult S1 = S.ActOnDeclStmt(DeclGroupPtrTy::make(DeclGroupRef(OmpIn)),
+                                    E->getExprLoc(), E->getExprLoc());
+    StmtResult S2 = S.ActOnDeclStmt(DeclGroupPtrTy::make(DeclGroupRef(OmpOut)),
+                                    E->getExprLoc(), E->getExprLoc());
+    ExprResult S3 = S.IgnoredValueConversions(E);
+    ExprResult LHS =
+            S.BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, E->getExprLoc());
+    LHS = S.DefaultLvalueConversion(LHS.get());
+    LHS = S.CreateBuiltinUnaryOp(E->getExprLoc(), UO_Deref, LHS.get());
+    ExprResult RHS =
+            S.BuildDeclRefExpr(OmpOut, OmpOut->getType(), VK_LValue, E->getExprLoc());
+    ExprResult Res =
+            S.BuildBinOp(0, E->getExprLoc(), BO_Assign, LHS.get(), RHS.get());
+    ExprResult S4 = S.IgnoredValueConversions(Res.get());
+    if (S1.isInvalid() || S2.isInvalid() || S3.isInvalid() || S4.isInvalid()) {
+        FD->setBody(S.ActOnNullStmt(SourceLocation()).get());
+        FD->setInvalidDecl();
+    } else {
+        CompoundScopeRAII CompoundScope(S);
+        Stmt *Stmts[] = {S1.get(), S2.get(), S3.get(), S4.get()};
+        StmtResult Body =
+                S.ActOnCompoundStmt(E->getExprLoc(), E->getExprLoc(), Stmts, false);
+        FD->setBody(Body.get());
+    }
+}
+
 Expr *Sema::OMPDeclareReductionFunctionScope::getCombiner() {
   ExprResult Res =
       S.BuildDeclRefExpr(FD, FD->getType(), VK_LValue, FD->getLocation());
   return Res.get();
+}
+
+Expr *Sema::OMPDeclareScanFunctionScope::getCombiner() {
+    ExprResult Res =
+            S.BuildDeclRefExpr(FD, FD->getType(), VK_LValue, FD->getLocation());
+    return Res.get();
 }
 
 FunctionDecl *Sema::OMPDeclareReductionInitFunctionScope::
@@ -1255,6 +1390,79 @@ FunctionDecl *Sema::OMPDeclareReductionInitFunctionScope::
   return FD;
 }
 
+FunctionDecl *Sema::OMPDeclareScanInitFunctionScope::
+ActOnOMPDeclareScanInitFunction(Sema &S, SourceLocation Loc,
+                                DeclarationName Name, QualType QTy) {
+    QualType PtrQTy = S.Context.getPointerType(QTy);
+    QualType Args[] = {PtrQTy, PtrQTy};
+    FunctionProtoType::ExtProtoInfo EPI;
+    QualType FuncType = S.Context.getFunctionType(S.Context.VoidTy, Args, EPI);
+    TypeSourceInfo *TI = S.Context.getTrivialTypeSourceInfo(FuncType);
+    FunctionTypeLoc FTL = TI->getTypeLoc().getAs<FunctionTypeLoc>();
+    FunctionDecl *FD =
+            FunctionDecl::Create(S.Context, S.CurContext, Loc, Loc,
+                                 DeclarationName(&S.Context.Idents.get("init")),
+                                 FuncType, TI, SC_PrivateExtern, false, false);
+    FD->setImplicit();
+    S.CurContext->addDecl(FD);
+    if (S.CurContext->isDependentContext()) {
+        DeclContext *DC = S.CurContext->getParent();
+        TemplateParameterList *TPL = 0;
+        if (ClassTemplatePartialSpecializationDecl *CTPSD =
+                dyn_cast<ClassTemplatePartialSpecializationDecl>(DC)) {
+            TPL = CTPSD->getTemplateParameters();
+        } else if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(DC)) {
+            TPL = RD->getDescribedClassTemplate()
+                    ->getCanonicalDecl()
+                    ->getTemplateParameters();
+        } else if (FunctionDecl *RD = dyn_cast<FunctionDecl>(DC)) {
+            TPL = RD->getDescribedFunctionTemplate()
+                    ->getCanonicalDecl()
+                    ->getTemplateParameters();
+        }
+        FunctionTemplateDecl *FTD = FunctionTemplateDecl::Create(
+                S.Context, S.CurContext, Loc, Name, TPL, FD);
+        FD->setDescribedFunctionTemplate(FTD);
+    }
+    ParLHS = ParmVarDecl::Create(S.Context, FD, Loc, Loc, 0, PtrQTy,
+                                 S.Context.getTrivialTypeSourceInfo(PtrQTy),
+                                 SC_None, 0);
+    ParLHS->setScopeInfo(0, 0);
+    ParRHS = ParmVarDecl::Create(S.Context, FD, Loc, Loc, 0, PtrQTy,
+                                 S.Context.getTrivialTypeSourceInfo(PtrQTy),
+                                 SC_None, 0);
+    ParRHS->setScopeInfo(0, 1);
+    ParmVarDecl *Params[] = {ParLHS, ParRHS};
+    FD->setParams(Params);
+    FTL.setParam(0, ParLHS);
+    FTL.setParam(1, ParRHS);
+    OmpOrig = VarDecl::Create(S.Context, FD, Loc, Loc,
+                              &S.Context.Idents.get("omp_orig"), QTy,
+                              S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+    OmpPriv = VarDecl::Create(S.Context, FD, OmpPrivLoc, OmpPrivLoc,
+                              &S.Context.Idents.get("omp_priv"), QTy,
+                              S.Context.getTrivialTypeSourceInfo(QTy), SC_Auto);
+    S.AddKnownFunctionAttributes(FD);
+    if (S.CurScope) {
+        S.PushFunctionScope();
+        S.PushDeclContext(S.CurScope, FD);
+        S.PushOnScopeChains(OmpPriv, S.CurScope);
+        S.PushOnScopeChains(OmpOrig, S.CurScope);
+        S.PushExpressionEvaluationContext(PotentiallyEvaluated);
+    } else {
+        S.CurContext = FD;
+        FD->addDecl(OmpOrig);
+        FD->addDecl(OmpPriv);
+    }
+    ExprResult RHS =
+            S.BuildDeclRefExpr(ParRHS, ParRHS->getType(), VK_LValue, Loc);
+    RHS = S.DefaultLvalueConversion(RHS.get());
+    RHS = S.CreateBuiltinUnaryOp(Loc, UO_Deref, RHS.get());
+    RHS = S.ActOnFinishFullExpr(RHS.get());
+    S.AddInitializerToDecl(OmpOrig, RHS.get(), true, false);
+    return FD;
+}
+
 void Sema::CreateDefaultDeclareReductionInitFunctionBody(FunctionDecl *FD,
                                                          VarDecl *OmpPriv,
                                                          ParmVarDecl *ParLHS) {
@@ -1314,6 +1522,65 @@ void Sema::CreateDefaultDeclareReductionInitFunctionBody(FunctionDecl *FD,
   }
 }
 
+void Sema::CreateDefaultDeclareScanInitFunctionBody(FunctionDecl *FD,
+                                                    VarDecl *OmpPriv,
+                                                    ParmVarDecl *ParLHS) {
+    ExprResult MemCall;
+    SourceLocation Loc = OmpPriv->getLocation();
+    if (!getLangOpts().CPlusPlus || OmpPriv->getType().isPODType(Context)) {
+        // Perform explicit initialization of POD types.
+        ExprResult OmpPrivDRE =
+                BuildDeclRefExpr(OmpPriv, OmpPriv->getType(), VK_LValue, Loc);
+        Expr *OmpPrivDREExpr = OmpPrivDRE.get();
+        ExprResult OmpPrivAddr =
+                CreateBuiltinUnaryOp(Loc, UO_AddrOf, OmpPrivDREExpr);
+        OmpPrivAddr = PerformImplicitConversion(OmpPrivAddr.get(),
+                                                Context.VoidPtrTy, AA_Casting);
+        ExprResult OmpPrivSizeOf;
+        {
+            EnterExpressionEvaluationContext Unevaluated(
+                    *this, Sema::Unevaluated, Sema::ReuseLambdaContextDecl);
+
+            OmpPrivSizeOf =
+                    CreateUnaryExprOrTypeTraitExpr(OmpPrivDREExpr, Loc, UETT_SizeOf);
+        }
+        UnqualifiedId Name;
+        CXXScopeSpec SS;
+        SourceLocation TemplateKwLoc;
+        Name.setIdentifier(PP.getIdentifierInfo("__builtin_memset"), Loc);
+        ExprResult MemSetFn =
+                ActOnIdExpression(TUScope, SS, TemplateKwLoc, Name, true, false);
+        Expr *Args[] = {OmpPrivAddr.get(), ActOnIntegerConstant(Loc, 0).get(),
+                        OmpPrivSizeOf.get()};
+        MemCall = ActOnCallExpr(0, MemSetFn.get(), Loc, Args, Loc);
+        MemCall = IgnoredValueConversions(MemCall.get());
+    } else {
+        ActOnUninitializedDecl(OmpPriv, false);
+    }
+    StmtResult S1 =
+            ActOnDeclStmt(DeclGroupPtrTy::make(DeclGroupRef(OmpPriv)), Loc, Loc);
+    ExprResult LHS = BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, Loc);
+    LHS = DefaultLvalueConversion(LHS.get());
+    LHS = CreateBuiltinUnaryOp(Loc, UO_Deref, LHS.get());
+    ExprResult RHS =
+            BuildDeclRefExpr(OmpPriv, OmpPriv->getType(), VK_LValue, Loc);
+    ExprResult Res = BuildBinOp(0, Loc, BO_Assign, LHS.get(), RHS.get());
+    ExprResult S2 = IgnoredValueConversions(ActOnFinishFullExpr(Res.get()).get());
+    if (S1.isInvalid() || S2.isInvalid()) {
+        FD->setBody(ActOnNullStmt(Loc).get());
+        FD->setInvalidDecl();
+    } else {
+        CompoundScopeRAII CompoundScope(*this);
+        SmallVector<Stmt *, 4> Stmts;
+        Stmts.push_back(S1.get());
+        if (MemCall.isUsable())
+            Stmts.push_back(MemCall.get());
+        Stmts.push_back(S2.get());
+        StmtResult Body = ActOnCompoundStmt(Loc, Loc, Stmts, false);
+        FD->setBody(Body.get());
+    }
+}
+
 void Sema::OMPDeclareReductionInitFunctionScope::setInit(Expr *E) {
   ExprResult MemCall;
   if (!E) {
@@ -1366,10 +1633,68 @@ void Sema::OMPDeclareReductionInitFunctionScope::setInit(Expr *E) {
   }
 }
 
+void Sema::OMPDeclareScanInitFunctionScope::setInit(Expr *E) {
+    ExprResult MemCall;
+    if (!E) {
+        if (OmpPriv->getType()->isDependentType() ||
+            OmpPriv->getType()->isInstantiationDependentType())
+            // It will be handled later on instantiation.
+            return;
+        S.CreateDefaultDeclareScanInitFunctionBody(FD, OmpPriv, ParLHS);
+        return;
+    } else {
+        if (IsInit)
+            S.AddInitializerToDecl(OmpPriv, E, true, false);
+        else {
+            if (!isa<CallExpr>(E->IgnoreParenImpCasts())) {
+                FD->setInvalidDecl();
+                S.Diag(E->getExprLoc(), diag::err_omp_reduction_non_function_init)
+                        << E->getSourceRange();
+                return;
+            }
+            MemCall = S.IgnoredValueConversions(E);
+        }
+    }
+    SourceLocation Loc = E->getExprLoc();
+    StmtResult S1 =
+            S.ActOnDeclStmt(DeclGroupPtrTy::make(DeclGroupRef(OmpOrig)), Loc, Loc);
+    StmtResult S2 =
+            S.ActOnDeclStmt(DeclGroupPtrTy::make(DeclGroupRef(OmpPriv)), Loc, Loc);
+    ExprResult LHS =
+            S.BuildDeclRefExpr(ParLHS, ParLHS->getType(), VK_LValue, Loc);
+    LHS = S.DefaultLvalueConversion(LHS.get());
+    LHS = S.CreateBuiltinUnaryOp(Loc, UO_Deref, LHS.get());
+    ExprResult RHS =
+            S.BuildDeclRefExpr(OmpPriv, OmpPriv->getType(), VK_LValue, Loc);
+    ExprResult Res = S.BuildBinOp(0, Loc, BO_Assign, LHS.get(), RHS.get());
+    Res = S.ActOnFinishFullExpr(Res.get());
+    ExprResult S3 = S.IgnoredValueConversions(Res.get());
+    if (S1.isInvalid() || S2.isInvalid() || S3.isInvalid()) {
+        FD->setBody(S.ActOnNullStmt(Loc).get());
+        FD->setInvalidDecl();
+    } else {
+        CompoundScopeRAII CompoundScope(S);
+        SmallVector<Stmt *, 4> Stmts;
+        Stmts.push_back(S1.get());
+        Stmts.push_back(S2.get());
+        if (MemCall.isUsable())
+            Stmts.push_back(MemCall.get());
+        Stmts.push_back(S3.get());
+        StmtResult Body = S.ActOnCompoundStmt(Loc, Loc, Stmts, false);
+        FD->setBody(Body.get());
+    }
+}
+
 Expr *Sema::OMPDeclareReductionInitFunctionScope::getInitializer() {
   ExprResult Res =
       S.BuildDeclRefExpr(FD, FD->getType(), VK_LValue, FD->getLocation());
   return Res.get();
+}
+
+Expr *Sema::OMPDeclareScanInitFunctionScope::getInitializer() {
+    ExprResult Res =
+            S.BuildDeclRefExpr(FD, FD->getType(), VK_LValue, FD->getLocation());
+    return Res.get();
 }
 
 bool Sema::IsOMPDeclareReductionTypeAllowed(SourceRange Range, QualType QTy,
@@ -1412,6 +1737,46 @@ bool Sema::IsOMPDeclareReductionTypeAllowed(SourceRange Range, QualType QTy,
   return IsValid;
 }
 
+bool Sema::IsOMPDeclareScanTypeAllowed(SourceRange Range, QualType QTy,
+                                       ArrayRef<QualType> Types,
+                                       ArrayRef<SourceRange> TyRanges) {
+    if (QTy.isNull())
+        return false;
+
+    if (QTy.getCanonicalType().hasQualifiers()) {
+        Diag(Range.getBegin(), diag::err_omp_reduction_qualified_type) << Range;
+        return false;
+    }
+
+    QTy = QTy.getCanonicalType();
+    if (QTy->isFunctionType() || QTy->isFunctionNoProtoType() ||
+        QTy->isFunctionProtoType() || QTy->isFunctionPointerType() ||
+        QTy->isMemberFunctionPointerType()) {
+        Diag(Range.getBegin(), diag::err_omp_reduction_function_type) << Range;
+        return false;
+    }
+    if (QTy->isReferenceType()) {
+        Diag(Range.getBegin(), diag::err_omp_reduction_reference_type) << Range;
+        return false;
+    }
+    if (QTy->isArrayType()) {
+        Diag(Range.getBegin(), diag::err_omp_reduction_array_type) << Range;
+        return false;
+    }
+
+    bool IsValid = true;
+    ArrayRef<SourceRange>::iterator IR = TyRanges.begin();
+    for (ArrayRef<QualType>::iterator I = Types.begin(), E = Types.end(); I != E;
+         ++I, ++IR) {
+        if (Context.hasSameType(QTy, *I)) {
+            Diag(Range.getBegin(), diag::err_omp_reduction_redeclared) << *I << Range;
+            Diag(IR->getBegin(), diag::note_previous_declaration) << *IR;
+            IsValid = false;
+        }
+    }
+    return IsValid;
+}
+
 Sema::DeclGroupPtrTy Sema::ActOnOpenMPDeclareReductionDirective(
     Decl *D, ArrayRef<QualType> Types, ArrayRef<SourceRange> TyRanges,
     ArrayRef<Expr *> Combiners, ArrayRef<Expr *> Inits) {
@@ -1451,6 +1816,45 @@ Sema::DeclGroupPtrTy Sema::ActOnOpenMPDeclareReductionDirective(
   return DeclGroupPtrTy();
 }
 
+Sema::DeclGroupPtrTy Sema::ActOnOpenMPDeclareScanDirective(
+        Decl *D, ArrayRef<QualType> Types, ArrayRef<SourceRange> TyRanges,
+        ArrayRef<Expr *> Combiners, ArrayRef<Expr *> Inits) {
+    OMPDeclareScanDecl *DR = cast<OMPDeclareScanDecl>(D);
+
+    LookupResult Found(*this, DR->getDeclName(), DR->getLocation(),
+                       LookupOMPDeclareScan);
+    Found.suppressDiagnostics();
+    LookupName(Found, CurScope);
+    for (LookupResult::iterator I = Found.begin(), E = Found.end(); I != E; ++I) {
+        OMPDeclareScanDecl *DRI = cast<OMPDeclareScanDecl>(*I);
+        if (DRI == D)
+            continue;
+        for (OMPDeclareScanDecl::datalist_iterator II = DRI->datalist_begin(),
+                     EE = DRI->datalist_end();
+             II != EE; ++II) {
+            ArrayRef<SourceRange>::iterator IR = TyRanges.begin();
+            for (ArrayRef<QualType>::iterator IT = Types.begin(), IE = Types.end();
+                 IT != IE; ++IT, ++IR) {
+                if (!II->QTy.isNull() && !IT->isNull() &&
+                    Context.hasSameType(II->QTy, *IT)) {
+                    Diag(IR->getBegin(), diag::err_omp_reduction_redeclared) << II->QTy
+                                                                             << *IR;
+                    Diag(II->TyRange.getBegin(), diag::note_previous_declaration)
+                            << II->TyRange;
+                    D->setInvalidDecl();
+                }
+            }
+        }
+    }
+
+    if (!D->isInvalidDecl()) {
+        CompleteOMPDeclareScanDecl(DR, Types, TyRanges, Combiners, Inits);
+        PushOnScopeChains(DR, CurScope, false);
+        return DeclGroupPtrTy::make(DeclGroupRef(DR));
+    }
+    return DeclGroupPtrTy();
+}
+
 void Sema::CompleteOMPDeclareReductionDecl(OMPDeclareReductionDecl *D,
                                            ArrayRef<QualType> Types,
                                            ArrayRef<SourceRange> TyRanges,
@@ -1465,6 +1869,22 @@ void Sema::CompleteOMPDeclareReductionDecl(OMPDeclareReductionDecl *D,
     Data.push_back(OMPDeclareReductionDecl::ReductionData(*IT, *IR, *IC, *II));
   }
   D->setData(Data);
+}
+
+void Sema::CompleteOMPDeclareScanDecl(OMPDeclareScanDecl *D,
+                                      ArrayRef<QualType> Types,
+                                      ArrayRef<SourceRange> TyRanges,
+                                      ArrayRef<Expr *> Combiners,
+                                      ArrayRef<Expr *> Inits) {
+    SmallVector<OMPDeclareScanDecl::ScanData, 4> Data;
+    ArrayRef<Expr *>::iterator IC = Combiners.begin();
+    ArrayRef<Expr *>::iterator II = Inits.begin();
+    ArrayRef<SourceRange>::iterator IR = TyRanges.begin();
+    for (ArrayRef<QualType>::iterator IT = Types.begin(), ET = Types.end();
+         IT != ET; ++IT, ++IC, ++II, ++IR) {
+        Data.push_back(OMPDeclareScanDecl::ScanData(*IT, *IR, *IC, *II));
+    }
+    D->setData(Data);
 }
 
 bool Sema::ActOnStartOpenMPDeclareTargetDirective(Scope *S,
@@ -6364,6 +6784,71 @@ TryToFindDeclareReductionDecl(Sema &SemaRef, CXXScopeSpec &SS,
   }
   assert(Lookup.empty() && "Lookup is not empty.");
   return 0;
+}
+
+static OMPDeclareScanDecl::ScanData *
+TryToFindDeclareScanDecl(Sema &SemaRef, CXXScopeSpec &SS,
+                         DeclarationNameInfo OpName, QualType QTy,
+                         OpenMPScanClauseOperator Op) {
+    LookupResult Lookup(SemaRef, OpName, Sema::LookupOMPDeclareScan);
+    if (Op != OMPC_SCAN_custom) {
+        Lookup.suppressDiagnostics();
+    }
+    if (SemaRef.LookupParsedName(Lookup, SemaRef.getCurScope(), &SS)) {
+        LookupResult::Filter Filter = Lookup.makeFilter();
+        SmallVector<OMPDeclareScanDecl::ScanData *, 4> Found;
+        SmallVector<OMPDeclareScanDecl *, 4> FoundDecl;
+        while (Filter.hasNext()) {
+            OMPDeclareScanDecl *D = cast<OMPDeclareScanDecl>(Filter.next());
+            bool Remove = true;
+            if (!D->isInvalidDecl()) {
+                for (OMPDeclareScanDecl::datalist_iterator
+                             IT = D->datalist_begin(),
+                             ET = D->datalist_end();
+                     IT != ET; ++IT) {
+                    if (!IT->QTy.isNull() &&
+                        SemaRef.Context.hasSameUnqualifiedType(IT->QTy, QTy)) {
+                        Found.push_back(IT);
+                        FoundDecl.push_back(D);
+                        Remove = false;
+                    }
+                }
+                if (Found.empty()) {
+                    for (OMPDeclareScanDecl::datalist_iterator
+                                 IT = D->datalist_begin(),
+                                 ET = D->datalist_end();
+                         IT != ET; ++IT) {
+                        if (!IT->QTy.isNull() && SemaRef.IsDerivedFrom(QTy, IT->QTy)) {
+                            Found.push_back(IT);
+                            FoundDecl.push_back(D);
+                            Remove = false;
+                        }
+                    }
+                }
+            }
+            if (Remove)
+                Filter.erase();
+        }
+        Filter.done();
+        if (Found.size() > 1) {
+            // Ambiguous declaration found.
+            SemaRef.Diag(OpName.getLoc(), diag::err_ambiguous_reference)
+                    << OpName.getName();
+            SmallVectorImpl<OMPDeclareScanDecl::ScanData *>::iterator IT =
+                    Found.begin();
+            for (SmallVectorImpl<OMPDeclareScanDecl *>::iterator
+                         IR = FoundDecl.begin(),
+                         ER = FoundDecl.end();
+                 IR != ER; ++IR, ++IT) {
+                SemaRef.Diag((*IR)->getLocation(), diag::note_ambiguous_candidate)
+                        << *IR << (*IT)->TyRange;
+            }
+        }
+        if (!Found.empty())
+            return Found.back();
+    }
+    assert(Lookup.empty() && "Lookup is not empty.");
+    return 0;
 }
 
 OMPClause *Sema::ActOnOpenMPReductionClause(ArrayRef<Expr *> VarList,

@@ -3306,6 +3306,9 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
   case Decl::OMPDeclareReduction:
     EmitOMPDeclareReduction(cast<OMPDeclareReductionDecl>(D));
     break;
+      case Decl::OMPDeclareScan:
+          EmitOMPDeclareScan(cast<OMPDeclareScanDecl>(D));
+          break;
   case Decl::OMPDeclareSimd:
     EmitOMPDeclareSimd(cast<OMPDeclareSimdDecl>(D));
     break;

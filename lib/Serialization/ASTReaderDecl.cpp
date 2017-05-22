@@ -336,6 +336,8 @@ namespace clang {
     void VisitObjCPropertyImplDecl(ObjCPropertyImplDecl *D);
     void VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D);
     void VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D);
+
+      void VisitOMPDeclareScanDecl(OMPDeclareScanDecl *D);
     void VisitOMPDeclareSimdDecl(OMPDeclareSimdDecl *D);
     void VisitOMPDeclareTargetDecl(OMPDeclareTargetDecl *D);
   };
@@ -2171,6 +2173,22 @@ void ASTDeclReader::VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D) {
   D->setData(Data);
 }
 
+void ASTDeclReader::VisitOMPDeclareScanDecl(OMPDeclareScanDecl *D) {
+    VisitDecl(D);
+    D->setDeclName(Reader.ReadDeclarationName(F, Record, Idx));
+    unsigned NumTypes = D->datalist_size();
+    SmallVector<OMPDeclareScanDecl::ScanData, 16> Data;
+    Data.reserve(NumTypes);
+    for (unsigned i = 0; i != NumTypes; ++i) {
+        QualType QTy = Reader.readType(F, Record, Idx);
+        SourceRange SR = Reader.ReadSourceRange(F, Record, Idx);
+        Expr *E1 = Reader.ReadExpr(F);
+        Expr *E2 = Reader.ReadExpr(F);
+        Data.push_back(OMPDeclareScanDecl::ScanData(QTy, SR, E1, E2));
+    }
+    D->setData(Data);
+}
+
 void ASTDeclReader::VisitOMPDeclareSimdDecl(OMPDeclareSimdDecl *D) {
   VisitDecl(D);
   unsigned NumVariants = D->simd_variants_size();
@@ -2246,12 +2264,13 @@ static bool isConsumerInterestedIn(Decl *D, bool HasBody) {
   // An ObjCMethodDecl is never considered as "interesting" because its
   // implementation container always is.
 
-  if (isa<FileScopeAsmDecl>(D) || 
-      isa<ObjCProtocolDecl>(D) || 
+  if (isa<FileScopeAsmDecl>(D) ||
+      isa<ObjCProtocolDecl>(D) ||
       isa<ObjCImplDecl>(D) ||
       isa<OMPThreadPrivateDecl>(D) ||
       isa<OMPDeclareSimdDecl>(D) ||
       isa<OMPDeclareReductionDecl>(D) ||
+      isa<OMPDeclareScanDecl>(D) ||
       isa<OMPDeclareTargetDecl>(D) ||
       isa<ImportDecl>(D))
     return true;
@@ -2873,6 +2892,9 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
     break;
   case DECL_OMP_DECLAREREDUCTION:
     D = OMPDeclareReductionDecl::CreateDeserialized(Context, ID, Record[Idx++]);
+          break;
+      case DECL_OMP_DECLARESCAN:
+          D = OMPDeclareScanDecl::CreateDeserialized(Context, ID, Record[Idx++]);
     break;
   case DECL_OMP_DECLARESIMD: {
     unsigned NumVariants = Record[Idx++];

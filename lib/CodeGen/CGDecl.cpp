@@ -106,6 +106,9 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::OMPDeclareReduction:
     CGM.EmitOMPDeclareReduction(cast<OMPDeclareReductionDecl>(&D));
     break;
+      case Decl::OMPDeclareScan:
+          CGM.EmitOMPDeclareScan(cast<OMPDeclareScanDecl>(&D));
+          break;
   case Decl::OMPDeclareSimd:
     CGM.EmitOMPDeclareSimd(cast<OMPDeclareSimdDecl>(&D));
     break;

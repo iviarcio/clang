@@ -212,9 +212,10 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::Import:
   case Decl::OMPThreadPrivate:
   case Decl::OMPDeclareReduction:
+  case Decl::OMPDeclareScan:
   case Decl::OMPDeclareSimd:
   case Decl::OMPDeclareTarget:
-    return false;
+      return false;
   }
 
   llvm_unreachable("Unhandled declaration kind");

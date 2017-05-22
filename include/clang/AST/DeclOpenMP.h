@@ -153,6 +153,97 @@ public:
   }
 };
 
+/// \brief This represents '#pragma omp declare scan ...' directive.
+/// For example, in the following, declared scan 'foo':
+///
+/// \code
+/// #pragma omp declare scan (foo : int,float : omp_out += omp_in)
+/// initializer (omp_priv = 0)
+/// \endcode
+///
+    class OMPDeclareScanDecl : public NamedDecl, public DeclContext {
+    public:
+        struct ScanData {
+            ScanData(QualType QTy, SourceRange TyRange, Expr *Combiner, Expr *Init)
+                    : QTy(QTy), TyRange(TyRange), CombinerFunction(Combiner),
+                      InitFunction(Init) {}
+
+            ScanData() : QTy(), TyRange(), CombinerFunction(0), InitFunction(0) {}
+
+            QualType QTy;
+            SourceRange TyRange;
+            Expr *CombinerFunction;
+            Expr *InitFunction;
+        };
+
+    private:
+        friend class ASTDeclReader;
+
+        unsigned NumTypes;
+
+        virtual void anchor();
+
+        OMPDeclareScanDecl(Kind DK, DeclContext *DC, SourceLocation L,
+                           DeclarationName Name)
+                : NamedDecl(DK, DC, L, Name), DeclContext(DK), NumTypes(0) {
+            setModulePrivate();
+        }
+
+        static unsigned getFirstElementOffset();
+
+        ArrayRef<ScanData> getData() const {
+            return ArrayRef<ScanData>(
+                    reinterpret_cast<const ScanData *>(
+                            reinterpret_cast<const char *>(this) + getFirstElementOffset()),
+                    NumTypes);
+        }
+
+        llvm::MutableArrayRef<ScanData> getData() {
+            return llvm::MutableArrayRef<ScanData>(
+                    reinterpret_cast<ScanData *>(reinterpret_cast<char *>(this) +
+                                                 getFirstElementOffset()),
+                    NumTypes);
+        }
+
+    public:
+        static OMPDeclareScanDecl *Create(ASTContext &C, DeclContext *DC,
+                                          SourceLocation L, DeclarationName Name,
+                                          unsigned N);
+
+        static OMPDeclareScanDecl *CreateDeserialized(ASTContext &C, unsigned ID,
+                                                      unsigned N);
+
+        void setData(ArrayRef<ScanData> RD);
+
+        typedef llvm::MutableArrayRef<ScanData>::iterator datalist_iterator;
+        typedef ArrayRef<ScanData>::iterator datalist_const_iterator;
+
+        unsigned datalist_size() const { return NumTypes; }
+
+        bool datalist_empty() const { return NumTypes == 0; }
+
+        datalist_iterator datalist_begin() { return getData().begin(); }
+
+        datalist_iterator datalist_end() { return getData().end(); }
+
+        datalist_const_iterator datalist_begin() const { return getData().begin(); }
+
+        datalist_const_iterator datalist_end() const { return getData().end(); }
+
+        static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+
+        static bool classofKind(Kind K) { return K == OMPDeclareScan; }
+
+        static DeclContext *castToDeclContext(const OMPDeclareScanDecl *D) {
+            return static_cast<DeclContext *>(const_cast<OMPDeclareScanDecl *>(D));
+        }
+
+        static OMPDeclareScanDecl *castFromDeclContext(const DeclContext *DC) {
+            return static_cast<OMPDeclareScanDecl *>(
+                    const_cast<DeclContext *>(DC));
+        }
+    };
+
 /// \brief This represents '#pragma omp declare simd ...' directive.
 /// Here is an example, where two simd-variants are declared for a function:
 ///
