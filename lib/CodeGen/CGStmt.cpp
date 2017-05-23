@@ -1101,12 +1101,6 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
             if (FD->isMain()) {
                 // Then, emit runtime call for cldevice_finish at the end of main function
                 llvm::Value *funcFinish = CGM.getMPtoGPURuntime().cldevice_finish();
-                // Get the include file name, if any
-                const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
-                struct stat buffer;
-                if (stat(incName.c_str(), &buffer) == 0) {
-                    std::remove(incName.c_str());
-                }
                 EmitRuntimeCall(funcFinish);
             }
     }

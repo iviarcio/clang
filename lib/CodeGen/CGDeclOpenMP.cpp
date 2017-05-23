@@ -135,15 +135,39 @@ void CodeGenModule::EmitOMPDeclareReduction(const OMPDeclareReductionDecl *D) {
 }
 
 void CodeGenModule::EmitOMPDeclareScan(const OMPDeclareScanDecl *D) {
+    std::string incStr;
+    llvm::raw_string_ostream Inc(incStr);
     for (OMPDeclareScanDecl::datalist_const_iterator I = D->datalist_begin(),
                  E = D->datalist_end();
          I != E; ++I) {
         if (!I->CombinerFunction || !I->InitFunction)
             continue;
-        Decl *D = cast<DeclRefExpr>(I->CombinerFunction)->getDecl();
-        EmitGlobal(cast<FunctionDecl>(D));
-        D = cast<DeclRefExpr>(I->InitFunction)->getDecl();
-        EmitGlobal(cast<FunctionDecl>(D));
+        if (getLangOpts().MPtoGPU) {
+            FunctionDecl *IF = cast<FunctionDecl>(cast<DeclRefExpr>(I->InitFunction)->getDecl());
+            if (IF->getBody()) {
+                CompoundStmt::body_iterator BI = cast<CompoundStmt>(IF->getBody())->body_begin();
+                ++BI;
+                if (DeclStmt *DS = dyn_cast<DeclStmt>(*BI)) {
+                    if (VarDecl *VD = dyn_cast_or_null<VarDecl>(DS->getSingleDecl())) {
+                        if (VD->hasInit() && VD->getInit()->getLocStart().isValid()) {
+                            Inc << "\n#define ";
+                            D->printName(Inc);
+                            Inc << "_initializer ";
+                            VD->getInit()->printPretty(Inc, 0, PrintingPolicy(getContext().getLangOpts()), 0);
+                            Inc << "\n";
+                        }
+                    }
+                }
+            }
+        } else {
+            Decl *D = cast<DeclRefExpr>(I->CombinerFunction)->getDecl();
+            EmitGlobal(cast<FunctionDecl>(D));
+            D = cast<DeclRefExpr>(I->InitFunction)->getDecl();
+            EmitGlobal(cast<FunctionDecl>(D));
+        }
+    }
+    if (getLangOpts().MPtoGPU) {
+        OpenMPSupport.appendIncludeStr(Inc.str());
     }
 }
 
@@ -193,15 +217,13 @@ void CodeGenModule::EmitOMPDeclareSimd(const OMPDeclareSimdDecl *D) {
       } else if (OMPSimdlenClause *C = dyn_cast<OMPSimdlenClause>(*J)) {
         const Expr *LengthExpr = C->getSimdlen();
         assert(isa<IntegerLiteral>(LengthExpr) && "integer literal expected");
-        unsigned VLen =
-            cast<IntegerLiteral>(LengthExpr)->getValue().getZExtValue();
+          unsigned VLen = cast<IntegerLiteral>(LengthExpr)->getValue().getZExtValue();
         Groups[key].VecLength.push_back(VLen);
       } else if (OMPLinearClause *C = dyn_cast<OMPLinearClause>(*J)) {
         const Expr *StepExpr = C->getStep();
         int Step = 0;
-        if (const IntegerLiteral *IL =
-                dyn_cast_or_null<IntegerLiteral>(StepExpr)) {
-          Step = IL->getValue().getZExtValue();
+          if (const IntegerLiteral *IL = dyn_cast_or_null<IntegerLiteral>(StepExpr)) {
+              Step = IL->getValue().getZExtValue();
         } else {
           Step = 1;
         }
@@ -238,44 +260,30 @@ void CodeGenModule::EmitOMPDeclareSimd(const OMPDeclareSimdDecl *D) {
       }
     }
   }
-
   EmitVectorVariantsMetadata(FI, FD, Fn, Groups);
 }
 
 void CodeGenModule::EmitOMPDeclareTarget(const OMPDeclareTargetDecl *D) {
+    // Create a region for the declare target so the the codegen knows
+    // that is a valid region for a target
+    OpenMPSupport.startOpenMPRegion(false);
+    OpenMPSupport.setTargetDeclare(true);
 
-  // Create a region for the declare target so the the codegen knows
-  // that is a valid region for a target
-
-  OpenMPSupport.startOpenMPRegion(false);
-  OpenMPSupport.setTargetDeclare(true);
-
-    llvm::raw_fd_ostream INOS(OpenMPSupport.createIncludeFile(), true);
-    const std::string fileName = OpenMPSupport.getIncludeName();
-    const std::string incName = fileName + ".h";
-
+    std::string incStr;
+    llvm::raw_string_ostream Inc(incStr);
     for (DeclContext::decl_iterator I = D->decls_begin(), E = D->decls_end();
-       I != E; ++I) {
-    if (const VarDecl *VD = dyn_cast<VarDecl>(*I))
-      if (VD->getTemplateSpecializationKind() != TSK_ExplicitSpecialization &&
-          VD->getTemplateSpecializationKind() != TSK_Undeclared)
-        continue;
+         I != E; ++I) {
+        if (const VarDecl *VD = dyn_cast<VarDecl>(*I))
+            if (VD->getTemplateSpecializationKind() != TSK_ExplicitSpecialization &&
+                VD->getTemplateSpecializationKind() != TSK_Undeclared)
+                continue;
+        if (getLangOpts().MPtoGPU) {
+            I->print(Inc, PrintingPolicy(getContext().getLangOpts()), 0);
+            Inc << ";\n";
+        } else EmitTopLevelDecl(*I);
+    }
     if (getLangOpts().MPtoGPU) {
-        I->print(INOS, PrintingPolicy(getContext().getLangOpts()), 0);
-        INOS << ";\n";
-        /* TODO: Include user typedefs in OpenMPSupport::deftypes */
-        /* see CGStmtOpenMP.cpp, line 61 */
-    } else EmitTopLevelDecl(*I);
-  }
-
-  INOS.close();
-  if (getLangOpts().MPtoGPU) {
-      // Change the fileName to OpenCL kernel include name
-      rename(fileName.c_str(), incName.c_str());
-  }
-  else {
-      const std::string incFile = "rm " + fileName;
-      std::system(incFile.c_str());
-  }
-  OpenMPSupport.endOpenMPRegion();
+        OpenMPSupport.appendIncludeStr(Inc.str());
+    }
+    OpenMPSupport.endOpenMPRegion();
 }

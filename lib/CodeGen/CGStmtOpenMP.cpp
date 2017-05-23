@@ -1303,10 +1303,6 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
     const std::string clName = FileName + ".cl";
     const std::string AuxName = FileName + ".tmp";
 
-    // Get the include file name, if any
-    const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
-    std::string includeContents = "";
-
     std::string Error;
     llvm::raw_fd_ostream AXOS(AuxName.c_str(), Error, llvm::sys::fs::F_Text);
 
@@ -1317,13 +1313,10 @@ void CodeGenFunction::EmitOMPtoOpenCLParallelFor(
 
     //use of type 'double' requires cl_khr_fp64 extension to be enabled
     AXOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    std::ifstream incFile(incName.c_str());
-    if (incFile) {
-        std::stringstream incBuffer;
-        incBuffer << incFile.rdbuf();
-        includeContents = incBuffer.str();
-        AXOS << includeContents << "\n\n";
-        incFile.close();
+
+    std::string includeContents = CGM.OpenMPSupport.getIncludeStr();
+    if (includeContents != "") {
+        AXOS << includeContents << "\n";
     }
 
     ArrayRef<llvm::Value *> MapClausePointerValues;
@@ -1955,6 +1948,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
 
                 /*Fetch the scan variable type and its operator */
                 const std::string scanVarType = scanVar->getType().getAsString();
+                OpenMPScanClauseOperator op = cast<OMPScanClause>(*I)->getOperator();
                 const std::string operatorName = cast<OMPScanClause>(*I)->getOpName().getAsString();
 
                 /* Create the unique filename that refers to kernel file */
@@ -1965,24 +1959,26 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 /* use of type 'double' requires cl_khr_fp64 extension to be enabled */
                 CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n\n";
 
-                /* Get the include file name, if any */
-                const std::string incName = CGM.OpenMPSupport.getIncludeName() + ".h";
-                std::string includeContents = "";
-                std::ifstream incFile(incName.c_str());
-                if (incFile) {
-                    std::stringstream incBuffer;
-                    incBuffer << incFile.rdbuf();
-                    includeContents = incBuffer.str();
+                /* Get the IncludeStr, if any */
+                std::string includeContents = CGM.OpenMPSupport.getIncludeStr();
+                if (includeContents != "") {
                     CLOS << includeContents << "\n";
-                    incFile.close();
                 }
 
-                /* Fix it! Check if operatorName is a user-defined function!! */
-                std::string templateId = " 1";
-                if (operatorName.length() > 1)
-                    if (includeContents.find(operatorName) != std::string::npos)
-                        templateId = " 2";
-
+                std::string initializer = "";
+                switch (op) {
+                    case OMPC_SCAN_add:
+                    case OMPC_SCAN_sub:
+                        initializer = "0";
+                        break;
+                    case OMPC_SCAN_mult:
+                        initializer = "1";
+                        break;
+                }
+                if (initializer != "") {
+                    // custom initializer is already in include file
+                    CLOS << "\n#define _initializer_ " << initializer << "\n";
+                }
                 CLOS << "\n#define _dataType_ " << scanVarType.substr(0, scanVarType.find_last_of(' ')) << "\n";
                 CLOS.close();
 
@@ -2073,6 +2069,10 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), A1);
 
                 /* Generate the kernel file */
+                std::string templateId = " 1";
+                if (op == OMPC_SCAN_custom) {
+                    templateId = " 2";
+                }
                 const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan + templateId + " " + operatorName;
                 std::system(generator.c_str());
             }

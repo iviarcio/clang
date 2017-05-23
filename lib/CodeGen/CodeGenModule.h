@@ -281,8 +281,8 @@ class CodeGenModule : public CodeGenTypeCache {
   std::unique_ptr<CGCXXABI> ABI;
   llvm::LLVMContext &VMContext;
 
-  // Name of the temporary include file used by omp declare target construct
-  std::string IncludeName;
+    // Name of the include file used by omp declare scan & omp declare target constructs
+    std::string IncludeStr = "";
 
   CodeGenTBAA *TBAA;
   
@@ -1457,14 +1457,11 @@ public:
 
     std::string getTempName() { return OpenMPStack.back().KernelName; }
 
-      int createIncludeFile() {
-        char *tmpName = strdup("kernel_XXXXXX");
-        int fd = mkstemp (tmpName);
-        CGM.IncludeName = std::string(tmpName);
-        return fd;
-      }
+      std::string getIncludeStr() { return CGM.IncludeStr; }
 
-      std::string getIncludeName() { return CGM.IncludeName; }
+      void appendIncludeStr(std::string incStr) {
+          CGM.IncludeStr += incStr;
+      }
 
   };
 
