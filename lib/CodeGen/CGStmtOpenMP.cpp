@@ -1997,15 +1997,15 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 llvm::Value *BytesB = Builder.CreateLoad(BB);
                 llvm::Value *Size[] = {Builder.CreateIntCast(BytesB, CGM.Int64Ty, false)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
-                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_only(), Size);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
 
                 /* set the indexes for auxiliary buffers */
                 int idxAux1 = (int) MapClausePointerValues.size();
                 int idxAux2 = idxAux1 + 1;
-
+                int correctBuffer = idxScan + idxAux1 - 1;
                 /* Generate code for calling the 1st kernel */
                 /* TODO: check if this is correct for two input buffers? */
-                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(idxScan)};
+                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(correctBuffer)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
                 llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(idxAux1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args2);
@@ -2049,9 +2049,16 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 KernelName = "fix";
                 llvm::Value *FunctionKernel2 = Builder.CreateGlobalStringPtr(KernelName);
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel2);
-                llvm::Value *Args5[] = {Builder.getInt32(0), Builder.getInt32(idxScan)};
+                int pos = 0;
+                llvm::Value *Args5[] = {Builder.getInt32(pos), Builder.getInt32(idxScan)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args5);
-                llvm::Value *Args6[] = {Builder.getInt32(1), Builder.getInt32(idxAux1)};
+                if (correctBuffer != idxScan) {
+                    pos++;
+                    llvm::Value *Args5a[] = {Builder.getInt32(pos), Builder.getInt32(correctBuffer)};
+                    Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args5a);
+                }
+                pos++;
+                llvm::Value *Args6[] = {Builder.getInt32(pos), Builder.getInt32(idxAux1)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args6);
 
                 llvm::Value *GroupSize3[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
