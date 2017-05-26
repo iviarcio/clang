@@ -58,6 +58,7 @@ int TargetDataIfRegion = 0;
 bool insideTarget = false;
 
     llvm::SmallVector<QualType, 16> deftypes;
+
 static bool dumpedDefType(const QualType* T) {
     for (ArrayRef<QualType>::iterator I = deftypes.begin(),
                  E = deftypes.end();
@@ -84,6 +85,25 @@ struct Required
 private:
     std::string val_;
 };
+
+    int GetTypeSizeInBits(llvm::Type *ty) {
+        int typeSize = 0;
+        if (ty->isSized()) {
+            if (ty->isStructTy()) {
+                int nElements = ty->getStructNumElements();
+                for (int i = 0; i < nElements; i++) {
+                    llvm::Type *elTy = ty->getStructElementType(i);
+                    typeSize += GetTypeSizeInBits(elTy);
+                }
+            } else {
+                typeSize = ty->getScalarSizeInBits();
+            }
+        } else {
+            llvm_unreachable("Unsupported data type for scan clause");
+            typeSize = 32; /* assume i32 data type */
+        }
+        return typeSize;
+    }
 
 // Getters for fields of the loop-like directives. We may want to add a
 // common parent to all the loop-like directives to get rid of these.
@@ -1959,9 +1979,8 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 /* get the number of blocks and threads */
                 llvm::Value *Status = nullptr;
                 llvm::Type *tR = ConvertType(Q);
-                llvm::AllocaInst *vR = Builder.CreateAlloca(tR, NULL);
-                vR->setUsedWithInAlloca(true);
-                llvm::Value *Bytes = Builder.getInt32(vR->getAllocatedType()->getPrimitiveSizeInBits() / 8);
+                int typeSize = GetTypeSizeInBits(tR);
+                llvm::Value *Bytes = Builder.getInt32(typeSize / 8);
                 llvm::Value *KArg[] = {T1, B1, BT, BB, MapClauseSizeValues[idxInput], Bytes};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
 
