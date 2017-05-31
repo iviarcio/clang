@@ -35,6 +35,11 @@ extern "C" {
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
+#define max(a, b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
 cl_device_id *_device = NULL;
 cl_context *_context = NULL;
 cl_command_queue *_cmd_queue = NULL;
@@ -1540,37 +1545,38 @@ void _cl_profile(const char *str, cl_event event) {
 }
 
 ///
-/// Return the threads & blocks used to allocate auxiliary buffers
-/// and the adequate size of the vector to scan
+/// Return the threads * size(type) in bytes.
+/// Adjust the threads & blocks to be power of 2
+/// They are used used to allocate auxiliary buffer in scan
+/// Also, do sthread = max(1,threads/2) & sblocks = max(1,blocks)
 ///
-void _cl_get_threads_blocks(int *threads, int *blocks, int *bytesthreads, int *bytesblocks, uint64_t size, int bytes) {
+int _cl_get_threads_blocks(int *threads, int *blocks, int *sthreads, int *sblocks, uint64_t size, int bytes) {
+    int i, bytesthreads;
     size /= bytes;
-    int n = (int) sqrt(size - 1);
-    int t = 1;
-    for (int i = 0; i <= 10; i++) {
-        if (_block_sizes[i] >= n) {
-            t = _block_sizes[i];
+    for (i = 0; i <= 10; i++) {
+        if (_block_sizes[i] * _block_sizes[i] >= size) {
+            *threads = _block_sizes[i];
+            *blocks = _block_sizes[i];
             break;
         }
     }
 
-    int r = size / t;
-    n = r * t;
-    if (size % t != 0) n += t;
-    *threads = min(t, _max_work_items[0]);
-    *blocks = min(n / t, _max_work_items[0]);
-    *bytesthreads = (*threads) * bytes;
-    *bytesblocks = (*blocks) * bytes;
+    *threads = min(*threads, _max_work_items[0]);
+    *blocks = min(*blocks, _max_work_items[0]);
+    bytesthreads = (*threads) * bytes;
+    *sthreads = max(1, *threads / 2);
+    *sblocks = max(1, *blocks / 2);
 
     if (_verbose) {
         printf("<rtl> computed threads: %d\n", *threads);
         printf("<rtl> computed blocks: %d\n", *blocks);
-        printf("<rtl> computed bytesthreads: %d\n", *bytesthreads);
-        printf("<rtl> computed bytesblocks: %d\n", *bytesblocks);
-        printf("<rtl>  for size (in bytes) of %d\n", bytes);
+        printf("<rtl> computed bytesthreads: %d\n", bytesthreads);
+        printf("<rtl> computed sthreads: %d\n", *sthreads);
+        printf("<rtl> computed sblocks: %d\n", *sblocks);
+        printf("<rtl> bytes of the type: %d\n", bytes);
     }
+    return bytesthreads;
 }
-
 #ifdef __cplusplus
 }
 #endif

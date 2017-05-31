@@ -1914,11 +1914,11 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 llvm::Type *BB1 = ConvertType(qt);
                 llvm::Value *B1 = CreateTempAlloca(BB1, "nblocks");
 
-                llvm::Type *BT1 = ConvertType(qt);
-                llvm::Value *BT = CreateTempAlloca(BT1, "bytesthreads");
+                llvm::Type *ST1 = ConvertType(qt);
+                llvm::Value *ST = CreateTempAlloca(ST1, "sthreads");
 
-                llvm::Type *BBL1 = ConvertType(qt);
-                llvm::Value *BB = CreateTempAlloca(BBL1, "bytesblocks");
+                llvm::Type *SB1 = ConvertType(qt);
+                llvm::Value *SB = CreateTempAlloca(SB1, "sblocks");
 
                 ArrayRef<llvm::Value *> MapClausePointerValues;
                 ArrayRef<llvm::Value *> MapClauseSizeValues;
@@ -1981,12 +1981,12 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 llvm::Type *tR = ConvertType(Q);
                 int typeSize = GetTypeSizeInBits(tR);
                 llvm::Value *Bytes = Builder.getInt32(typeSize / 8);
-                llvm::Value *KArg[] = {T1, B1, BT, BB, MapClauseSizeValues[idxInput], Bytes};
-                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
+                llvm::Value *KArg[] = {T1, B1, ST, SB, MapClauseSizeValues[idxInput], Bytes};
+                llvm::Value *ThreadBytes = nullptr;
+                ThreadBytes = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks(), KArg);
 
                 /* Offload the Auxiliary array */
-                llvm::Value *BytesB = Builder.CreateLoad(BB);
-                llvm::Value *Size[] = {Builder.CreateIntCast(BytesB, CGM.Int64Ty, false)};
+                llvm::Value *Size[] = {Builder.CreateIntCast(ThreadBytes, CGM.Int64Ty, false)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
 
                 /*Fetch the scan variable type and its operator */
@@ -2049,12 +2049,17 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                         (dyn_cast<llvm::AllocaInst>(T1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan);
 
+                /* TODO:  Generate SLT = max(1, LT/2). Substitute LT by SLT in next statement
+                     %div = sdiv i32 LT, 2
+                     %cmp = icmp slt i32 %div, 1
+                     SLT  = select i1 %cmp, i32 1, i32 %div
+                 */
                 llvm::Value *LB = Builder.CreateLoad(B1);
-                llvm::Value *LT = Builder.CreateLoad(T1);
+                llvm::Value *LST = Builder.CreateLoad(ST);
                 llvm::Value *GroupSize[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
                                             Builder.getInt32(0),
                                             Builder.getInt32(0),
-                                            Builder.CreateIntCast(LT, CGM.Int32Ty, false),
+                                            Builder.CreateIntCast(LST, CGM.Int32Ty, false),
                                             Builder.getInt32(0),
                                             Builder.getInt32(0),
                                             Builder.getInt32(1)};
@@ -2071,10 +2076,17 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                         (dyn_cast<llvm::AllocaInst>(B1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan2};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan2);
 
+
+                /* TODO:  Generate SLB = max(1, LB/2). Substitute LB by SLB in next statement
+                     %div = sdiv i32 LB, 2
+                     %cmp = icmp slt i32 %div, 1
+                     SLB  = select i1 %cmp, i32 1, i32 %div
+                 */
+                llvm::Value *LSB = Builder.CreateLoad(SB);
                 llvm::Value *GroupSize2[] = {Builder.getInt32(1),
                                              Builder.getInt32(0),
                                              Builder.getInt32(0),
-                                             Builder.CreateIntCast(LB, CGM.Int32Ty, false),
+                                             Builder.CreateIntCast(LSB, CGM.Int32Ty, false),
                                              Builder.getInt32(0),
                                              Builder.getInt32(0),
                                              Builder.getInt32(1)};
@@ -2096,6 +2108,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                 llvm::Value *Args6[] = {Builder.getInt32(pos), Builder.getInt32(idxAux)};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args6);
 
+                llvm::Value *LT = Builder.CreateLoad(T1);
                 llvm::Value *GroupSize3[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
                                              Builder.getInt32(0),
                                              Builder.getInt32(0),
@@ -2111,7 +2124,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
 
                 /* Build the kernel file */
                 const std::string generator = "$LLVM_INCLUDE_PATH/scan/generator " + FileNameScan + " " +
-                                              std::to_string(templateId) + " " + operatorName;
+                                              std::to_string(templateId) + " '" + operatorName + "' ";
                 std::system(generator.c_str());
             }
         }
