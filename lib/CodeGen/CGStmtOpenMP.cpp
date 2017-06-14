@@ -2049,11 +2049,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                         (dyn_cast<llvm::AllocaInst>(T1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan);
 
-                /* TODO:  Generate SLT = max(1, LT/2). Substitute LT by SLT in next statement
-                     %div = sdiv i32 LT, 2
-                     %cmp = icmp slt i32 %div, 1
-                     SLT  = select i1 %cmp, i32 1, i32 %div
-                 */
+                // SLT = max(1, LT/2).
                 llvm::Value *LB = Builder.CreateLoad(B1);
                 llvm::Value *LST = Builder.CreateLoad(ST);
                 llvm::Value *GroupSize[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
@@ -2076,12 +2072,7 @@ void CodeGenFunction::EmitOMPDirectiveWithScan(OpenMPDirectiveKind DKind,
                         (dyn_cast<llvm::AllocaInst>(B1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVScan2};
                 Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgScan2);
 
-
-                /* TODO:  Generate SLB = max(1, LB/2). Substitute LB by SLB in next statement
-                     %div = sdiv i32 LB, 2
-                     %cmp = icmp slt i32 %div, 1
-                     SLB  = select i1 %cmp, i32 1, i32 %div
-                 */
+                // SLB = max(1, LB/2).
                 llvm::Value *LSB = Builder.CreateLoad(SB);
                 llvm::Value *GroupSize2[] = {Builder.getInt32(1),
                                              Builder.getInt32(0),
