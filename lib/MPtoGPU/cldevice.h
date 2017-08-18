@@ -118,9 +118,26 @@ int _cl_execute_tiled_kernel (int wsize0, int wsize1, int wsize2, int block0, in
 
 void _cl_release_buffers (int upper);
 
-void _cl_profile(const char* str, cl_event event);
+double _cl_profile(const char* str, cl_event event);
 
 int _cl_get_threads_blocks(int *threads, int *blocks, int *sthreads, int *sblocks, uint64_t size, int bytes);
+
+
+/* DCAO runtime */
+void _cl_init_shared_buffer (int DCAO_dbg);
+void _inc_curid_shared_buffer ();
+void _cl_release_buffers_shared_buffer();
+void _cl_release_shared_buffer(int index);
+void _cl_create_shared_buffer_write_only (long size, int position);
+void _cl_create_shared_buffer_read_only (long size, int position);
+void _cl_create_shared_buffer_read_write (long size, int position);
+int _cl_set_kernel_arg_shared_buffer (int pos, int index);
+void *_cl_map_buffer_write(int index);
+void *_cl_map_buffer_read(int index);
+void *_cl_map_buffer_read_write(int index);
+void _cl_unmap_buffer(int index);
+double _cl_rtclock();
+void _cl_prints();
 
 #ifdef __cplusplus
   }

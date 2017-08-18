@@ -76,6 +76,21 @@ enum RtlModeOptions {
     RTL_none, RTL_verbose, RTL_profile, RTL_all
 };
 
+
+// ==========================  Start DCAO variables =============================
+double _kernel_time, _write_time, _read_time, _map_time, _unmap_time, _buffer_time;
+double t_start, t_end;
+
+int DCAO_flag_dbg = 0;
+
+cl_mem *_locs_shared_buffer = NULL; 
+int _upperid_shared_buffer;
+int _curid_shared_buffer;
+long sharedSize[16];
+void *ptr_shared_buffers[16];
+
+// ==========================  End DCAO variables =============================
+
 void _clErrorCode(cl_int status) {
     if (_verbose || _profile) {
         char *code;
@@ -402,6 +417,10 @@ void _cldevice_init(int rtlmode) {
     _verbose = (rtlmode == RTL_verbose) || (rtlmode == RTL_all);
     _profile = (rtlmode == RTL_profile) || (rtlmode == RTL_all);
 
+    if(DCAO_flag_dbg) _profile = 1;
+
+    _kernel_time = _write_time = _read_time = _map_time = _unmap_time = _buffer_time =  0;
+
     if (_device == NULL) {
         //Fetch the main Platform (the first one)
         _status = clGetPlatformIDs(1, &_platform, &nplatforms);
@@ -610,6 +629,9 @@ void _cldevice_finish() {
         _status = clReleaseCommandQueue(_cmd_queue[i]);
         _status = clReleaseContext(_context[i]);
     }
+
+    if(_profile) _cl_prints();
+
     free(_cmd_queue);
     free(_context);
     free(_device);
@@ -946,14 +968,25 @@ void _inc_curid() {
 ///
 int _cl_create_write_only(uint64_t size) {
     _inc_curid();
+
+
+    if(_profile) t_start = _cl_rtclock();
+
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
                                    size, NULL, &_status);
+    
+    if(_profile){ 
+      t_end = _cl_rtclock();
+      _buffer_time += t_end - t_start;
+    }
+
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer on device.\n", size);
         _clErrorCode(_status);
         _curid--;
         return 0;
     }
+
     if (_verbose) printf("<rtl> Creating a write-only buffer %d of size: %llu\n", _curid, size);
     return 1;
 }
@@ -963,8 +996,17 @@ int _cl_create_write_only(uint64_t size) {
 ///
 int _cl_offloading_write_only(uint64_t size, void *loc) {
     _inc_curid();
+    
+    if(_profile) t_start = _cl_rtclock();
+
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
                                    size, NULL, &_status);
+
+    if(_profile){ 
+      t_end = _cl_rtclock();
+      _buffer_time += t_end - t_start;
+    }
+
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> Failed creating a %llu bytes write-only buffer %d.\n", size, _curid);
         _clErrorCode(_status);
@@ -980,8 +1022,17 @@ int _cl_offloading_write_only(uint64_t size, void *loc) {
 ///
 int _cl_create_read_only(uint64_t size) {
     _inc_curid();
+    
+    if(_profile) t_start = _cl_rtclock();
+
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY,
                                    size, NULL, &_status);
+
+    if(_profile){ 
+      t_end = _cl_rtclock();
+      _buffer_time += t_end - t_start;
+    }
+
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> Failed creating a %llu read-only buffer on device.\n", size);
         _clErrorCode(_status);
@@ -997,9 +1048,16 @@ int _cl_create_read_only(uint64_t size) {
 ///
 int _cl_offloading_read_only(uint64_t size, void *loc) {
     _inc_curid();
+    
+    if(_profile) t_start = _cl_rtclock();
 
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
                                    size, NULL, &_status);
+    
+    if(_profile){ 
+      t_end = _cl_rtclock();
+      _buffer_time += t_end - t_start;
+    }
 
     _status = clEnqueueWriteBuffer
             (
@@ -1021,8 +1079,9 @@ int _cl_offloading_read_only(uint64_t size, void *loc) {
     }
 
     if (_profile) {
-        _cl_profile("_cl_offloading_read_only", _global_event);
+        _write_time += _cl_profile("_cl_offloading_read_only", _global_event);
     }
+
     if (_verbose) {
         printf("<rtl> Offloading %llu bytes to buffer %d\n", size, _curid);
     }
@@ -1035,8 +1094,16 @@ int _cl_offloading_read_only(uint64_t size, void *loc) {
 ///
 int _cl_create_read_write(uint64_t size) {
     _inc_curid();
+
+    if(_profile) t_start = _cl_rtclock();
+
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
                                    size, NULL, &_status);
+    if(_profile){
+      t_end = _cl_rtclock();
+       _buffer_time += t_end - t_start;
+    }
+
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> Failed creating a read-write buffer of size %llu.\n", size);
         _clErrorCode(_status);
@@ -1053,8 +1120,15 @@ int _cl_create_read_write(uint64_t size) {
 int _cl_offloading_read_write(uint64_t size, void *loc) {
     _inc_curid();
 
+    if(_profile) t_start = _cl_rtclock();
+
     _locs[_curid] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE,
                                    size, NULL, &_status);
+    
+    if(_profile){
+      t_end = _cl_rtclock();
+       _buffer_time += t_end - t_start;
+    }
 
     _status = clEnqueueWriteBuffer
             (
@@ -1077,8 +1151,9 @@ int _cl_offloading_read_write(uint64_t size, void *loc) {
     }
 
     if (_profile) {
-        _cl_profile("_cl_offloading_read_write", _global_event);
+        _write_time += _cl_profile("_cl_offloading_read_write", _global_event);
     }
+
     if (_verbose) {
         printf("<rtl> Creating read-write buffer %d of size: %llu\n", _curid, size);
     }
@@ -1109,8 +1184,9 @@ int _cl_read_buffer(uint64_t size, int id, void *loc) {
     }
 
     if (_profile) {
-        _cl_profile("_cl_read_buffer", _global_event);
+        _read_time += _cl_profile("_cl_read_buffer", _global_event);
     }
+
     if (_verbose) {
         printf("<rtl> Reading %llu bytes from buffer %d\n", size, id);
     }
@@ -1140,8 +1216,9 @@ int _cl_write_buffer(uint64_t size, int id, void *loc) {
     }
 
     if (_profile) {
-        _cl_profile("_cl_write_buffer", _global_event);
+        _write_time += _cl_profile("_cl_write_buffer", _global_event);
     }
+
     if (_verbose) {
         printf("<rtl> Writing %llu bytes into buffer %d\n", size, id);
     }
@@ -1359,11 +1436,13 @@ int _cl_execute_kernel(uint64_t size1, uint64_t size2, uint64_t size3, int dim) 
 
     if (_status == CL_SUCCESS) {
         if (_profile) {
-            _cl_profile("_cl_execute_kernel", _global_event);
+            _kernel_time += _cl_profile("_cl_execute_kernel", _global_event);
         }
+
         if (_verbose) {
             printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
         }
+
         return 1;
     } else {
         if (_status == CL_INVALID_WORK_DIMENSION)
@@ -1441,11 +1520,13 @@ int _cl_execute_tiled_kernel(int wsize0, int wsize1, int wsize2,
 
     if (_status == CL_SUCCESS) {
         if (_profile) {
-            _cl_profile("_cl_execute_tiled_kernel", _global_event);
+            _kernel_time += _cl_profile("_cl_execute_tiled_kernel", _global_event);
         }
+
         if (_verbose) {
             printf("<rtl> %s has been running successfully.\n", _strprog[_kerid]);
         }
+
         return 1;
     }
 
@@ -1493,7 +1574,7 @@ void _cl_release_buffer(int index) {
 ///
 /// Profile
 ///
-void _cl_profile(const char *str, cl_event event) {
+double _cl_profile(const char *str, cl_event event) {
     cl_ulong time_start;
     cl_ulong time_end;
     cl_ulong time_elapsed;
@@ -1541,7 +1622,10 @@ void _cl_profile(const char *str, cl_event event) {
 
     time_elapsed = time_end - time_start;
 
-    printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
+    //TODO: remove comment
+    //printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
+
+    return time_elapsed;
 }
 
 ///
@@ -1577,6 +1661,268 @@ int _cl_get_threads_blocks(int *threads, int *blocks, int *sthreads, int *sblock
     }
     return bytesthreads;
 }
+
+//
+// Init Shared Buffer Vector
+//
+void _cl_init_shared_buffer (int DCAO_dbg) {
+
+  if(DCAO_dbg){ 
+    printf("Running in DBG mode \n");
+    DCAO_flag_dbg = 1;
+  }
+
+  _upperid_shared_buffer = 10;
+  _locs_shared_buffer = (cl_mem *) calloc(_upperid_shared_buffer, sizeof(cl_mem));
+  _curid_shared_buffer = -1;    // points to invalid location
+
+  if (_verbose) printf("<rtl> Vector of CL Object Buffer was created\n");
+}
+
+//
+// Checking if the Object buffer being created exceeds the size of the vector
+//
+void _inc_curid_shared_buffer () {
+  _curid_shared_buffer++;
+  if (_curid_shared_buffer == _upperid_shared_buffer) {
+    _upperid_shared_buffer *= 2;
+    _locs = (cl_mem *) realloc(_locs, _upperid_shared_buffer * sizeof(cl_mem));
+  }
+}
+
+//
+// Releasing all the shared buffer's objects created before
+//
+void _cl_release_buffers_shared_buffer() {
+  int i;
+  for (i=0; i<_upperid_shared_buffer; i++) {
+    if (_locs_shared_buffer[i]) {
+      _status = clReleaseMemObject(_locs_shared_buffer[i]);
+      if (_verbose) printf("<rtl> Releasing buffer %d\n", i);
+      _locs_shared_buffer[i] = NULL;
+    }
+  }
+  _curid_shared_buffer = -1;
+}
+
+//
+// Releasing a specific shared buffer objects 
+//
+void _cl_release_shared_buffer(int index) {
+  int i;
+  if (_locs_shared_buffer[index]) {
+    _status = clReleaseMemObject(_locs_shared_buffer[index]);
+    if (_verbose) printf("<rtl> Releasing buffer %d\n", index);
+    _locs_shared_buffer[index] = NULL;
+  }
+}
+
+//
+// Creating a Write-Only Shared Buffer's Object
+//
+void _cl_create_shared_buffer_write_only (long size, int position) {
+  _inc_curid_shared_buffer();
+
+  sharedSize[position] = size;
+
+  if(_profile) t_start = _cl_rtclock();
+
+  _locs_shared_buffer[position] = clCreateBuffer(_context[_clid], CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR,
+				 size, NULL, &_status);
+  if(_profile){
+    t_end= _cl_rtclock();
+    _buffer_time += t_end - t_start;
+  }
+
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, position);
+    _curid--;
+  }
+
+  if (_verbose) printf("<rtl> Creating a Write-Only Shared Buffer's Object %d of %lu bytes\n", position, size);  
+}
+
+//
+// Creating a Read-Only Shared Buffer's Object
+//
+void _cl_create_shared_buffer_read_only (long size, int position) {
+  _inc_curid_shared_buffer();
+
+  sharedSize[position] = size;
+
+  if(_profile) t_start = _cl_rtclock();
+
+  _locs_shared_buffer[position] = clCreateBuffer(_context[_clid], CL_MEM_READ_ONLY | CL_MEM_ALLOC_HOST_PTR,
+				 size, NULL, &_status);
+  if(_profile){
+    t_end= _cl_rtclock();
+    _buffer_time += t_end - t_start;
+  }
+
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, position);
+    _curid--;
+  }
+
+  if (_verbose) printf("<rtl> Creating a Read-Only Shared Buffer's Object %d of %lu bytes\n", position, size);
+}
+
+//
+// Creating a Read-Write Shared Buffer's Object
+//
+void _cl_create_shared_buffer_read_write (long size, int position) {
+  _inc_curid_shared_buffer();
+
+  sharedSize[position] = size;
+
+  if(_profile) 
+    t_start = _cl_rtclock();
+
+  _locs_shared_buffer[position] = clCreateBuffer(_context[_clid], CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR,
+				 size, NULL, &_status);
+  if(_profile){
+    t_end= _cl_rtclock();
+    _buffer_time += t_end - t_start;
+  }
+
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Failed creating a %lu bytes write-only buffer %d.\n", size, position);
+    _curid--;
+  }
+
+  if (_verbose) printf("<rtl> Creating a Read-Write Shared Buffer's Object %d of %lu bytes\n", position, size);
+}
+
+//
+// Setting a shared buffer as argument
+//
+int _cl_set_kernel_arg_shared_buffer (int pos, int index) {
+  _status |= clSetKernelArg (_kernel[_kerid], pos, sizeof(cl_mem), &_locs_shared_buffer[index]);
+
+  if (_status != CL_SUCCESS) {
+    fprintf(stderr, "<rtl> Error setting buffer %d to kernel in pos %d.\n", index, pos);
+    return 0;
+  }
+
+  if (_verbose) printf("<rtl> Pass shared object buffer %d to kernel in pos %d\n", index, pos);
+  return 1;
+}
+
+//
+// Map function defined as written
+//
+void *_cl_map_buffer_write(int index){
+  cl_int errcode;
+  
+  clFinish(_cmd_queue[_clid]);
+  void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_TRUE, CL_MAP_WRITE, 
+				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
+
+  if (_profile) {
+    _map_time += _cl_profile("_cl_map_buffer_write", _global_event);
+  }
+
+  ptr_shared_buffers[index] = p; 
+
+  if (_verbose) printf("<rtl> Mapping buffer %d (%ld bytes) to write\n", index, sharedSize[index]);
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to write\n", errcode, index);
+  return p;  
+}
+
+//
+// Map function defined as read
+//
+void *_cl_map_buffer_read(int index){
+  cl_int errcode;
+
+  void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_TRUE, CL_MAP_READ, 
+				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
+
+  ptr_shared_buffers[index] = p; 
+  
+  if (_profile) {
+    _map_time += _cl_profile("_cl_map_buffer_read", _global_event);
+  }
+
+  if (_verbose) printf("<rtl> Mapping buffer %d (%ld bytes) to read\n", index, sharedSize[index]);
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to read\n", errcode, index);
+
+  return p;  
+}
+
+//
+// Map function defined as read-written
+//
+void *_cl_map_buffer_read_write(int index){
+  cl_int errcode;
+
+  void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 
+				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
+ 
+  ptr_shared_buffers[index] = p; 
+  
+  if (_profile) {
+    _map_time += _cl_profile("_cl_map_buffer_read_write", _global_event);
+  }
+
+  if (_verbose) printf("<rtl> Mapping buffer %d (%ld bytes) to read-writte\n", index, sharedSize[index]);
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to read-write\n", errcode, index);
+
+  return p;  
+}
+
+//
+// Unmap buffer
+//
+void _cl_unmap_buffer(int index){
+  
+  cl_int errcode;
+  errcode = clEnqueueUnmapMemObject(_cmd_queue[_clid], _locs_shared_buffer[index], ptr_shared_buffers[index],
+                                    0, NULL, (_profile) ? &_global_event : NULL);
+
+  if (_profile) {
+    _unmap_time += _cl_profile("_cl_unmap_buffer", _global_event);
+  }
+
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in unmapping buffer %d\n", errcode, index);
+  if (_verbose) printf("<rtl> Unmapping buffer %d\n", index);
+
+}
+
+//
+// Measure time
+//
+double _cl_rtclock()
+{
+  struct timezone Tzp;
+  struct timeval Tp;
+  int stat;
+  stat = gettimeofday (&Tp, &Tzp);
+  if (stat != 0) printf("Error return from gettimeofday: %d",stat);
+  return(Tp.tv_sec + Tp.tv_usec*1.0e-6);
+}
+
+//
+// Print times
+//
+void _cl_prints()
+{
+  _kernel_time = _kernel_time/1000000000;
+  if(_write_time > 0) _write_time = _write_time/1000000000;
+  if(_read_time > 0) _read_time = _read_time/1000000000;
+  if(_map_time > 0) _map_time = _map_time/1000000000;
+  if(_unmap_time > 0) _unmap_time = _unmap_time/1000000000;
+
+  printf("[BUFFERS] - %f s\n", _buffer_time);
+  printf("[KERNEL] - %f s \n", _kernel_time);
+  if(_write_time > 0) printf("[WRITE] - %f s \n", _write_time);
+  if(_read_time > 0) printf("[READ] - %f s \n", _read_time);
+  if(_map_time > 0) printf("[MAP] - %f s \n", _map_time);
+  if(_unmap_time > 0) printf("[UNMAP] - %f s \n", _unmap_time);
+
+}
+
+
 #ifdef __cplusplus
 }
 #endif
