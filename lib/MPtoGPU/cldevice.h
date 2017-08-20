@@ -132,10 +132,18 @@ void _cl_create_shared_buffer_write_only (long size, int position);
 void _cl_create_shared_buffer_read_only (long size, int position);
 void _cl_create_shared_buffer_read_write (long size, int position);
 int _cl_set_kernel_arg_shared_buffer (int pos, int index);
+
+/* Map functions */
 void *_cl_map_buffer_write(int index);
 void *_cl_map_buffer_read(int index);
 void *_cl_map_buffer_read_write(int index);
+void *_cl_map_buffer_read_write_nBlock(int index);
+void *_cl_map_buffer_write_invalidate_region(int index);
+
+/* Unmap function */
 void _cl_unmap_buffer(int index);
+
+/* Debug functions */
 double _cl_rtclock();
 void _cl_prints();
 

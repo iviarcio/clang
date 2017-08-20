@@ -1811,6 +1811,27 @@ int _cl_set_kernel_arg_shared_buffer (int pos, int index) {
 //
 // Map function defined as written
 //
+void *_cl_map_buffer_write_invalidate_region(int index){
+  cl_int errcode;
+  
+  clFinish(_cmd_queue[_clid]);
+  void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_TRUE, CL_MAP_WRITE_INVALIDATE_REGION, 
+				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
+
+  if (_profile) {
+    _map_time += _cl_profile("_cl_map_buffer_write_invalidate_region", _global_event);
+  }
+
+  ptr_shared_buffers[index] = p; 
+
+  if (_verbose) printf("<rtl> Mapping buffer %d (%ld bytes) to write-invalidate\n", index, sharedSize[index]);
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to write-invalidate\n", errcode, index);
+  return p;  
+}
+
+//
+// Map function defined as written
+//
 void *_cl_map_buffer_write(int index){
   cl_int errcode;
   
@@ -1851,12 +1872,34 @@ void *_cl_map_buffer_read(int index){
 }
 
 //
-// Map function defined as read-written
+// Map function defined as read-write
 //
 void *_cl_map_buffer_read_write(int index){
   cl_int errcode;
 
   void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 
+				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
+ 
+  ptr_shared_buffers[index] = p; 
+  
+  if (_profile) {
+    _map_time += _cl_profile("_cl_map_buffer_read_write", _global_event);
+  }
+
+  if (_verbose) printf("<rtl> Mapping buffer %d (%ld bytes) to read-writte\n", index, sharedSize[index]);
+  if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to read-write\n", errcode, index);
+
+  return p;  
+}
+
+
+//
+// Map function defined as read-write non-block
+//
+void *_cl_map_buffer_read_write_nBlock(int index){
+  cl_int errcode;
+
+  void *p = clEnqueueMapBuffer(_cmd_queue[_clid], _locs_shared_buffer[index], CL_FALSE, CL_MAP_READ | CL_MAP_WRITE, 
 				0, sharedSize[index], 0, NULL, (_profile) ? &_global_event : NULL, &errcode);
  
   ptr_shared_buffers[index] = p; 
