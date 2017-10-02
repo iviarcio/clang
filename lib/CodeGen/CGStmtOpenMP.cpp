@@ -1891,7 +1891,186 @@ void CodeGenFunction::EmitOMPDirectiveWithReduction(OpenMPDirectiveKind DKind,
                                                     ArrayRef<OpenMPDirectiveKind> SKinds,
                                                     const OMPExecutableDirective &S) {
 
-    llvm::errs() << "Reduction Clause code for Accelerators are under construction!\n";
+    for (ArrayRef<OMPClause *>::iterator I = S.clauses().begin(), E = S.clauses().end(); I != E; ++I) {
+        OpenMPClauseKind ckind = ((*I)->getClauseKind());
+        if (ckind == OMPC_reduction) {
+            OMPVarListClause<OMPReductionClause> *list = cast<OMPVarListClause<OMPReductionClause> >(
+                    cast<OMPReductionClause>(*I));
+            for (auto l = list->varlist_begin(); l != list->varlist_end(); l++) {
+
+                DeclRefExpr *reductionVar = cast<DeclRefExpr>(*l);
+                llvm::Value *rv = EmitLValue(*l).getAddress();
+
+                QualType qt = getContext().IntTy;
+                llvm::Type *TT1 = ConvertType(qt);
+                llvm::Value *T1 = CreateTempAlloca(TT1, "nthreads");
+
+                llvm::Type *BB1 = ConvertType(qt);
+                llvm::Value *B1 = CreateTempAlloca(BB1, "nblocks");
+
+                ArrayRef<llvm::Value *> MapClausePointerValues;
+                ArrayRef<llvm::Value *> MapClauseSizeValues;
+                ArrayRef<QualType> MapClauseQualTypes;
+                ArrayRef<unsigned> MapClauseTypeValues;
+                ArrayRef<unsigned> MapClausePositionValues;
+                ArrayRef<unsigned> MapClauseScopeValues;
+
+                CGM.OpenMPSupport.getMapPos(MapClausePointerValues,
+                                            MapClauseSizeValues,
+                                            MapClauseQualTypes,
+                                            MapClauseTypeValues,
+                                            MapClausePositionValues,
+                                            MapClauseScopeValues);
+
+			
+				int idxInput = 0, idxAux = 1, idxOut = 2, templateId = 1;
+                QualType Q = MapClauseQualTypes[idxInput];
+                const Type *ty = Q.getTypePtr();
+                if (ty->isPointerType() || ty->isReferenceType()) {
+                    Q = ty->getPointeeType();
+                }
+                while (Q.getTypePtr()->isArrayType()) {
+                    Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+                }
+                if (!dumpedDefType(&Q)) {
+                    std::string defty = Q.getAsString();
+                    Q = ty->getCanonicalTypeInternal().getTypePtr()->getPointeeType();
+                    while (Q.getTypePtr()->isArrayType()) {
+                        Q = dyn_cast<ArrayType>(Q.getTypePtr())->getElementType();
+                    }
+                }
+
+                /* get the number of blocks and threads */
+                llvm::Value *Status = nullptr;
+                llvm::Type *tR = ConvertType(Q);
+                int typeSize = GetTypeSizeInBits(tR);
+                llvm::Value *Bytes = Builder.getInt32(typeSize / 8);
+                llvm::Value *KArg[] = {T1, B1, MapClauseSizeValues[idxInput], Bytes};
+                llvm::Value *ThreadBytes = nullptr;
+                ThreadBytes = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_get_threads_blocks_reduction(), KArg);
+
+                /* Offload the Auxiliary array */
+                llvm::Value *Size[] = {Builder.CreateIntCast(ThreadBytes, CGM.Int64Ty, false)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size);
+				
+				/* Offload of answer variable*/
+				llvm::Value *Size2[] = {Builder.CreateIntCast( Bytes, CGM.Int64Ty, false)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_read_write(), Size2);
+				
+                /*Fetch the scan variable type and its operator */
+                const std::string reductionVarType = reductionVar->getType().getAsString();
+                OpenMPReductionClauseOperator op = cast<OMPReductionClause>(*I)->getOperator();
+                const std::string operatorName = cast<OMPReductionClause>(*I)->getOpName().getAsString();
+
+                /* Create the unique filename that refers to kernel file */
+                llvm::raw_fd_ostream CLOS(CGM.OpenMPSupport.createTempFile(), true);
+                const std::string FileNameReduction = CGM.OpenMPSupport.getTempName();
+                const std::string clNameReduction = FileNameReduction;
+
+                /* use of type 'double' requires cl_khr_fp64 extension to be enabled */
+                CLOS << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n\n";
+				
+                /* Dump the IncludeStr, if any */
+                std::string includeContents = CGM.OpenMPSupport.getIncludeStr();
+                if (includeContents != "") {
+                    CLOS << includeContents;
+                    templateId = 2;
+                }
+
+                std::string initializer;
+                switch (op) {
+                    case OMPC_REDUCTION_add:
+                        initializer = "0";
+                        break;
+                    case OMPC_REDUCTION_mult:
+                        initializer = "1";
+                        break;
+                    default:
+                        initializer = "";
+                }
+                if (initializer == "") {
+                    // custom initializer is already inserted in include file
+                    templateId = 1;  /* signal user-defined operation */
+                } else {
+                    CLOS << "\n#define _initializer " << initializer;
+                }
+
+                CLOS << "\n#define _dataType_ " << reductionVarType.substr(0, reductionVarType.find_last_of(' ')) << "\n";
+                CLOS.close();
+
+                /* Generate code to compile the kernel file */
+                llvm::Value *FileStrReduction = Builder.CreateGlobalStringPtr(clNameReduction);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_program(), FileStrReduction);
+
+                /* Generate code to build the first Kernel*/
+                std::string KernelName = "kernel_0";
+                llvm::Value *FunctionKernel_0 = Builder.CreateGlobalStringPtr(KernelName);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel_0);
+
+                /* Generate code for calling the 1st kernel */
+                llvm::Value *Args[] = {Builder.getInt32(0), Builder.getInt32(idxInput)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args);
+                llvm::Value *Args2[] = {Builder.getInt32(1), Builder.getInt32(idxAux)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args2);
+                llvm::Value *BVReduction = Builder.CreateBitCast(T1, CGM.VoidPtrTy);
+                llvm::Value *CArgReduction[] = {Builder.getInt32(2), Builder.getInt32(
+                        (dyn_cast<llvm::AllocaInst>(T1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVReduction};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgReduction);
+
+
+                llvm::Value *LB = Builder.CreateLoad(B1);
+                llvm::Value *LST = Builder.CreateLoad(T1);
+                llvm::Value *GroupSize[] = {Builder.CreateIntCast(LB, CGM.Int32Ty, false),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(0),
+                                            Builder.CreateIntCast(LST, CGM.Int32Ty, false),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(0),
+                                            Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize);
+
+                /* Generate code for calling the 2nd kernel */
+                KernelName = "kernel_1";
+                llvm::Value *FunctionKernel_1 = Builder.CreateGlobalStringPtr(KernelName);
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_create_kernel(), FunctionKernel_1);
+                llvm::Value *Args3[] = {Builder.getInt32(0), Builder.getInt32(idxAux)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args3);
+                llvm::Value *Args4[] = {Builder.getInt32(1), Builder.getInt32(idxOut)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_arg(), Args4);
+                llvm::Value *BVReduction2 = Builder.CreateBitCast(B1, CGM.VoidPtrTy);
+                llvm::Value *CArgReduction2[] = {Builder.getInt32(2), Builder.getInt32(
+                        (dyn_cast<llvm::AllocaInst>(B1)->getAllocatedType())->getPrimitiveSizeInBits() / 8), BVReduction2};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_set_kernel_hostArg(), CArgReduction2);
+
+                llvm::Value *LSB = Builder.CreateLoad(B1);
+                llvm::Value *GroupSize2[] = {Builder.getInt32(1),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.CreateIntCast(LSB, CGM.Int32Ty, false),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(0),
+                                             Builder.getInt32(1)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_execute_tiled_kernel(), GroupSize2);
+				
+				llvm::Value *Res[] = { Builder.CreateIntCast( Bytes, CGM.Int64Ty, false),
+                                       Builder.getInt32(idxOut),
+                                       Builder.CreateBitCast(rv, CGM.VoidPtrTy) };
+            	Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_read_buffer(), Res);
+				
+                /* release the Aux buffer */
+                llvm::Value *Aux[] = {Builder.getInt32(idxAux)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Aux);
+				llvm::Value *Aux2[] = {Builder.getInt32(idxOut)};
+                Status = EmitRuntimeCall(CGM.getMPtoGPURuntime().cl_release_buffer(), Aux2);
+				
+                /* Build the kernel file */
+                const std::string generator = "$LLVM_INCLUDE_PATH/scan/reductiongenerator " + FileNameReduction + " " +
+                                              std::to_string(templateId) + " '" + operatorName + "' ";
+                std::system(generator.c_str());
+            }
+        }
+        return;
+    }
 
 }
 

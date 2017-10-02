@@ -62,8 +62,9 @@ namespace {
   typedef void(_cl_release_buffers)(int32_t upper);
   typedef void(_cl_release_buffer)(int32_t index);
 
-    typedef int32_t(_cl_get_threads_blocks)(int32_t *threads, int32_t *blocks, int32_t *sthreads, int32_t *sblocks,
-                                            int64_t size, int32_t bytes);
+  typedef int32_t(_cl_get_threads_blocks)(int32_t *threads, int32_t *blocks, int32_t *sthreads, int32_t *sblocks,
+                                        int64_t size, int32_t bytes);
+  typedef int32_t(_cl_get_threads_blocks_reduction)(int32_t *threads, int32_t *blocks, int64_t size, int32_t bytes);
 }
 
 namespace clang {
@@ -103,7 +104,8 @@ public:
     MPtoGPURTL_cl_execute_tiled_kernel,
     MPtoGPURTL_cl_release_buffers,
     MPtoGPURTL_cl_release_buffer,
-    MPtoGPURTL_cl_get_threads_blocks
+    MPtoGPURTL_cl_get_threads_blocks,
+    MPtoGPURTL_cl_get_threads_blocks_reduction
   };
   
   explicit CGMPtoGPURuntime(CodeGenModule &CGM);
@@ -138,6 +140,7 @@ public:
   virtual llvm::Value* cl_release_buffers();  
   virtual llvm::Value* cl_release_buffer();
   virtual llvm::Value* cl_get_threads_blocks();
+  virtual llvm::Value* cl_get_threads_blocks_reduction();
 };
   
 /// \brief Returns an implementation of the OpenMP to GPU RTL for a given target

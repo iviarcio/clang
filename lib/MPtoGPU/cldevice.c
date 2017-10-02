@@ -1560,9 +1560,10 @@ int _cl_get_threads_blocks(int *threads, int *blocks, int *sthreads, int *sblock
             break;
         }
     }
-
+	
     *threads = min(*threads, _max_work_items[0]);
     *blocks = min(*blocks, _max_work_items[0]);
+    
     bytesthreads = (*threads) * bytes;
     *sthreads = max(1, *threads / 2);
     *sblocks = max(1, *blocks / 2);
@@ -1577,7 +1578,29 @@ int _cl_get_threads_blocks(int *threads, int *blocks, int *sthreads, int *sblock
     }
     return bytesthreads;
 }
+
+int _cl_get_threads_blocks_reduction(int *threads, int *blocks, uint64_t size, int bytes) {
+    int i, threadsBytes;
+    size /= bytes;
+    for (i = 0; i <= 10; i++) {
+        if (_block_sizes[i] * _block_sizes[i] >= size) {
+            *threads = _block_sizes[i];
+            *blocks = _block_sizes[i];
+            break;
+        }
+    }
+	
+    *threads = min(*threads, _max_work_items[0]);
+    *blocks = min(*blocks, _max_work_items[0]);
+	threadsBytes = *blocks * bytes;
+
+    if (_verbose) {
+        printf("<rtl> computed threads: %d\n", *threads);
+        printf("<rtl> computed blocks: %d\n", *blocks);
+        printf("<rtl> bytes of the type: %d\n", bytes);
+    }
+    return threadsBytes;
+}
 #ifdef __cplusplus
 }
 #endif
-

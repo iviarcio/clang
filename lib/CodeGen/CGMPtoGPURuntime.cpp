@@ -253,16 +253,24 @@ CGMPtoGPURuntime::CreateRuntimeFunction(MPtoGPURTLFunction Function) {
     RTLFn = CGM.CreateRuntimeFunction(FnTy, "_set_release_buffer");
     break;
   }
-      case MPtoGPURTL_cl_get_threads_blocks: {
-          // Build cl_uint _cl_get_threads_blocks();
-          llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty, CGM.Int32Ty};
-          //llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty};
-          llvm::FunctionType *FnTy =
-                  llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
-          RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_get_threads_blocks");
-          break;
-      }
-    
+  case MPtoGPURTL_cl_get_threads_blocks: {
+      // Build cl_uint _cl_get_threads_blocks();
+      llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty, CGM.Int32Ty};
+      //llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty};
+      llvm::FunctionType *FnTy =
+              llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
+      RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_get_threads_blocks");
+      break;
+  }
+  case MPtoGPURTL_cl_get_threads_blocks_reduction: {
+
+      llvm::Type *TParams[] = {CGM.IntPtrTy, CGM.IntPtrTy, CGM.Int64Ty, CGM.Int32Ty};
+      llvm::FunctionType *FnTy =
+              llvm::FunctionType::get(CGM.Int32Ty, TParams, false);
+      RTLFn = CGM.CreateRuntimeFunction(FnTy, "_cl_get_threads_blocks_reduction");
+      break;
+  }
+  
   }
   return RTLFn;
 }
@@ -433,6 +441,13 @@ CGMPtoGPURuntime::cl_get_threads_blocks() {
   return CGM.CreateRuntimeFunction(
 	 llvm::TypeBuilder<_cl_get_threads_blocks, false>::get(CGM.getLLVMContext())
 	 , "_cl_get_threads_blocks");
+}
+
+llvm::Value*
+CGMPtoGPURuntime::cl_get_threads_blocks_reduction() {
+  return CGM.CreateRuntimeFunction(
+	 llvm::TypeBuilder<_cl_get_threads_blocks_reduction, false>::get(CGM.getLLVMContext())
+	 , "_cl_get_threads_blocks_reduction");
 }
 
 //
