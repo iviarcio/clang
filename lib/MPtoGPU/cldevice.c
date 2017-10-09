@@ -1811,6 +1811,7 @@ int _cl_set_kernel_arg_shared_buffer (int pos, int index) {
 //
 // Map function defined as written
 //
+#ifdef dcao_NVIDIA
 void *_cl_map_buffer_write_invalidate_region(int index){
   cl_int errcode;
   
@@ -1828,6 +1829,7 @@ void *_cl_map_buffer_write_invalidate_region(int index){
   if(errcode != CL_SUCCESS) printf("<rtl> Error[%d] in mapping buffer %d to write-invalidate\n", errcode, index);
   return p;  
 }
+#endif
 
 //
 // Map function defined as written
