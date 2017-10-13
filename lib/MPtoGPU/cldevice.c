@@ -912,8 +912,9 @@ void _set_default_device(cl_uint id) {
         return;
     }
 
+    int i;
     // Update the _max_work_items for the current device
-    for (int i = 0; i < maxWIDimensions; ++i) {
+    for (i = 0; i < maxWIDimensions; ++i) {
         _max_work_items[i] = ret[i];
     }
 
@@ -921,7 +922,7 @@ void _set_default_device(cl_uint id) {
     //     cpu     {0:128, 1:1, 2:1}
     //     gpu 1-d {3:512, 4:1, 5:1}
     //     gpu 2-d {6:32, 7:16, 8:1};
-    int i = 0;
+    i = 0;
     int j = 0;
     if (_clid == 1) j = 3;  // >=1 ??
 
@@ -1580,14 +1581,14 @@ double _cl_profile(const char *str, cl_event event) {
     cl_ulong time_elapsed;
 
     if (!_profile) {
-        return;
+        exit(1);
     }
 
     _status = clFinish(_cmd_queue[_clid]);
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> unable to finish command queue.\n");
         _clErrorCode(_status);
-        return;
+        exit(1);
     }
 
     _status = clGetEventProfilingInfo
@@ -1602,7 +1603,7 @@ double _cl_profile(const char *str, cl_event event) {
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> unable to start profile.\n");
         _clErrorCode(_status);
-        return;
+        exit(1);
     }
 
     _status = clGetEventProfilingInfo
@@ -1617,13 +1618,12 @@ double _cl_profile(const char *str, cl_event event) {
     if (_status != CL_SUCCESS) {
         fprintf(stderr, "<rtl> unable to finish profile.\n");
         _clErrorCode(_status);
-        return;
+        exit(1);
     }
 
     time_elapsed = time_end - time_start;
 
-    //TODO: remove comment
-    //printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
+    printf("<rtl><profile> %s = %llu ns\n", str, time_elapsed);
 
     return time_elapsed;
 }
@@ -1964,7 +1964,6 @@ void _cl_prints()
   if(_read_time > 0) printf("[READ] - %f s \n", _read_time);
   if(_map_time > 0) printf("[MAP] - %f s \n", _map_time);
   if(_unmap_time > 0) printf("[UNMAP] - %f s \n", _unmap_time);
-
 }
 
 
